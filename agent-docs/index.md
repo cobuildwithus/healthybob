@@ -1,0 +1,42 @@
+# Healthy Bob Agent Docs Index
+
+Last verified: 2026-03-12 (bootstrap scaffold created)
+
+## Purpose
+
+This index is the table of contents for durable, repository-local context that agents should use.
+
+## Canonical Docs
+
+| Path | Purpose | Source of truth | Owner | Review cadence | Criticality | Last verified |
+| --- | --- | --- | --- | --- | --- | --- |
+| `README.md` | Repo bootstrap summary and next-step entrypoint for humans. | Repository bootstrap decisions | Healthy Bob Maintainer | Per bootstrap/process change | Medium | 2026-03-12 |
+| `ARCHITECTURE.md` | Top-level module map and trust-boundary summary. | Product/runtime code plus repo decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
+| `agent-docs/PLANS.md` | Execution-plan workflow and storage conventions. | `agent-docs/exec-plans/**` | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
+| `agent-docs/PRODUCT_SENSE.md` | Product-behavior guardrails for future implementation work. | Product specs + user-facing behavior | Healthy Bob Maintainer | Monthly | Medium | 2026-03-12 |
+| `agent-docs/QUALITY_SCORE.md` | Current quality posture by area. | Docs, checks, audits, test posture | Healthy Bob Maintainer | Bi-weekly | Medium | 2026-03-12 |
+| `agent-docs/RELIABILITY.md` | Reliability guardrails and failure-mode expectations. | Runtime behavior + recovery strategy | Healthy Bob Maintainer | Per reliability-affecting change | High | 2026-03-12 |
+| `agent-docs/SECURITY.md` | Security constraints, trust boundaries, and escalation rules. | Auth/secrets/data boundaries/process | Healthy Bob Maintainer | Per security-affecting change | High | 2026-03-12 |
+| `agent-docs/product-specs/index.md` | Index for product-spec documents. | `agent-docs/product-specs/**` | Healthy Bob Maintainer | Per behavior change | High | 2026-03-12 |
+| `agent-docs/product-specs/repo-bootstrap.md` | Current repository state and bootstrap success criteria. | Repository bootstrap decisions | Healthy Bob Maintainer | Until first product feature lands | High | 2026-03-12 |
+| `agent-docs/references/README.md` | Reference-pack overview and maintenance rules. | `agent-docs/references/**` | Healthy Bob Maintainer | Monthly | Medium | 2026-03-12 |
+| `agent-docs/references/repo-scope.md` | Repo scope, ownership boundary, and unknowns. | Workspace routing + local decisions | Healthy Bob Maintainer | Per scope change | High | 2026-03-12 |
+| `agent-docs/references/testing-ci-map.md` | Current verification map and bootstrap CI expectations. | `package.json`, `scripts/**`, future CI | Healthy Bob Maintainer | Per verification change | High | 2026-03-12 |
+| `agent-docs/operations/verification-and-runtime.md` | Required checks, bootstrap command matrix, and runtime notes. | `AGENTS.md`, `package.json`, `scripts/**` | Healthy Bob Maintainer | Per process/runtime change | High | 2026-03-12 |
+| `agent-docs/operations/completion-workflow.md` | Required post-implementation audit workflow. | Prompts + completion process | Healthy Bob Maintainer | Per process change | High | 2026-03-12 |
+| `agent-docs/prompts/simplify.md` | Reusable simplification pass prompt. | Completion workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
+| `agent-docs/prompts/test-coverage-audit.md` | Reusable coverage-audit prompt. | Completion workflow | Healthy Bob Maintainer | Per process change | High | 2026-03-12 |
+| `agent-docs/prompts/task-finish-review.md` | Reusable final completion audit prompt. | Completion workflow | Healthy Bob Maintainer | Per process change | High | 2026-03-12 |
+| `agent-docs/generated/README.md` | Generated doc artifacts produced by scripts. | `agent-docs/generated/**` | Healthy Bob Maintainer | Per script change | Medium | 2026-03-12 |
+| `agent-docs/exec-plans/active/` | Active execution plans and in-flight ownership docs. | Plan workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
+| `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` | Active task ownership ledger for safe concurrent work. | Active coding sessions | Healthy Bob Maintainer | Continuous | High | 2026-03-12 |
+| `agent-docs/exec-plans/completed/` | Immutable completed execution-plan snapshots. | Plan workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
+| `agent-docs/exec-plans/tech-debt-tracker.md` | Rolling debt register with owner/priority/status. | Audits, reviews, bootstrap follow-ups | Healthy Bob Maintainer | Bi-weekly | Medium | 2026-03-12 |
+
+## Conventions
+
+- Keep `AGENTS.md` short and route-oriented.
+- Update this index whenever docs are added, removed, or moved.
+- Treat `UNCONFIRMED` product/domain assumptions as temporary and replace them with concrete specs before broad implementation work.
+- For multi-file or high-risk work, add a plan in `agent-docs/exec-plans/active/`.
+- Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work.
