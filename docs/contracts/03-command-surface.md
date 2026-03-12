@@ -1,32 +1,259 @@
 # Command Surface
 
-Status: bootstrap placeholder
+Status: frozen baseline for `vault-cli`
 
-## Baseline Commands
+## Namespace
+
+- The only public baseline namespace is `vault-cli`.
+- `packages/cli` owns argument validation, output validation, formatting hints, and error normalization.
+- `packages/cli` must not write vault files directly. Write commands delegate to `packages/core` or `packages/importers`; read commands delegate to `packages/query`.
+
+## Command Groups
 
 ```text
-vault-cli init
-vault-cli validate
-vault-cli document import <file>
-vault-cli meal add --photo <path> [--audio <path>] [--note "..."] [--occurred-at <ts>]
-vault-cli samples import-csv <file> --stream <stream> --ts-column <name> --value-column <name> --unit <unit>
-vault-cli experiment create <slug>
-vault-cli journal ensure <date>
-vault-cli show <id>
-vault-cli list [filters]
-vault-cli export pack --from <date> --to <date> [--experiment <slug>] [--out <dir>]
+vault-cli init --vault <path> [--format json|md] [--request-id <id>]
+vault-cli validate --vault <path> [--format json|md] [--request-id <id>]
+vault-cli document import <file> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli meal add --vault <path> --photo <path> [--audio <path>] [--note "..."] [--occurred-at <ts>] [--format json|md] [--request-id <id>]
+vault-cli samples import-csv <file> --vault <path> --stream <stream> --ts-column <name> --value-column <name> --unit <unit> [--format json|md] [--request-id <id>]
+vault-cli experiment create <slug> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli export pack --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]
 ```
 
-## Contract Rules
+## Root Middleware Contract
 
-- Commands return structured output even when formatted for humans.
-- CLI commands call core, importer, or query APIs only.
-- Errors normalize to shared contract codes.
-- `vault-cli` is the only public command namespace in baseline.
+Every command passes through one shared middleware layer before any package call:
 
-## To Be Finalized By CLI Lane
+1. Incur validates positional arguments and named options against the command schema.
+2. The middleware injects a normalized execution context:
+   - `vault: string`
+   - `format: "json" | "md"`
+   - `requestId: string | null`
+3. The handler delegates exactly one boundary call to `core`, `importers`, or `query`.
+4. The middleware wraps the command result in a stable success envelope.
+5. Thrown errors normalize to a stable failure envelope with a string `code`.
 
-- option-level schemas
-- middleware contract
-- output envelope shapes
-- formatting behavior across `json`, `md`, and other supported formats
+## Shared Option Rules
+
+- `--vault <path>` is required for every baseline command so the target vault is explicit.
+- `--format` accepts only `json` or `md`; default is `json`.
+- `--request-id` is optional and reserved for audit correlation.
+- `json` is the canonical machine format.
+- `md` is a human-oriented rendering hint; the structured envelope remains the source of truth.
+- Durable IDs emitted by commands follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
+- Commands that create or read canonical records align to the generated schemas in `packages/contracts/generated/`.
+
+## Success Envelope
+
+All successful commands resolve to this shape:
+
+```json
+{
+  "command": "show",
+  "ok": true,
+  "format": "json",
+  "requestId": "req-123",
+  "data": {},
+  "notes": ["optional"],
+  "rendered": "optional markdown when format=md"
+}
+```
+
+Field rules:
+
+- `command`: stable command identifier using the mounted command path.
+- `ok`: always `true` for success envelopes.
+- `format`: echoes the requested output mode.
+- `requestId`: caller value or `null`.
+- `data`: command-specific payload described below.
+- `notes`: optional non-fatal operator notes.
+- `rendered`: optional markdown summary. Present only when markdown formatting is requested and the command supplies one.
+
+## Failure Envelope
+
+All failed commands resolve to this shape:
+
+```json
+{
+  "command": "document import",
+  "ok": false,
+  "format": "json",
+  "requestId": null,
+  "error": {
+    "code": "command_failed",
+    "message": "Document import failed.",
+    "details": {}
+  }
+}
+```
+
+Field rules:
+
+- `code` is a stable string suitable for machine branching.
+- `message` is operator-facing and actionable.
+- `details` is optional structured context.
+
+## Command Payloads
+
+### `init`
+
+```json
+{
+  "vault": "<path>",
+  "created": true,
+  "directories": ["journal/2026"],
+  "files": ["CORE.md"]
+}
+```
+
+### `validate`
+
+```json
+{
+  "vault": "<path>",
+  "valid": true,
+  "issues": [
+    {
+      "code": "missing-core",
+      "path": "CORE.md",
+      "message": "CORE.md is missing.",
+      "severity": "error"
+    }
+  ]
+}
+```
+
+### `document import`
+
+```json
+{
+  "vault": "<path>",
+  "sourceFile": "<path>",
+  "rawFile": "<path>",
+  "documentId": "doc_123",
+  "eventId": "evt_123"
+}
+```
+
+### `meal add`
+
+```json
+{
+  "vault": "<path>",
+  "mealId": "meal_123",
+  "eventId": "evt_123",
+  "occurredAt": "2026-03-12T09:30:00-05:00",
+  "photoPath": "<path>",
+  "audioPath": "<path>",
+  "note": "optional note"
+}
+```
+
+### `samples import-csv`
+
+```json
+{
+  "vault": "<path>",
+  "sourceFile": "<path>",
+  "stream": "glucose",
+  "importedCount": 42,
+  "transformId": "xfm_123",
+  "ledgerFiles": ["<path>"]
+}
+```
+
+### `experiment create`
+
+```json
+{
+  "vault": "<path>",
+  "slug": "sleep-window",
+  "experimentPath": "<path>",
+  "created": true
+}
+```
+
+### `journal ensure`
+
+```json
+{
+  "vault": "<path>",
+  "date": "2026-03-12",
+  "journalPath": "<path>",
+  "created": true
+}
+```
+
+### `show`
+
+```json
+{
+  "vault": "<path>",
+  "entity": {
+    "id": "meal_123",
+    "kind": "meal",
+    "title": "Lunch",
+    "occurredAt": "2026-03-12T12:15:00-05:00",
+    "path": "<path>",
+    "markdown": "# Lunch",
+    "data": {},
+    "links": [
+      {
+        "id": "evt_123",
+        "kind": "event"
+      }
+    ]
+  }
+}
+```
+
+### `list`
+
+```json
+{
+  "vault": "<path>",
+  "filters": {
+    "kind": "meal",
+    "experiment": "sleep-window",
+    "dateFrom": "2026-03-01",
+    "dateTo": "2026-03-12",
+    "cursor": "opaque",
+    "limit": 50
+  },
+  "items": [
+    {
+      "id": "meal_123",
+      "kind": "meal",
+      "title": "Lunch",
+      "occurredAt": "2026-03-12T12:15:00-05:00",
+      "path": "<path>"
+    }
+  ],
+  "nextCursor": "opaque"
+}
+```
+
+### `export pack`
+
+```json
+{
+  "vault": "<path>",
+  "from": "2026-03-01",
+  "to": "2026-03-12",
+  "experiment": "sleep-window",
+  "outDir": "<path>",
+  "packId": "pack_123",
+  "files": ["summary.md", "ledger/events.jsonl"]
+}
+```
+
+## Boundary Rules
+
+- `init`, `validate`, `meal add`, `experiment create`, and `journal ensure` delegate to `packages/core`.
+- `document import` and `samples import-csv` delegate to `packages/importers`.
+- `show`, `list`, and `export pack` delegate to `packages/query`.
+- Contract validation errors normalize to the shared codes in `docs/contracts/04-error-codes.md`.
+- The default CLI service layer is expected to delegate to the real `core`, `importers`, and `query` package exports. If the local TypeScript or `incur` toolchain is unavailable, that is an environment blocker, not a contract excuse to return placeholder payloads.

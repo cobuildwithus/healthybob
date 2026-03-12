@@ -1,0 +1,11 @@
+{
+  "id": "samples-import-csv",
+  "command": "vault-cli samples import-csv <file> --vault <path> --stream <stream> --ts-column <name> --value-column <name> --unit <unit> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/sample-imports/samples/heart-rate.csv",
+    "fixtures/sample-imports/samples/glucose.csv"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/samples-import-csv",
+  "purpose": "Reserves sample-import smoke coverage with explicit CSV column names."
+}

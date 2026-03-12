@@ -1,0 +1,11 @@
+{
+  "id": "show",
+  "command": "vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/CORE.md",
+    "fixtures/minimal-vault/bank/experiments/baseline-observation.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/show",
+  "purpose": "Reserves read-path smoke coverage without freezing unresolved output envelopes."
+}

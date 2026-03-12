@@ -1,0 +1,11 @@
+{
+  "id": "document-import",
+  "command": "vault-cli document import <file> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/sample-imports/documents/visit-summary.md",
+    "fixtures/sample-imports/documents/care-plan.txt"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/document-import",
+  "purpose": "Reserves document-import smoke coverage against deterministic text inputs."
+}

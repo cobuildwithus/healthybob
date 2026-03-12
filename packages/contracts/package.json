@@ -2,5 +2,41 @@
   "name": "@healthybob/contracts",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "files": [
+    "README.md",
+    "generated",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./constants": {
+      "types": "./src/constants.d.ts",
+      "default": "./src/constants.js"
+    },
+    "./examples": {
+      "types": "./src/examples.d.ts",
+      "default": "./src/examples.js"
+    },
+    "./ids": {
+      "types": "./src/ids.d.ts",
+      "default": "./src/ids.js"
+    },
+    "./schemas": {
+      "types": "./src/schemas.d.ts",
+      "default": "./src/schemas.js"
+    },
+    "./validate": {
+      "types": "./src/validate.d.ts",
+      "default": "./src/validate.js"
+    },
+    "./generated/*": "./generated/*"
+  },
+  "scripts": {
+    "generate": "node ./scripts/generate-json-schema.mjs",
+    "verify": "node ./scripts/verify.mjs"
+  }
 }

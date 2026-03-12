@@ -1,42 +1,86 @@
 # Record Schemas
 
-Status: bootstrap placeholder
+Status: frozen baseline
+
+Schema sources live in `packages/contracts/src/`. Generated JSON Schema artifacts live in `packages/contracts/generated/`.
+
+## ID Policy
+
+All durable IDs use one format: `<prefix>_<ULID>`.
+
+| Family | Prefix |
+| --- | --- |
+| vault | `vault` |
+| event | `evt` |
+| sample | `smp` |
+| audit | `aud` |
+| transform | `xfm` |
+| document | `doc` |
+| meal | `meal` |
+| experiment | `exp` |
+| provider | `prov` |
+| export pack | `pack` |
 
 ## Baseline Record Families
 
-- vault metadata
-- event records
-- sample records
-- audit records
-- transform records
-- Markdown frontmatter contracts for `CORE.md`, journal days, and experiment pages
+- Vault metadata:
+  `schemaVersion`, `vaultId`, `createdAt`, `title`, `timezone`, `idPolicy`, `paths`, `shards`
+- Event records:
+  `schemaVersion`, `id`, `kind`, `occurredAt`, `recordedAt`, `dayKey`, `source`, `title`, plus kind-specific fields
+- Sample records:
+  `schemaVersion`, `id`, `stream`, `recordedAt`, `dayKey`, `source`, `quality`, plus stream-specific fields
+- Audit records:
+  `schemaVersion`, `id`, `action`, `status`, `occurredAt`, `actor`, `commandName`, `summary`, `changes`
+- Transform records:
+  `schemaVersion`, `id`, `transformType`, `status`, `appliedAt`, `input`, `output`
+- Markdown frontmatter:
+  `CORE.md`, journal day pages, and experiment pages each use a closed frontmatter schema
 
 ## Baseline Event Kinds
 
-- `document`
-- `meal`
-- `symptom`
-- `note`
-- `observation`
-- `experiment_event`
-- `medication_intake`
-- `supplement_intake`
-- `activity_session`
-- `sleep_session`
+| Kind | Required contract fields |
+| --- | --- |
+| `document` | `documentId`, `documentPath`, `mimeType` |
+| `meal` | `mealId`, `photoPaths`, `audioPaths` |
+| `symptom` | `symptom`, `intensity` |
+| `note` | `note` |
+| `observation` | `metric`, `value`, `unit` |
+| `experiment_event` | `experimentId`, `experimentSlug`, `phase` |
+| `medication_intake` | `medicationName`, `dose`, `unit` |
+| `supplement_intake` | `supplementName`, `dose`, `unit` |
+| `activity_session` | `activityType`, `durationMinutes` |
+| `sleep_session` | `startAt`, `endAt`, `durationMinutes` |
+
+Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `rawRefs`.
 
 ## Baseline Sample Streams
 
-- `heart_rate`
-- `hrv`
-- `steps`
-- `sleep_stage`
-- `respiratory_rate`
-- `temperature`
-- `glucose`
+| Stream | Required contract fields |
+| --- | --- |
+| `heart_rate` | `value`, `unit: "bpm"` |
+| `hrv` | `value`, `unit: "ms"` |
+| `steps` | `value`, `unit: "count"` |
+| `sleep_stage` | `stage`, `startAt`, `endAt`, `durationMinutes`, `unit: "stage"` |
+| `respiratory_rate` | `value`, `unit: "breaths_per_minute"` |
+| `temperature` | `value`, `unit: "celsius"` |
+| `glucose` | `value`, `unit: "mg_dL"` |
 
-## To Be Finalized By Contracts Lane
+## Frontmatter Contracts
 
-- required and optional fields per record type
-- ID policy and prefixes
-- error code list
-- generated JSON Schema artifact set
+- `CORE.md` frontmatter:
+  `schemaVersion`, `docType`, `vaultId`, `title`, `timezone`, `updatedAt`
+- Journal day frontmatter:
+  `schemaVersion`, `docType`, `dayKey`, `eventIds`, `sampleStreams`
+- Experiment frontmatter:
+  `schemaVersion`, `docType`, `experimentId`, `slug`, `status`, `title`, `startedOn`
+
+## Generated Artifact Set
+
+- `vault-metadata.schema.json`
+- `event-record.schema.json`
+- `sample-record.schema.json`
+- `audit-record.schema.json`
+- `transform-record.schema.json`
+- `frontmatter-core.schema.json`
+- `frontmatter-journal-day.schema.json`
+- `frontmatter-experiment.schema.json`

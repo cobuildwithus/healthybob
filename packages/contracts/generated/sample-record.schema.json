@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/sample-record.schema.json",
+  "title": "Healthy Bob Sample Record",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "heart_rate"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unit": {
+          "const": "bpm"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "hrv"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "const": "ms"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "steps"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unit": {
+          "const": "count"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "stage",
+        "startAt",
+        "endAt",
+        "durationMinutes",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "sleep_stage"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "awake",
+            "light",
+            "deep",
+            "rem"
+          ]
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unit": {
+          "const": "stage"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "respiratory_rate"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "const": "breaths_per_minute"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "temperature"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "const": "celsius"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "stream",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "quality",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.sample.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^smp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "stream": {
+          "const": "glucose"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "device",
+            "import",
+            "manual",
+            "derived"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "normalized",
+            "derived"
+          ]
+        },
+        "transformId": {
+          "type": "string",
+          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "const": "mg_dL"
+        }
+      }
+    }
+  ]
+}

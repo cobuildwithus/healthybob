@@ -1,0 +1,10 @@
+{
+  "id": "journal-ensure",
+  "command": "vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/journal/2026/2026-03-10.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/journal-ensure",
+  "purpose": "Reserves journal bootstrap coverage against the fixture journal layout."
+}

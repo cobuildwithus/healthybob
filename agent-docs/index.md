@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-12 (bootstrap scaffold created)
+Last verified: 2026-03-12 (integration seams reconciled)
 
 ## Purpose
 
@@ -10,7 +10,7 @@ This index is the table of contents for durable, repository-local context that a
 
 | Path | Purpose | Source of truth | Owner | Review cadence | Criticality | Last verified |
 | --- | --- | --- | --- | --- | --- | --- |
-| `README.md` | Repo bootstrap summary and next-step entrypoint for humans. | Repository bootstrap decisions | Healthy Bob Maintainer | Per bootstrap/process change | Medium | 2026-03-12 |
+| `README.md` | Repo bootstrap summary, runtime-package status, and verification entrypoint for humans. | Repository bootstrap decisions | Healthy Bob Maintainer | Per bootstrap/process change | Medium | 2026-03-12 |
 | `ARCHITECTURE.md` | Top-level module map and trust-boundary summary. | Product/runtime code plus repo decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
 | `docs/architecture.md` | One-page architecture summary and target repo shape for the baseline vault. | Baseline vault architecture decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
 | `docs/contracts/` | Frozen contract docs for vault layout, schemas, command surface, and invariants. | Baseline vault interface decisions | Healthy Bob Maintainer | Per contract change | High | 2026-03-12 |
@@ -23,8 +23,8 @@ This index is the table of contents for durable, repository-local context that a
 | `agent-docs/product-specs/repo-bootstrap.md` | Current repository state and bootstrap success criteria. | Repository bootstrap decisions | Healthy Bob Maintainer | Until first product feature lands | High | 2026-03-12 |
 | `agent-docs/references/README.md` | Reference-pack overview and maintenance rules. | `agent-docs/references/**` | Healthy Bob Maintainer | Monthly | Medium | 2026-03-12 |
 | `agent-docs/references/repo-scope.md` | Repo scope, ownership boundary, and unknowns. | Workspace routing + local decisions | Healthy Bob Maintainer | Per scope change | High | 2026-03-12 |
-| `agent-docs/references/testing-ci-map.md` | Current verification map and bootstrap CI expectations. | `package.json`, `scripts/**`, future CI | Healthy Bob Maintainer | Per verification change | High | 2026-03-12 |
-| `agent-docs/operations/verification-and-runtime.md` | Required checks, bootstrap command matrix, and runtime notes. | `AGENTS.md`, `package.json`, `scripts/**` | Healthy Bob Maintainer | Per process/runtime change | High | 2026-03-12 |
+| `agent-docs/references/testing-ci-map.md` | Current verification map for contracts/runtime packages plus the smoke harness. | `package.json`, `scripts/**`, `fixtures/**`, `e2e/**`, future CI | Healthy Bob Maintainer | Per verification change | High | 2026-03-12 |
+| `agent-docs/operations/verification-and-runtime.md` | Required checks, runtime-package verification matrix, and current CLI/toolchain blockers. | `AGENTS.md`, `package.json`, `fixtures/**`, `e2e/**`, `scripts/**` | Healthy Bob Maintainer | Per process/runtime change | High | 2026-03-12 |
 | `agent-docs/operations/completion-workflow.md` | Required post-implementation audit workflow. | Prompts + completion process | Healthy Bob Maintainer | Per process change | High | 2026-03-12 |
 | `agent-docs/prompts/simplify.md` | Reusable simplification pass prompt. | Completion workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
 | `agent-docs/prompts/test-coverage-audit.md` | Reusable coverage-audit prompt. | Completion workflow | Healthy Bob Maintainer | Per process change | High | 2026-03-12 |

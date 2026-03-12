@@ -1,3 +1,13 @@
 # `@healthybob/contracts`
 
-Owns runtime schemas, TypeScript types, example records, and generated JSON Schema artifacts for the Healthy Bob vault.
+Owns the frozen vault contracts for the Healthy Bob baseline:
+
+- runtime schema objects
+- TypeScript declarations
+- example records and frontmatter documents
+- generated JSON Schema artifacts under `generated/`
+
+Package-local commands:
+
+- `pnpm --dir packages/contracts generate`
+- `pnpm --dir packages/contracts verify`

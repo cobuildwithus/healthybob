@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-experiment.schema.json",
+  "title": "Healthy Bob Experiment Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "experimentId",
+    "slug",
+    "status",
+    "title",
+    "startedOn"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.experiment.v1"
+    },
+    "docType": {
+      "const": "experiment"
+    },
+    "experimentId": {
+      "type": "string",
+      "pattern": "^exp_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "active",
+        "paused",
+        "completed",
+        "abandoned"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "startedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "endedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

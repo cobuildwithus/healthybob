@@ -2,5 +2,10 @@
   "name": "@healthybob/query",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": "./src/index.js",
+  "scripts": {
+    "typecheck": "node --check src/index.js && node --check src/markdown.js && node --check src/model.js && node --check src/summaries.js && node --check src/export-pack.js && node --check test/query.test.js",
+    "test": "node --test"
+  }
 }

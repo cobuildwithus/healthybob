@@ -1,0 +1,11 @@
+{
+  "id": "export-pack",
+  "command": "vault-cli export pack --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/bank/experiments/baseline-observation.md",
+    "fixtures/minimal-vault/journal/2026/2026-03-10.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/export-pack",
+  "purpose": "Reserves export-pack coverage against the fixture journal and experiment paths."
+}

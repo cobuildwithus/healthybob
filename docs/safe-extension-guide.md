@@ -1,0 +1,85 @@
+# Safe Extension Guide
+
+## Purpose
+
+This guide is the downstream integration reference for extending the Healthy Bob vault baseline without drifting away from the frozen contracts in `docs/contracts/` and the package boundaries in `ARCHITECTURE.md`.
+
+## Non-Negotiable Boundaries
+
+- Keep `vault-cli` as the only public command namespace in baseline.
+- Keep canonical vault writes inside `@healthybob/core` only.
+- Keep human-facing truth in Markdown (`CORE.md`, `journal/`, `bank/`).
+- Keep machine-facing truth in append-only JSONL ledgers (`ledger/events`, `ledger/samples`, `audit`).
+- Keep imported source artifacts immutable under `raw/`.
+- Keep assistant or session state outside the canonical vault under `assistant-state/`.
+- Do not introduce SQLite, vector storage, OCR-heavy parsing, semantic search, or chat-log memory extraction into the baseline.
+
+## Package Roles
+
+| Package | Allowed to do | Must not do |
+| --- | --- | --- |
+| `@healthybob/contracts` | Define shared schemas, types, error codes, and generated contract artifacts | Reach into runtime filesystem behavior |
+| `@healthybob/core` | Bootstrap vaults, validate state, emit audit records, and perform canonical mutations | Expose an alternate public CLI namespace |
+| `@healthybob/importers` | Parse external inputs and prepare normalized payloads for core | Write canonical vault files directly |
+| `@healthybob/query` | Read canonical state and build derived export packs | Mutate vault state |
+| `@healthybob/cli` | Validate operator input, call package APIs, and format structured output | Bypass core for writes |
+
+## Safe Extension Patterns
+
+### Add a new record family or event kind
+
+1. Update the contract docs first.
+2. Add the shared schema/type surface in `@healthybob/contracts`.
+3. Add validation and canonical write handling in `@healthybob/core`.
+4. Add importer, query, and CLI support only after the shared contract exists.
+5. Add fixtures, smoke coverage, and release-note entries in the same change set.
+
+If a proposed record cannot be represented as Markdown truth plus append-only JSONL, it does not fit the baseline contract yet.
+
+### Add a new importer
+
+1. Copy the original artifact into `raw/` using stable relative paths.
+2. Parse and normalize outside the canonical write path.
+3. Call `@healthybob/core` for any canonical record creation.
+4. Emit enough audit context to explain provenance and failure modes.
+
+Importers may prepare payloads, but they do not decide new canonical storage rules on their own.
+
+### Add a new query or export
+
+1. Read only from canonical Markdown and JSONL data.
+2. Keep generated export artifacts outside canonical source paths.
+3. Treat query modules as pure readers with deterministic output from fixture data.
+
+If a query needs to "fix up" data while reading, move that logic into core migration or validation work instead.
+
+### Add a new CLI command
+
+1. Keep the command under `vault-cli`.
+2. Validate arguments at the edge.
+3. Delegate the actual operation to core, importers, or query packages.
+4. Return structured output and normalized contract errors.
+
+Do not let CLI commands write files directly, even for convenience helpers.
+
+## Integration Checklist
+
+- Contract docs still describe the new behavior truthfully.
+- Package ownership remains one-way: `contracts` -> `core`/`importers`/`query`/`cli`, with canonical writes only through core.
+- New paths under the vault root preserve Markdown truth, append-only JSONL, and immutable `raw/`.
+- Fixtures and smoke flows cover the new behavior at the public surface, not just internals.
+- Verification docs and package scripts are updated if runtime expectations change.
+- Release notes explain whether the change is scaffold-only, contract-only, or operator-visible.
+
+## Red Flags
+
+- Direct filesystem writes from `@healthybob/cli`, `@healthybob/importers`, or `@healthybob/query`
+- Canonical state stored outside the documented vault layout
+- Mutable artifacts under `raw/`
+- Assistant state written into the vault root
+- New public commands outside `vault-cli`
+- Cross-package imports that let non-core packages mutate canonical state implicitly
+
+## Current Integration Status
+
+As of 2026-03-12, the contract fence has been reconciled against the executable `contracts`, `core`, `importers`, and `query` packages. The remaining integration gap is the TypeScript CLI runtime: its source now delegates to real package functions, but this workspace still lacks the `incur` toolchain needed to execute or typecheck `vault-cli` end to end.

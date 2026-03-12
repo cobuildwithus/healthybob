@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/vault-metadata.schema.json",
+  "title": "Healthy Bob Vault Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "vaultId",
+    "createdAt",
+    "title",
+    "timezone",
+    "idPolicy",
+    "paths",
+    "shards"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.vault.v1"
+    },
+    "vaultId": {
+      "type": "string",
+      "pattern": "^vault_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64
+    },
+    "idPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "prefixes"
+      ],
+      "properties": {
+        "format": {
+          "const": "prefix_ulid"
+        },
+        "prefixes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "audit",
+            "document",
+            "event",
+            "experiment",
+            "meal",
+            "pack",
+            "provider",
+            "sample",
+            "transform",
+            "vault"
+          ],
+          "properties": {
+            "audit": {
+              "const": "aud"
+            },
+            "document": {
+              "const": "doc"
+            },
+            "event": {
+              "const": "evt"
+            },
+            "experiment": {
+              "const": "exp"
+            },
+            "meal": {
+              "const": "meal"
+            },
+            "pack": {
+              "const": "pack"
+            },
+            "provider": {
+              "const": "prov"
+            },
+            "sample": {
+              "const": "smp"
+            },
+            "transform": {
+              "const": "xfm"
+            },
+            "vault": {
+              "const": "vault"
+            }
+          }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coreDocument",
+        "journalRoot",
+        "experimentsRoot",
+        "providersRoot",
+        "rawRoot",
+        "eventsRoot",
+        "samplesRoot",
+        "auditRoot",
+        "exportsRoot"
+      ],
+      "properties": {
+        "coreDocument": {
+          "const": "CORE.md"
+        },
+        "journalRoot": {
+          "const": "journal"
+        },
+        "experimentsRoot": {
+          "const": "bank/experiments"
+        },
+        "providersRoot": {
+          "const": "bank/providers"
+        },
+        "rawRoot": {
+          "const": "raw"
+        },
+        "eventsRoot": {
+          "const": "ledger/events"
+        },
+        "samplesRoot": {
+          "const": "ledger/samples"
+        },
+        "auditRoot": {
+          "const": "audit"
+        },
+        "exportsRoot": {
+          "const": "exports"
+        }
+      }
+    },
+    "shards": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "samples",
+        "audit"
+      ],
+      "properties": {
+        "events": {
+          "const": "ledger/events/YYYY/YYYY-MM.jsonl"
+        },
+        "samples": {
+          "const": "ledger/samples/<stream>/YYYY/YYYY-MM.jsonl"
+        },
+        "audit": {
+          "const": "audit/YYYY/YYYY-MM.jsonl"
+        }
+      }
+    }
+  }
+}

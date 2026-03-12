@@ -1,0 +1,8 @@
+{
+  "id": "validate",
+  "command": "vault-cli validate --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [],
+  "goldenOutput": "fixtures/golden-outputs/validate",
+  "purpose": "Reserves validation coverage without freezing error-code details that belong to the contracts lane."
+}

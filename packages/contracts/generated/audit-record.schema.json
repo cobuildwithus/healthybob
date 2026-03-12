@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/audit-record.schema.json",
+  "title": "Healthy Bob Audit Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "action",
+    "status",
+    "occurredAt",
+    "actor",
+    "commandName",
+    "summary",
+    "changes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.audit.v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^aud_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "vault_init",
+        "document_import",
+        "meal_add",
+        "samples_import_csv",
+        "experiment_create",
+        "journal_ensure",
+        "validate",
+        "show",
+        "list",
+        "export_pack"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failure"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "string",
+      "enum": [
+        "cli",
+        "core",
+        "importer",
+        "query"
+      ]
+    },
+    "commandName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "targetIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "errorCode": {
+      "type": "string",
+      "enum": [
+        "HB_CONTRACT_INVALID",
+        "HB_ID_INVALID",
+        "HB_PATH_INVALID",
+        "HB_VAULT_INVALID",
+        "HB_EVENT_INVALID",
+        "HB_SAMPLE_INVALID",
+        "HB_AUDIT_INVALID",
+        "HB_TRANSFORM_INVALID",
+        "HB_FRONTMATTER_INVALID",
+        "HB_ENUM_UNSUPPORTED",
+        "HB_SHARD_KEY_INVALID",
+        "HB_SCHEMA_ARTIFACT_STALE"
+      ]
+    },
+    "transformId": {
+      "type": "string",
+      "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "op"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "create",
+              "append",
+              "update",
+              "copy"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

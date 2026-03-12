@@ -1,6 +1,6 @@
 # Healthy Bob vault baseline worker batch
 
-Status: active
+Status: completed
 Created: 2026-03-12
 Updated: 2026-03-12
 
@@ -13,7 +13,7 @@ Updated: 2026-03-12
 - The repo contains the frozen bootstrap scaffold required by the migration plan.
 - Active ownership for the parent lane and each worker lane is recorded in `COORDINATION_LEDGER.md` before code edits begin.
 - Six implementation worker prompts are launched in parallel through the workspace `codex-workers` helper.
-- The integration lane is prepared against the same frozen contracts and does not violate worker-owned scopes.
+- The integration lane is rerun against the completed worker tree and reconciles package seams without boundary drift.
 
 ## Scope
 
@@ -62,6 +62,7 @@ Updated: 2026-03-12
 5. Launch the six implementation lanes in parallel through `workspace-docs/bin/codex-workers`.
 6. Stage the integration lane against the frozen contracts and worker outputs without colliding on active ownership.
 7. Monitor run artifacts and summarize launch state plus any blockers.
+8. Re-run integration after the source lanes finish, then execute final repo-owner verification and commit flow.
 
 ## Decisions
 
@@ -77,3 +78,16 @@ Updated: 2026-03-12
   - `pnpm test:coverage`
 - Implementation phase:
   - workers run the narrowest truthful checks for their owned scope plus any updated repo-wide checks they introduce
+
+## Progress
+
+- Done:
+  - bootstrap contract fence committed
+  - codex-1 worker prompts generated under `workspace-docs/codex-worker-prompts/2026-03-12-healthybob-vault-baseline/`
+  - contracts, core, cli, importers, query/export, qa/release, and first integration pass completed
+  - second integration pass completed with cross-package seam reconciliation
+- Now:
+  - repo-owner verification and final cleanup
+- Next:
+  - close the active plan and clear the coordination ledger once verification and commit complete
+Completed: 2026-03-12

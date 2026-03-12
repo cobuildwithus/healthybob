@@ -2,19 +2,21 @@
 
 Last verified: 2026-03-12
 
-## Current Bootstrap Checks
+## Current Repo Checks
 
 | Command | Purpose | Current coverage |
 | --- | --- | --- |
-| `pnpm typecheck` | Shell syntax validation for repo wrappers/config. | `scripts/*.sh` |
-| `pnpm test` | Agent-docs drift and required-file integrity. | `AGENTS.md`, `ARCHITECTURE.md`, `agent-docs/**` |
-| `pnpm test:coverage` | Doc inventory and doc-gardening enforcement. | `agent-docs/**`, `ARCHITECTURE.md`, `README.md` |
+| `pnpm typecheck` | Shell syntax validation, smoke-verifier syntax checks, contract artifact verification, and JS package syntax checks. | `scripts/*.sh`, `e2e/smoke/verify-fixtures.mjs`, `packages/contracts/**`, `packages/core/**`, `packages/importers/**`, `packages/query/**` |
+| `pnpm test` | Agent-docs drift checks plus executable package-runtime tests and fixture/scenario integrity validation. | `AGENTS.md`, `ARCHITECTURE.md`, `agent-docs/**`, `packages/contracts/**`, `packages/core/**`, `packages/importers/**`, `packages/query/**`, `fixtures/**`, `e2e/smoke/scenarios/**` |
+| `pnpm test:coverage` | Doc inventory/doc-gardening enforcement plus package-runtime tests and command-surface smoke coverage. | `agent-docs/**`, `ARCHITECTURE.md`, `README.md`, `docs/contracts/03-command-surface.md`, `packages/contracts/**`, `packages/core/**`, `packages/importers/**`, `packages/query/**`, `fixtures/**`, `e2e/smoke/**` |
+| `pnpm test:packages` | Direct runtime verification for executable packages without the worktree-sensitive doc-drift wrapper. | `packages/contracts/**`, `packages/core/**`, `packages/importers/**`, `packages/query/**` |
+| `pnpm test:smoke` | Standalone fixture/scenario integrity verification. | `fixtures/**`, `e2e/smoke/**`, `docs/contracts/03-command-surface.md` |
 
 ## Current Gaps
 
-- No product/runtime test harness exists yet.
+- Repo-level automation does not execute `vault-cli`; the CLI source is wired, but this workspace does not currently provide the `incur` dependency/toolchain needed to run or typecheck the TypeScript CLI package.
+- Fixture smoke still validates manifests and command-surface coverage, not end-to-end package orchestration.
 - No CI workflow files exist yet.
-- No build or packaging lane exists beyond bootstrap docs/process validation.
 
 ## Update Rule
 

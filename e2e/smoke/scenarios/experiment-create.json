@@ -1,0 +1,10 @@
+{
+  "id": "experiment-create",
+  "command": "vault-cli experiment create <slug> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/bank/experiments/baseline-observation.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/experiment-create",
+  "purpose": "Reserves experiment-page creation coverage using the fixture experiment namespace."
+}

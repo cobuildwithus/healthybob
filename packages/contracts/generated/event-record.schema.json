@@ -1,0 +1,971 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/event-record.schema.json",
+  "title": "Healthy Bob Event Record",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "documentId",
+        "documentPath",
+        "mimeType"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "document"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "documentId": {
+          "type": "string",
+          "pattern": "^doc_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "documentPath": {
+          "type": "string",
+          "pattern": "^raw/documents/[A-Za-z0-9._/-]+$"
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "providerId": {
+          "type": "string",
+          "pattern": "^prov_[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "mealId",
+        "photoPaths",
+        "audioPaths"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "meal"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "mealId": {
+          "type": "string",
+          "pattern": "^meal_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "photoPaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/meals/[A-Za-z0-9._/-]+$"
+          },
+          "minItems": 1
+        },
+        "audioPaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/meals/[A-Za-z0-9._/-]+$"
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "symptom",
+        "intensity"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "symptom"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "symptom": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "intensity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "bodySite": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "note"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "note"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "metric",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "observation"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "metric": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/%-]+$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "experimentId",
+        "experimentSlug",
+        "phase"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "experiment_event"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "experimentId": {
+          "type": "string",
+          "pattern": "^exp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "experimentSlug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "start",
+            "checkpoint",
+            "stop"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "medicationName",
+        "dose",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "medication_intake"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "medicationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "dose": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/%-]+$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "supplementName",
+        "dose",
+        "unit"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "supplement_intake"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "supplementName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "dose": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/%-]+$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "activityType",
+        "durationMinutes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "activity_session"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "activityType": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "distanceKm": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "startAt",
+        "endAt",
+        "durationMinutes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "sleep_session"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "startAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "meal-add",
+  "command": "vault-cli meal add --vault <path> --photo <path> [--audio <path>] [--note \"...\"] [--occurred-at <ts>] [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/sample-imports/meals/meal-photo-placeholder.txt",
+    "fixtures/sample-imports/meals/meal-audio-placeholder.txt"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/meal-add",
+  "purpose": "Reserves meal-ingestion smoke coverage until binary fixture support exists."
+}

@@ -1,0 +1,32 @@
+# 2026-03-12 Vault Baseline Scaffold
+
+## Summary
+
+Established the Healthy Bob baseline scaffold for the file-native vault architecture, then reconciled the first downstream integration pass across the executable runtime packages.
+
+## What changed
+
+- Froze the baseline package names:
+  - `@healthybob/contracts`
+  - `@healthybob/core`
+  - `@healthybob/cli`
+  - `@healthybob/importers`
+  - `@healthybob/query`
+- Froze `vault-cli` as the only public command namespace for the baseline.
+- Documented the safe extension rules for package boundaries, canonical write authority, immutable `raw/`, append-only ledgers, and out-of-vault assistant state.
+- Added release-note scaffolding for future implementation-lane drops.
+- Aligned `packages/core` write paths with the frozen contract shapes for vault metadata, frontmatter, events, samples, and audits.
+- Reconciled `packages/importers` and `packages/query` against the contract-shaped core outputs.
+- Wired the CLI service layer to real package functions in source instead of placeholder service stubs.
+- Updated root verification docs and scripts so package-runtime checks are part of the documented repo truth.
+
+## Verification
+
+- `pnpm typecheck:packages`
+- `pnpm test:packages`
+- `node e2e/smoke/verify-fixtures.mjs --coverage`
+
+## Follow-up
+
+- `pnpm test` still depends on the repo doc-drift wrapper and can fail in a large in-progress dirty worktree even when the runtime package checks are green.
+- `vault-cli` source is wired, but the workspace still lacks the `incur` toolchain needed to execute or typecheck the TypeScript CLI package end to end.
