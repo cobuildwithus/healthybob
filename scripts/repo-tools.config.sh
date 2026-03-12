@@ -69,6 +69,7 @@ repo_tools_join_lines COBUILD_AUDIT_CONTEXT_ALWAYS_PATHS \
   "package.json" \
   ".gitignore"
 repo_tools_join_lines COBUILD_AUDIT_CONTEXT_SCAN_SPECS \
+  "packages" \
   "src" \
   "app" \
   "apps" \
@@ -76,6 +77,8 @@ repo_tools_join_lines COBUILD_AUDIT_CONTEXT_SCAN_SPECS \
   "scripts" \
   "docs"
 repo_tools_join_lines COBUILD_AUDIT_CONTEXT_TEST_SCAN_SPECS \
+  "e2e" \
+  "fixtures" \
   "tests" \
   "test"
 repo_tools_join_lines COBUILD_AUDIT_CONTEXT_DOC_SCAN_SPECS \

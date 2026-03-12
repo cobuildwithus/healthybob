@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-12 (integration seams reconciled)
+Last verified: 2026-03-12 (integration seams reconciled; review wiring active)
 
 ## Purpose
 

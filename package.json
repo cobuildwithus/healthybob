@@ -13,10 +13,12 @@
     "docs:gardening": "bash scripts/doc-gardening.sh --fail-on-issues",
     "plan:open": "bash scripts/open-exec-plan.sh",
     "plan:close": "bash scripts/close-exec-plan.sh",
+    "review:gpt": "cobuild-review-gpt --config scripts/review-gpt.config.sh",
     "zip:src": "bash scripts/package-audit-context.sh --zip",
     "verify:repo": "pnpm typecheck && pnpm test && pnpm test:coverage"
   },
   "devDependencies": {
+    "@cobuild/review-gpt": "file:../review-gpt",
     "@cobuild/repo-tools": "^0.1.13"
   }
 }

@@ -1,0 +1,42 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@cobuild/repo-tools':
+        specifier: ^0.1.13
+        version: 0.1.13
+      '@cobuild/review-gpt':
+        specifier: file:../review-gpt
+        version: file:../review-gpt
+
+  packages/cli: {}
+
+  packages/contracts: {}
+
+  packages/core: {}
+
+  packages/importers: {}
+
+  packages/query: {}
+
+packages:
+
+  '@cobuild/repo-tools@0.1.13':
+    resolution: {integrity: sha512-GCuA78L5yRf6ajaCgLtHxw6JvMB29vh+I0+0QVLgrhXOutx4m9N0Sl4BnpxDZYSd2++zj/b/yJENYbvGEn1exA==}
+    hasBin: true
+
+  '@cobuild/review-gpt@file:../review-gpt':
+    resolution: {directory: ../review-gpt, type: directory}
+    hasBin: true
+
+snapshots:
+
+  '@cobuild/repo-tools@0.1.13': {}
+
+  '@cobuild/review-gpt@file:../review-gpt': {}
