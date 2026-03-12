@@ -6,3 +6,4 @@ coverage/
 *.log
 .codex-runs/
 .codex-worker-prompts/
+audit-packages/
