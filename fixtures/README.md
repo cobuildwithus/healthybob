@@ -6,11 +6,11 @@ This directory holds deterministic QA scaffolding for the first Healthy Bob impl
 
 - `minimal-vault/`: human-readable vault skeleton without unresolved `vault.json` or JSONL record payloads
 - `sample-imports/`: placeholder source files for document, meal, and sample-import scenarios
-- `golden-outputs/`: per-command directories reserved for future captured snapshots
+- `golden-outputs/`: per-command directories documenting the current stable smoke expectations for each command surface
 - `fixture-corpus.json`: machine-readable inventory consumed by the smoke verifier
 
 ## Rules
 
-- Do not add canonical schema fields here until the contracts/core lanes define them.
+- Do not invent payload fields that are not already defined by the frozen contracts or current CLI/query behavior.
 - Keep fixture inputs small, deterministic, and reviewable in plain text.
-- Use golden-output directories as scaffolding only until CLI output envelopes and record shapes are frozen.
+- Use golden-output directories to document stable lookup, validation, and export-pack expectations even when the CLI binary is not executed in repo checks.

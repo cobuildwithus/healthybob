@@ -5,7 +5,6 @@ export const CONTRACT_SCHEMA_VERSION = Object.freeze({
   journalDayFrontmatter: "hb.frontmatter.journal-day.v1",
   coreFrontmatter: "hb.frontmatter.core.v1",
   sample: "hb.sample.v1",
-  transform: "hb.transform.v1",
   vault: "hb.vault.v1",
 });
 
@@ -76,17 +75,6 @@ export const AUDIT_STATUSES = Object.freeze(["success", "failure"]);
 
 export const FILE_CHANGE_OPERATIONS = Object.freeze(["create", "append", "update", "copy"]);
 
-export const TRANSFORM_TYPES = Object.freeze([
-  "document_import",
-  "meal_add",
-  "samples_import_csv",
-  "export_pack",
-]);
-
-export const TRANSFORM_SOURCE_KINDS = Object.freeze(["file", "csv", "manual", "derived"]);
-
-export const TRANSFORM_STATUSES = Object.freeze(["success", "failed"]);
-
 export const FRONTMATTER_DOC_TYPES = Object.freeze({
   core: "core",
   experiment: "experiment",
@@ -136,11 +124,6 @@ export const ERROR_CODES = Object.freeze([
     code: "HB_AUDIT_INVALID",
     retryable: false,
     summary: "An audit record failed validation.",
-  },
-  {
-    code: "HB_TRANSFORM_INVALID",
-    retryable: false,
-    summary: "A transform record failed validation.",
   },
   {
     code: "HB_FRONTMATTER_INVALID",

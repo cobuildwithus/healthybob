@@ -19,8 +19,8 @@ import {
   VAULT_LAYOUT,
 } from "./constants.js";
 import { emitAuditRecord } from "./audit.js";
-import { writeVaultTextFile } from "./fs.js";
-import { stringifyFrontmatterDocument } from "./frontmatter.js";
+import { readUtf8File, writeVaultTextFile } from "./fs.js";
+import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "./frontmatter.js";
 import { appendJsonlRecord, toMonthlyShardRelativePath } from "./jsonl.js";
 import { generateRecordId } from "./ids.js";
 import { VaultError } from "./errors.js";
@@ -44,7 +44,7 @@ function compactRecord(record) {
       }
 
       if (Array.isArray(value)) {
-        return value.length > 0;
+        return true;
       }
 
       if (typeof value === "object") {
@@ -87,6 +87,24 @@ function normalizeStringList(value) {
     .filter(Boolean);
 
   return entries.length > 0 ? entries : undefined;
+}
+
+function normalizeExperimentHypothesis(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeExperimentStatus(value) {
+  return EXPERIMENT_STATUS_SET.has(value) ? value : "active";
+}
+
+function toExperimentComparableAttributes(attributes) {
+  return compactRecord({
+    slug: String(attributes.slug ?? "").trim(),
+    status: normalizeExperimentStatus(attributes.status),
+    title: String(attributes.title ?? "").trim(),
+    startedOn: String(attributes.startedOn ?? "").trim(),
+    hypothesis: normalizeExperimentHypothesis(attributes.hypothesis),
+  });
 }
 
 function normalizeNumericUnit(stream, unit) {
@@ -205,7 +223,6 @@ function buildSampleRecord({
   recordedAt,
   source,
   quality,
-  transformId,
   sample,
   unit,
 }) {
@@ -218,7 +235,6 @@ function buildSampleRecord({
     dayKey: toDateOnly(recordedTimestamp),
     source: normalizeSource(source, SAMPLE_SOURCE_SET, "import"),
     quality: SAMPLE_QUALITY_SET.has(quality) ? quality : "raw",
-    transformId,
   };
 
   if (stream === "sleep_stage") {
@@ -336,18 +352,73 @@ export async function createExperiment({
   const safeSlug = sanitizePathSegment(slug, "experiment");
   const startedTimestamp = toIsoTimestamp(startedOn, "startedOn");
   const startedDay = toDateOnly(startedOn, "startedOn");
-  const experimentId = generateRecordId(ID_PREFIXES.experiment);
   const relativePath = `${VAULT_LAYOUT.experimentsDirectory}/${safeSlug}.md`;
   const normalizedTitle = String(title ?? safeSlug).trim();
+  const normalizedStatus = normalizeExperimentStatus(status);
+  const normalizedHypothesis = normalizeExperimentHypothesis(hypothesis);
+  const comparableAttributes = toExperimentComparableAttributes({
+    slug: safeSlug,
+    status: normalizedStatus,
+    title: normalizedTitle,
+    startedOn: startedDay,
+    hypothesis: normalizedHypothesis,
+  });
+
+  try {
+    const existingDocument = parseFrontmatterDocument(await readUtf8File(vaultRoot, relativePath));
+    const existingErrors = validateAgainstSchema(experimentFrontmatterSchema, existingDocument.attributes);
+
+    if (existingErrors.length > 0) {
+      throw new VaultError(
+        "HB_FRONTMATTER_INVALID",
+        `Existing experiment "${safeSlug}" failed contract validation.`,
+        {
+          relativePath,
+          errors: existingErrors,
+        },
+      );
+    }
+
+    if (
+      JSON.stringify(toExperimentComparableAttributes(existingDocument.attributes)) !==
+      JSON.stringify(comparableAttributes)
+    ) {
+      throw new VaultError(
+        "VAULT_EXPERIMENT_CONFLICT",
+        `Experiment "${safeSlug}" already exists with different frontmatter.`,
+        {
+          relativePath,
+          experimentId: existingDocument.attributes.experimentId,
+        },
+      );
+    }
+
+    return {
+      created: false,
+      experiment: {
+        id: existingDocument.attributes.experimentId,
+        slug: existingDocument.attributes.slug,
+        relativePath,
+      },
+      event: null,
+      auditPath: null,
+    };
+  } catch (error) {
+    if (!(error instanceof VaultError) || error.code !== "VAULT_FILE_MISSING") {
+      throw error;
+    }
+  }
+
+  const experimentId = generateRecordId(ID_PREFIXES.experiment);
   const attributes = compactRecord({
     schemaVersion: FRONTMATTER_SCHEMA_VERSIONS.experiment,
     docType: "experiment",
     experimentId,
     slug: safeSlug,
-    status: EXPERIMENT_STATUS_SET.has(status) ? status : "active",
+    status: normalizedStatus,
     title: normalizedTitle,
     startedOn: startedDay,
-    hypothesis: typeof hypothesis === "string" && hypothesis.trim() ? hypothesis.trim() : undefined,
+    hypothesis: normalizedHypothesis,
   });
 
   assertContractShape(
@@ -392,6 +463,7 @@ export async function createExperiment({
   });
 
   return {
+    created: true,
     experiment: {
       id: experimentId,
       slug: safeSlug,
@@ -566,7 +638,6 @@ export async function importSamples({
       recordedAt: sample.recordedAt ?? sample.occurredAt,
       source,
       quality,
-      transformId,
       sample,
       unit,
     });
@@ -597,7 +668,6 @@ export async function importSamples({
     occurredAt: records[0].recordedAt,
     files: touchedFiles,
     targetIds: records.map((record) => record.id),
-    transformId,
   });
 
   return {

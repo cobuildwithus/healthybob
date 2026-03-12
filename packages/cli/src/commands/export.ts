@@ -8,7 +8,7 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-export function registerExportCommands(cli: Cli, services: VaultCliServices) {
+export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices) {
   const exportCli = Cli.create('export', {
     description: 'Export commands routed through the query layer.',
   })
@@ -19,18 +19,16 @@ export function registerExportCommands(cli: Cli, services: VaultCliServices) {
       command: 'export pack',
       description: 'Build a date-bounded export pack from the read model.',
       args: emptyArgsSchema,
-      options: withBaseOptions(
-        z.object({
-          from: localDateSchema.describe('Inclusive start date for the pack.'),
-          to: localDateSchema.describe('Inclusive end date for the pack.'),
-          experiment: slugSchema
-            .optional()
-            .describe('Optional experiment slug filter.'),
-          out: pathSchema
-            .optional()
-            .describe('Optional directory for materialized pack output.'),
-        }),
-      ),
+      options: withBaseOptions({
+        from: localDateSchema.describe('Inclusive start date for the pack.'),
+        to: localDateSchema.describe('Inclusive end date for the pack.'),
+        experiment: slugSchema
+          .optional()
+          .describe('Optional experiment slug filter.'),
+        out: pathSchema
+          .optional()
+          .describe('Optional directory for materialized pack output.'),
+      }),
       data: exportPackResultSchema,
       async run({ options, vault, requestId }) {
         return services.query.exportPack({

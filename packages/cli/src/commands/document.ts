@@ -4,7 +4,7 @@ import { documentImportResultSchema, pathSchema } from '../vault-cli-contracts.j
 import type { VaultCliServices } from '../vault-cli-services.js'
 
 export function registerDocumentCommands(
-  cli: Cli,
+  cli: Cli.Cli,
   services: VaultCliServices,
 ) {
   const document = Cli.create('document', {
@@ -29,7 +29,7 @@ export function registerDocumentCommands(
         })
       },
       renderMarkdown({ data }) {
-        return `# Document Imported\n\n- id: ${data.documentId}\n- source: ${data.sourceFile}\n- raw: ${data.rawFile}\n- event: ${data.eventId}`
+        return `# Document Imported\n\n- documentId: ${data.documentId}\n- lookupId: ${data.lookupId}\n- source: ${data.sourceFile}\n- raw: ${data.rawFile}\n- event: ${data.eventId}`
       },
     }),
   )

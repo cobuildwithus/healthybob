@@ -1,3 +1,6 @@
 # `vault-cli validate`
 
-Reserve this directory for validation summaries once the contracts lane freezes the error-code surface.
+Current smoke expectation:
+
+- returns `valid` plus a structured `issues` array
+- malformed journal and experiment frontmatter accumulate multiple issues in one response

@@ -27,19 +27,37 @@ test("readVault assembles a stable read model from contract-shaped markdown and 
     assert.equal(vault.coreDocument?.id, "vault_01JNV40W8VFYQ2H7CMJY5A9R4K");
     assert.equal(vault.experiments.length, 1);
     assert.equal(vault.journalEntries.length, 2);
-    assert.equal(vault.events.length, 2);
+    assert.equal(vault.events.length, 3);
     assert.equal(vault.samples.length, 5);
     assert.equal(vault.audits.length, 1);
 
     const experiment = getExperiment(vault, "low-carb");
     assert.equal(experiment?.title, "Low Carb Trial");
+    assert.equal(experiment?.data.startedOn, "2026-03-01");
 
     const journal = getJournalEntry(vault, "2026-03-10");
     assert.equal(journal?.title, "March 10");
 
-    const record = lookupRecordById(vault, "evt_01JNV4MEAL000000000000001");
-    assert.equal(record?.recordType, "event");
-    assert.equal(record?.data.kind, "meal");
+    const mealRecord = lookupRecordById(vault, "meal_01JNV4MEAL00000000000001");
+    assert.equal(mealRecord?.recordType, "event");
+    assert.equal(mealRecord?.id, "meal_01JNV4MEAL00000000000001");
+    assert.equal(mealRecord?.data.kind, "meal");
+    assert.deepEqual(mealRecord?.data.eventIds, ["evt_01JNV4MEAL000000000000001"]);
+
+    const mealEventAlias = lookupRecordById(vault, "evt_01JNV4MEAL000000000000001");
+    assert.equal(mealEventAlias?.id, "meal_01JNV4MEAL00000000000001");
+
+    const documentRecord = lookupRecordById(vault, "doc_01JNV4DOC0000000000000001");
+    assert.equal(documentRecord?.data.documentId, "doc_01JNV4DOC0000000000000001");
+    assert.equal(
+      documentRecord?.data.documentPath,
+      "raw/documents/2026/03/doc_01JNV4DOC0000000000000001/lab-report.pdf",
+    );
+    assert.equal(documentRecord?.data.mimeType, "application/pdf");
+
+    const legacyJournal = getJournalEntry(vault, "2026-03-11");
+    assert.deepEqual(legacyJournal?.data.eventIds, ["evt_01JNV4NOTE000000000000001"]);
+    assert.deepEqual(legacyJournal?.data.sampleStreams, ["heart_rate"]);
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
   }
@@ -61,14 +79,17 @@ test("list helpers apply date, tag, text, and kind filters against contract data
         "journal:2026-03-10",
         "smp_01JNV4GLU000000000000001",
         "smp_01JNV4HR0000000000000001",
-        "evt_01JNV4MEAL000000000000001",
+        "meal_01JNV4MEAL00000000000001",
         "smp_01JNV4GLU000000000000002",
         "smp_01JNV4HR0000000000000002",
       ],
     );
 
     const mealRecords = listRecords(vault, { kinds: ["meal"] });
-    assert.deepEqual(mealRecords.map((record) => record.id), ["evt_01JNV4MEAL000000000000001"]);
+    assert.deepEqual(mealRecords.map((record) => record.id), ["meal_01JNV4MEAL00000000000001"]);
+
+    const documentRecords = listRecords(vault, { ids: ["evt_01JNV4DOC000000000000001"] });
+    assert.deepEqual(documentRecords.map((record) => record.id), ["doc_01JNV4DOC0000000000000001"]);
 
     const taggedExperiments = listExperiments(vault, { tags: ["nutrition"] });
     assert.deepEqual(taggedExperiments.map((record) => record.experimentSlug), ["low-carb"]);
@@ -127,18 +148,29 @@ test("buildExportPack produces derived exports payloads without touching the vau
     assert.equal(pack.manifest.recordCount, 0);
     assert.equal(pack.manifest.experimentCount, 1);
     assert.equal(pack.manifest.journalCount, 0);
-    assert.equal(pack.files.length, 4);
+    assert.equal(pack.manifest.questionCount, 3);
+    assert.equal(pack.manifest.fileCount, 5);
+    assert.equal(pack.files.length, 5);
     assert.ok(pack.files.every((file) => file.path.startsWith("exports/packs/focus-pack/")));
 
     const manifestFile = pack.files.find((file) => file.path.endsWith("manifest.json"));
     assert.ok(manifestFile);
     assert.match(manifestFile.contents, /"format": "healthybob.export-pack.v1"/);
+    assert.match(manifestFile.contents, /"fileCount": 5/);
+
+    const questionPackFile = pack.files.find((file) =>
+      file.path.endsWith("question-pack.json"),
+    );
+    assert.ok(questionPackFile);
+    assert.match(questionPackFile.contents, /"format": "healthybob.question-pack.v1"/);
+    assert.match(questionPackFile.contents, /low-carb experiment/);
 
     const assistantFile = pack.files.find((file) =>
       file.path.endsWith("assistant-context.md"),
     );
     assert.ok(assistantFile);
     assert.match(assistantFile.contents, /Healthy Bob Export Pack/);
+    assert.match(assistantFile.contents, /## Questions/);
     assert.match(assistantFile.contents, /Low Carb Trial/);
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
@@ -228,7 +260,7 @@ experimentId: exp_01JNV4EXP000000000000001
 slug: low-carb
 status: active
 title: Low Carb Trial
-startedOn: 2026-03-01T00:00:00Z
+started_on: 2026-03-01
 tags:
   - nutrition
   - glucose
@@ -263,9 +295,9 @@ Fasted longer than usual. Steady energy through the afternoon.
 schemaVersion: hb.frontmatter.journal-day.v1
 docType: journal_day
 dayKey: 2026-03-11
-eventIds:
+event_ids:
   - evt_01JNV4NOTE000000000000001
-sampleStreams:
+sample_streams:
   - heart_rate
 ---
 # March 11
@@ -302,6 +334,20 @@ Light walk and early bedtime.
         source: "manual",
         title: "Morning note",
         note: "Slept well and woke up rested.",
+      }),
+      JSON.stringify({
+        schemaVersion: "hb.event.v1",
+        id: "evt_01JNV4DOC000000000000001",
+        kind: "document",
+        occurred_at: "2026-03-12T14:00:00Z",
+        recorded_at: "2026-03-12T14:02:00Z",
+        day_key: "2026-03-12",
+        source: "import",
+        title: "Lab report",
+        related_ids: ["doc_01JNV4DOC0000000000000001"],
+        document_id: "doc_01JNV4DOC0000000000000001",
+        document_path: "raw/documents/2026/03/doc_01JNV4DOC0000000000000001/lab-report.pdf",
+        mime_type: "application/pdf",
       }),
       "",
     ].join("\n"),

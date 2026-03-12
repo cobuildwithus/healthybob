@@ -6,7 +6,7 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-export function registerJournalCommands(cli: Cli, services: VaultCliServices) {
+export function registerJournalCommands(cli: Cli.Cli, services: VaultCliServices) {
   const journal = Cli.create('journal', {
     description: 'Journal document commands routed through the core write API.',
   })
@@ -29,7 +29,7 @@ export function registerJournalCommands(cli: Cli, services: VaultCliServices) {
         })
       },
       renderMarkdown({ data }) {
-        return `# Journal Ready\n\n- date: ${data.date}\n- path: ${data.journalPath}\n- created: ${data.created}`
+        return `# Journal Ready\n\n- date: ${data.date}\n- lookupId: ${data.lookupId}\n- path: ${data.journalPath}\n- created: ${data.created}`
       },
     }),
   )

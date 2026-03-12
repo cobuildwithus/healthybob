@@ -43,8 +43,17 @@ Every command passes through one shared middleware layer before any package call
 - `--request-id` is optional and reserved for audit correlation.
 - `json` is the canonical machine format.
 - `md` is a human-oriented rendering hint; the structured envelope remains the source of truth.
-- Durable IDs emitted by commands follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
+- Canonical ids emitted by core/import flows follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
 - Commands that create or read canonical records align to the generated schemas in `packages/contracts/generated/`.
+- Write/import commands return `lookupId` or `lookupIds` when the follow-on read path should use a queryable id rather than a related or batch id.
+
+## Lookup Rules
+
+- `show` accepts query-layer ids such as `core`, `journal:<YYYY-MM-DD>`, `exp_*`, `evt_*`, `smp_*`, and `aud_*`.
+- `meal_*` and `doc_*` ids are stable related ids carried in event payloads, but the CLI read path expects the returned `lookupId`/`eventId` instead.
+- `xfm_*` identifies an import batch, not a query-layer record.
+- Export pack ids identify derived files under `exports/packs/`; they are not valid `show` targets.
+- A successful `show` response may surface a stable related id such as `meal_*` or `doc_*` in `entity.id` even when the lookup key was a queryable event id.
 
 ## Success Envelope
 
@@ -134,7 +143,8 @@ Field rules:
   "sourceFile": "<path>",
   "rawFile": "<path>",
   "documentId": "doc_123",
-  "eventId": "evt_123"
+  "eventId": "evt_123",
+  "lookupId": "evt_123"
 }
 ```
 
@@ -145,9 +155,10 @@ Field rules:
   "vault": "<path>",
   "mealId": "meal_123",
   "eventId": "evt_123",
+  "lookupId": "evt_123",
   "occurredAt": "2026-03-12T09:30:00-05:00",
   "photoPath": "<path>",
-  "audioPath": "<path>",
+  "audioPath": null,
   "note": "optional note"
 }
 ```
@@ -161,20 +172,27 @@ Field rules:
   "stream": "glucose",
   "importedCount": 42,
   "transformId": "xfm_123",
+  "lookupIds": ["smp_123", "smp_124"],
   "ledgerFiles": ["<path>"]
 }
 ```
+
+`transformId` identifies the raw import batch only. Use the returned `lookupIds` or `list --kind sample` for follow-on reads.
 
 ### `experiment create`
 
 ```json
 {
   "vault": "<path>",
+  "experimentId": "exp_123",
+  "lookupId": "exp_123",
   "slug": "sleep-window",
   "experimentPath": "<path>",
-  "created": true
+  "created": false
 }
 ```
+
+`created: false` is the idempotent retry case when the experiment page already exists with matching baseline attributes.
 
 ### `journal ensure`
 
@@ -182,6 +200,7 @@ Field rules:
 {
   "vault": "<path>",
   "date": "2026-03-12",
+  "lookupId": "journal:2026-03-12",
   "journalPath": "<path>",
   "created": true
 }
@@ -195,7 +214,7 @@ Field rules:
   "entity": {
     "id": "meal_123",
     "kind": "meal",
-    "title": "Lunch",
+    "title": "Lunch bowl",
     "occurredAt": "2026-03-12T12:15:00-05:00",
     "path": "<path>",
     "markdown": "# Lunch",
@@ -203,7 +222,8 @@ Field rules:
     "links": [
       {
         "id": "evt_123",
-        "kind": "event"
+        "kind": "event",
+        "queryable": true
       }
     ]
   }
@@ -227,12 +247,12 @@ Field rules:
     {
       "id": "meal_123",
       "kind": "meal",
-      "title": "Lunch",
+      "title": "Lunch bowl",
       "occurredAt": "2026-03-12T12:15:00-05:00",
       "path": "<path>"
     }
   ],
-  "nextCursor": "opaque"
+  "nextCursor": null
 }
 ```
 
@@ -245,10 +265,18 @@ Field rules:
   "to": "2026-03-12",
   "experiment": "sleep-window",
   "outDir": "<path>",
-  "packId": "pack_123",
-  "files": ["summary.md", "ledger/events.jsonl"]
+  "packId": "pack-2026-03-01-2026-03-12-sleep-window",
+  "files": [
+    "exports/packs/pack-2026-03-01-2026-03-12-sleep-window/manifest.json",
+    "exports/packs/pack-2026-03-01-2026-03-12-sleep-window/question-pack.json",
+    "exports/packs/pack-2026-03-01-2026-03-12-sleep-window/records.json",
+    "exports/packs/pack-2026-03-01-2026-03-12-sleep-window/daily-samples.json",
+    "exports/packs/pack-2026-03-01-2026-03-12-sleep-window/assistant-context.md"
+  ]
 }
 ```
+
+Export packs are derived outputs and do not create canonical vault records.
 
 ## Boundary Rules
 

@@ -53,10 +53,6 @@
             "derived"
           ]
         },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
-        },
         "value": {
           "type": "integer",
           "minimum": 0
@@ -116,10 +112,6 @@
             "derived"
           ]
         },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
-        },
         "value": {
           "type": "number",
           "minimum": 0
@@ -178,10 +170,6 @@
             "normalized",
             "derived"
           ]
-        },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
         },
         "value": {
           "type": "integer",
@@ -244,10 +232,6 @@
             "normalized",
             "derived"
           ]
-        },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
         },
         "stage": {
           "type": "string",
@@ -325,10 +309,6 @@
             "derived"
           ]
         },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
-        },
         "value": {
           "type": "number",
           "minimum": 0
@@ -388,10 +368,6 @@
             "derived"
           ]
         },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
-        },
         "value": {
           "type": "number"
         },
@@ -449,10 +425,6 @@
             "normalized",
             "derived"
           ]
-        },
-        "transformId": {
-          "type": "string",
-          "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
         },
         "value": {
           "type": "number",

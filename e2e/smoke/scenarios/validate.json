@@ -4,5 +4,5 @@
   "vaultFixture": "fixtures/minimal-vault",
   "inputs": [],
   "goldenOutput": "fixtures/golden-outputs/validate",
-  "purpose": "Reserves validation coverage without freezing error-code details that belong to the contracts lane."
+  "purpose": "Covers validation semantics where malformed journal or experiment frontmatter accumulate structured issues instead of aborting on the first failure."
 }

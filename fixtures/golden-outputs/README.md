@@ -1,9 +1,9 @@
 # Golden Output Scaffolding
 
-Each subdirectory reserves a stable home for future captured smoke snapshots.
+Each subdirectory is the stable home for current smoke expectations and any future captured snapshots.
 
 The current scaffold is intentionally lightweight:
 
 - directory exists
-- purpose is documented
-- no unresolved CLI envelope, schema, or formatting detail is frozen yet
+- command-specific lookup and behavior constraints are documented
+- no fake green CLI execution artifacts are stored when the local toolchain cannot run them

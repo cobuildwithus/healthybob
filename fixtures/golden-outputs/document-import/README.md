@@ -1,3 +1,7 @@
 # `vault-cli document import`
 
-Reserve this directory for document-import smoke artifacts after importer and core write-path behavior are implemented.
+Current smoke expectation:
+
+- returns `documentId`, `eventId`, and a queryable `lookupId`
+- `lookupId` is the follow-on `show` target, not `documentId`
+- copies the source into `raw/documents/...`

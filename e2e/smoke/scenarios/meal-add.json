@@ -7,5 +7,5 @@
     "fixtures/sample-imports/meals/meal-audio-placeholder.txt"
   ],
   "goldenOutput": "fixtures/golden-outputs/meal-add",
-  "purpose": "Reserves meal-ingestion smoke coverage until binary fixture support exists."
+  "purpose": "Covers meal-add semantics where photo is required, audio is optional, photo-only meals are valid, and follow-on reads should use the returned lookupId/eventId."
 }

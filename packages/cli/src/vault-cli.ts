@@ -17,7 +17,7 @@ export const CLI_DESCRIPTION =
 
 export function createVaultCli(
   services: VaultCliServices = createIntegratedVaultCliServices(),
-) {
+): Cli.Cli {
   const cli = Cli.create('vault-cli', {
     description: CLI_DESCRIPTION,
     version: '0.0.0',

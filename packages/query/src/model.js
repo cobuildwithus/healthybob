@@ -6,6 +6,7 @@ import { parseMarkdownDocument } from "./markdown.js";
 /**
  * @typedef {{
  *   id: string;
+ *   lookupIds: string[];
  *   recordType: "audit" | "core" | "event" | "experiment" | "journal" | "sample";
  *   sourcePath: string;
  *   sourceFile: string;
@@ -94,7 +95,17 @@ export async function readVault(vaultRoot) {
  * @returns {VaultRecord | null}
  */
 export function lookupRecordById(vault, recordId) {
-  return vault.records.find((record) => record.id === recordId) ?? null;
+  if (typeof recordId !== "string" || !recordId.trim()) {
+    return null;
+  }
+
+  const normalizedId = recordId.trim();
+
+  return (
+    vault.records.find((record) => record.id === normalizedId) ??
+    vault.records.find((record) => record.lookupIds.includes(normalizedId)) ??
+    null
+  );
 }
 
 /**
@@ -124,7 +135,7 @@ export function listRecords(vault, filters = {}) {
   const normalizedText = text ? text.toLowerCase() : null;
 
   return vault.records.filter((record) => {
-    if (idSet && !idSet.has(record.id)) {
+    if (idSet && !record.lookupIds.some((lookupId) => idSet.has(lookupId))) {
       return false;
     }
 
@@ -166,6 +177,7 @@ export function listRecords(vault, filters = {}) {
 
     const haystacks = [
       record.id,
+      ...record.lookupIds,
       record.kind,
       record.stream,
       record.experimentSlug,
@@ -290,15 +302,17 @@ async function readOptionalCoreDocument(vaultRoot, metadata) {
   try {
     const source = await readFile(filePath, "utf8");
     const document = parseMarkdownDocument(source);
-    const title = pickString(document.attributes, ["title"]) ?? extractMarkdownHeading(document.body);
-    const id = pickString(document.attributes, ["vaultId", "vault_id", "id"]) ?? pickString(metadata, ["vaultId", "vault_id"]) ?? "core";
+    const attributes = normalizeFrontmatterAttributes("core", document.attributes);
+    const title = pickString(attributes, ["title"]) ?? extractMarkdownHeading(document.body);
+    const id = pickString(attributes, ["vaultId", "vault_id", "id"]) ?? pickString(metadata, ["vaultId", "vault_id"]) ?? "core";
 
     return {
       id,
+      lookupIds: uniqueStrings([id]),
       recordType: "core",
       sourcePath: "CORE.md",
       sourceFile: filePath,
-      occurredAt: pickString(document.attributes, ["updatedAt", "updated_at"]),
+      occurredAt: pickString(attributes, ["updatedAt", "updated_at"]),
       date: null,
       kind: "core_document",
       stream: null,
@@ -307,10 +321,10 @@ async function readOptionalCoreDocument(vaultRoot, metadata) {
       tags: normalizeTags(document.attributes.tags),
       data: {
         ...(metadata ?? {}),
-        ...document.attributes,
+        ...attributes,
       },
       body: document.body,
-      frontmatter: document.attributes,
+      frontmatter: attributes,
     };
   } catch (error) {
     if (isMissingFileError(error)) {
@@ -332,27 +346,30 @@ async function readExperimentPages(vaultRoot) {
         const filePath = path.join(experimentDir, entry);
         const source = await readFile(filePath, "utf8");
         const document = parseMarkdownDocument(source);
-        const slug = pickString(document.attributes, ["slug"]) ?? path.basename(entry, ".md");
-        const title = pickString(document.attributes, ["title"]) ?? extractMarkdownHeading(document.body) ?? slug;
-        const startedOn = pickString(document.attributes, ["startedOn", "started_on"]);
+        const attributes = normalizeFrontmatterAttributes("experiment", document.attributes);
+        const slug = pickString(attributes, ["slug"]) ?? path.basename(entry, ".md");
+        const title = pickString(attributes, ["title"]) ?? extractMarkdownHeading(document.body) ?? slug;
+        const startedOn = pickString(attributes, ["startedOn", "started_on"]);
+        const id = pickString(attributes, ["experimentId", "id"]) ?? `experiment:${slug}`;
 
         return {
-          id: pickString(document.attributes, ["experimentId", "id"]) ?? `experiment:${slug}`,
+          id,
+          lookupIds: uniqueStrings([id, slug]),
           recordType: "experiment",
           sourcePath: path.posix.join("bank/experiments", entry),
           sourceFile: filePath,
-          occurredAt: pickString(document.attributes, ["updatedAt", "updated_at"]) ?? startedOn,
+          occurredAt: pickString(attributes, ["updatedAt", "updated_at"]) ?? startedOn,
           date: normalizeDate(startedOn),
           kind: "experiment",
           stream: null,
           experimentSlug: slug,
           title,
-          tags: normalizeTags(document.attributes.tags),
+          tags: normalizeTags(attributes.tags),
           data: {
-            ...document.attributes,
+            ...attributes,
           },
           body: document.body,
-          frontmatter: document.attributes,
+          frontmatter: attributes,
         };
       }),
   );
@@ -378,26 +395,29 @@ async function readJournalPages(vaultRoot) {
       const filePath = path.join(yearDir, dayEntry);
       const source = await readFile(filePath, "utf8");
       const document = parseMarkdownDocument(source);
-      const date = pickString(document.attributes, ["dayKey", "date"]) ?? path.basename(dayEntry, ".md");
-      const title = pickString(document.attributes, ["title"]) ?? extractMarkdownHeading(document.body) ?? date;
+      const attributes = normalizeFrontmatterAttributes("journal", document.attributes);
+      const date = pickString(attributes, ["dayKey", "date"]) ?? path.basename(dayEntry, ".md");
+      const title = pickString(attributes, ["title"]) ?? extractMarkdownHeading(document.body) ?? date;
+      const id = pickString(attributes, ["id"]) ?? `journal:${date}`;
 
       pages.push({
-        id: pickString(document.attributes, ["id"]) ?? `journal:${date}`,
+        id,
+        lookupIds: uniqueStrings([id, date]),
         recordType: "journal",
         sourcePath: path.posix.join("journal", yearEntry, dayEntry),
         sourceFile: filePath,
-        occurredAt: pickString(document.attributes, ["updatedAt", "updated_at"]),
+        occurredAt: pickString(attributes, ["updatedAt", "updated_at"]),
         date,
         kind: "journal_day",
         stream: null,
-        experimentSlug: pickString(document.attributes, ["experimentSlug", "experiment_slug"]),
+        experimentSlug: pickString(attributes, ["experimentSlug", "experiment_slug"]),
         title,
-        tags: normalizeTags(document.attributes.tags),
+        tags: normalizeTags(attributes.tags),
         data: {
-          ...document.attributes,
+          ...attributes,
         },
         body: document.body,
-        frontmatter: document.attributes,
+        frontmatter: attributes,
       });
     }
   }
@@ -422,26 +442,42 @@ async function readJsonlRecordFamily(vaultRoot, relativeDir, recordType) {
         continue;
       }
 
-      const payload = /** @type {Record<string, unknown>} */ (JSON.parse(line));
+      const payload = normalizeJsonRecordPayload(
+        recordType,
+        /** @type {Record<string, unknown>} */ (JSON.parse(line)),
+      );
+      const rawRecordId = pickString(payload, ["id"]) ?? `${recordType}:${sourcePath}:${index + 1}`;
       const occurredAt =
         pickString(payload, ["occurredAt", "recordedAt", "occurred_at", "recorded_at", "timestamp"]);
       const kind =
         pickString(payload, ["kind"]) ??
         (recordType === "audit" ? "audit" : recordType);
+      const recordId = deriveQueryableRecordId(recordType, payload, rawRecordId);
+      const lookupIds = uniqueStrings([
+        recordId,
+        rawRecordId,
+        ...normalizeStringArray(payload.relatedIds),
+        ...normalizeStringArray(payload.eventIds),
+      ]);
 
       records.push({
-        id: pickString(payload, ["id"]) ?? `${recordType}:${sourcePath}:${index + 1}`,
+        id: recordId,
+        lookupIds,
         recordType,
         sourcePath,
         sourceFile: filePath,
         occurredAt,
-        date: normalizeDate(occurredAt),
+        date: normalizeDate(occurredAt) ?? pickString(payload, ["dayKey", "day_key"]),
         kind,
         stream: null,
         experimentSlug: pickString(payload, ["experimentSlug", "experiment_slug"]),
         title: pickString(payload, ["title", "summary"]),
         tags: normalizeTags(payload.tags),
-        data: payload,
+        data: normalizeRecordData(payload, {
+          recordType,
+          recordId,
+          rawRecordId,
+        }),
         body: pickString(payload, ["note", "summary"]),
         frontmatter: null,
       });
@@ -469,18 +505,23 @@ async function readSampleRecords(vaultRoot) {
         continue;
       }
 
-      const payload = /** @type {Record<string, unknown>} */ (JSON.parse(line));
+      const payload = normalizeJsonRecordPayload(
+        "sample",
+        /** @type {Record<string, unknown>} */ (JSON.parse(line)),
+      );
+      const rawRecordId = pickString(payload, ["id"]) ?? `sample:${sourcePath}:${index + 1}`;
       const occurredAt =
         pickString(payload, ["recordedAt", "occurredAt", "recorded_at", "occurred_at", "timestamp"]);
       const stream = pickString(payload, ["stream"]) ?? streamFromPath;
 
       records.push({
-        id: pickString(payload, ["id"]) ?? `sample:${sourcePath}:${index + 1}`,
+        id: rawRecordId,
+        lookupIds: uniqueStrings([rawRecordId]),
         recordType: "sample",
         sourcePath,
         sourceFile: filePath,
         occurredAt,
-        date: normalizeDate(occurredAt),
+        date: normalizeDate(occurredAt) ?? pickString(payload, ["dayKey", "day_key"]),
         kind: "sample",
         stream,
         experimentSlug: pickString(payload, ["experimentSlug", "experiment_slug"]),
@@ -590,11 +631,7 @@ function normalizeDate(value) {
 }
 
 function normalizeTags(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean);
+  return normalizeStringArray(value);
 }
 
 function pickString(object, keys) {
@@ -621,6 +658,156 @@ function inferSampleStreamFromPath(sourcePath) {
   }
 
   return segments[sampleIndex + 1] ?? null;
+}
+
+function normalizeFrontmatterAttributes(recordType, attributes) {
+  const normalized =
+    attributes && typeof attributes === "object" ? { ...attributes } : {};
+
+  switch (recordType) {
+    case "core":
+      assignCanonicalString(normalized, attributes, "vaultId", ["vaultId", "vault_id", "id"]);
+      assignCanonicalString(normalized, attributes, "updatedAt", ["updatedAt", "updated_at"]);
+      normalized.tags = normalizeStringArray(normalized.tags);
+      return normalized;
+    case "experiment":
+      assignCanonicalString(normalized, attributes, "experimentId", ["experimentId", "experiment_id", "id"]);
+      assignCanonicalString(normalized, attributes, "slug", ["slug", "experimentSlug", "experiment_slug"]);
+      assignCanonicalString(normalized, attributes, "startedOn", ["startedOn", "started_on"]);
+      assignCanonicalString(normalized, attributes, "updatedAt", ["updatedAt", "updated_at"]);
+      normalized.tags = normalizeStringArray(normalized.tags);
+      return normalized;
+    case "journal":
+      assignCanonicalString(normalized, attributes, "dayKey", ["dayKey", "day_key", "date"]);
+      assignCanonicalString(
+        normalized,
+        attributes,
+        "experimentSlug",
+        ["experimentSlug", "experiment_slug"],
+      );
+      assignCanonicalString(normalized, attributes, "updatedAt", ["updatedAt", "updated_at"]);
+      assignCanonicalArray(normalized, attributes, "eventIds", ["eventIds", "event_ids"]);
+      assignCanonicalArray(normalized, attributes, "sampleStreams", ["sampleStreams", "sample_streams"]);
+      normalized.tags = normalizeStringArray(normalized.tags);
+      return normalized;
+    default:
+      return normalized;
+  }
+}
+
+function normalizeJsonRecordPayload(recordType, payload) {
+  const normalized =
+    payload && typeof payload === "object" ? { ...payload } : {};
+
+  assignCanonicalString(normalized, payload, "id", ["id"]);
+  assignCanonicalString(normalized, payload, "kind", ["kind"]);
+  assignCanonicalString(normalized, payload, "stream", ["stream"]);
+  assignCanonicalString(normalized, payload, "source", ["source"]);
+  assignCanonicalString(normalized, payload, "title", ["title"]);
+  assignCanonicalString(normalized, payload, "summary", ["summary"]);
+  assignCanonicalString(normalized, payload, "note", ["note"]);
+  assignCanonicalString(normalized, payload, "occurredAt", ["occurredAt", "occurred_at"]);
+  assignCanonicalString(normalized, payload, "recordedAt", ["recordedAt", "recorded_at", "timestamp"]);
+  assignCanonicalString(normalized, payload, "dayKey", ["dayKey", "day_key"]);
+  assignCanonicalString(normalized, payload, "experimentId", ["experimentId", "experiment_id"]);
+  assignCanonicalString(normalized, payload, "experimentSlug", ["experimentSlug", "experiment_slug"]);
+  assignCanonicalString(normalized, payload, "documentId", ["documentId", "document_id"]);
+  assignCanonicalString(normalized, payload, "documentPath", ["documentPath", "document_path"]);
+  assignCanonicalString(normalized, payload, "mimeType", ["mimeType", "mime_type"]);
+  assignCanonicalString(normalized, payload, "mealId", ["mealId", "meal_id"]);
+  assignCanonicalString(normalized, payload, "transformId", ["transformId", "transform_id"]);
+  assignCanonicalArray(normalized, payload, "tags", ["tags"]);
+  assignCanonicalArray(normalized, payload, "relatedIds", ["relatedIds", "related_ids"]);
+  assignCanonicalArray(normalized, payload, "rawRefs", ["rawRefs", "raw_refs"]);
+  assignCanonicalArray(normalized, payload, "eventIds", ["eventIds", "event_ids"]);
+  assignCanonicalArray(normalized, payload, "photoPaths", ["photoPaths", "photo_paths"]);
+  assignCanonicalArray(normalized, payload, "audioPaths", ["audioPaths", "audio_paths"]);
+
+  if (recordType === "sample") {
+    assignCanonicalString(normalized, payload, "quality", ["quality"]);
+    assignCanonicalString(normalized, payload, "unit", ["unit"]);
+  }
+
+  return normalized;
+}
+
+function deriveQueryableRecordId(recordType, payload, fallbackId) {
+  if (recordType !== "event") {
+    return fallbackId;
+  }
+
+  const kind = pickString(payload, ["kind"]);
+
+  if (kind === "document") {
+    return pickString(payload, ["documentId", "document_id"]) ?? fallbackId;
+  }
+
+  if (kind === "meal") {
+    return pickString(payload, ["mealId", "meal_id"]) ?? fallbackId;
+  }
+
+  return fallbackId;
+}
+
+function normalizeRecordData(payload, { recordType, recordId, rawRecordId }) {
+  const data =
+    payload && typeof payload === "object" ? { ...payload } : {};
+
+  if (recordType === "event" && recordId !== rawRecordId) {
+    data.entityId = recordId;
+    data.eventIds = uniqueStrings([...normalizeStringArray(data.eventIds), rawRecordId]);
+    data.relatedIds = uniqueStrings(normalizeStringArray(data.relatedIds)).filter(
+      (relatedId) => relatedId !== recordId,
+    );
+  }
+
+  return data;
+}
+
+function assignCanonicalString(target, source, key, aliases) {
+  const value = pickString(source, aliases);
+  if (value) {
+    target[key] = value;
+  }
+}
+
+function assignCanonicalArray(target, source, key, aliases) {
+  const value = pickFirstArray(source, aliases);
+  if (value) {
+    target[key] = normalizeStringArray(value);
+  }
+}
+
+function pickFirstArray(object, keys) {
+  if (!object || typeof object !== "object") {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = object[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return uniqueStrings(
+    value
+      .filter((entry) => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.trim()))];
 }
 
 function toPosixRelative(root, filePath) {

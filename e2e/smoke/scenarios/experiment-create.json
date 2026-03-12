@@ -6,5 +6,5 @@
     "fixtures/minimal-vault/bank/experiments/baseline-observation.md"
   ],
   "goldenOutput": "fixtures/golden-outputs/experiment-create",
-  "purpose": "Reserves experiment-page creation coverage using the fixture experiment namespace."
+  "purpose": "Covers experiment creation semantics where repeated requests may return created=false while preserving the same experimentId and lookupId."
 }

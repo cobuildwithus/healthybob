@@ -16,9 +16,6 @@ import {
   SAMPLE_SOURCES,
   SAMPLE_STREAMS,
   SLEEP_STAGES,
-  TRANSFORM_SOURCE_KINDS,
-  TRANSFORM_STATUSES,
-  TRANSFORM_TYPES,
 } from "./constants.js";
 import { GENERIC_CONTRACT_ID_PATTERN, idPattern } from "./ids.js";
 
@@ -115,7 +112,6 @@ const baseSampleProperties = {
   dayKey: stringSchema({ pattern: DAY_KEY_PATTERN }),
   source: stringSchema({ enum: SAMPLE_SOURCES }),
   quality: stringSchema({ enum: SAMPLE_QUALITIES }),
-  transformId: idSchema(ID_PREFIXES.transform),
 };
 
 function sampleSchema(stream, extraRequired, extraProperties) {
@@ -334,7 +330,6 @@ export const auditRecordSchema = withDraft(
       summary: stringSchema({ minLength: 1, maxLength: 4000 }),
       targetIds: stringArraySchema(stringSchema({ pattern: GENERIC_CONTRACT_ID_PATTERN }), { uniqueItems: true }),
       errorCode: stringSchema({ enum: ERROR_CODE_VALUES }),
-      transformId: idSchema(ID_PREFIXES.transform),
       changes: {
         type: "array",
         items: closedObject(["path", "op"], {
@@ -342,33 +337,6 @@ export const auditRecordSchema = withDraft(
           op: stringSchema({ enum: FILE_CHANGE_OPERATIONS }),
         }),
       },
-    },
-  ),
-);
-
-export const transformRecordSchema = withDraft(
-  "@healthybob/contracts/transform-record.schema.json",
-  "Healthy Bob Transform Record",
-  closedObject(
-    ["schemaVersion", "id", "transformType", "status", "appliedAt", "input", "output"],
-    {
-      schemaVersion: { const: CONTRACT_SCHEMA_VERSION.transform },
-      id: idSchema(ID_PREFIXES.transform),
-      transformType: stringSchema({ enum: TRANSFORM_TYPES }),
-      status: stringSchema({ enum: TRANSFORM_STATUSES }),
-      appliedAt: stringSchema({ format: "date-time" }),
-      errorCode: stringSchema({ enum: ERROR_CODE_VALUES }),
-      input: closedObject(["sourceKind", "rawPaths", "sourceLabel"], {
-        sourceKind: stringSchema({ enum: TRANSFORM_SOURCE_KINDS }),
-        rawPaths: stringArraySchema(stringSchema({ pattern: RAW_PATH_PATTERN }), { minItems: 1 }),
-        sourceLabel: stringSchema({ minLength: 1, maxLength: 160 }),
-      }),
-      output: closedObject(["eventIds", "sampleIds", "auditIds", "markdownPaths"], {
-        eventIds: stringArraySchema(idSchema(ID_PREFIXES.event), { uniqueItems: true }),
-        sampleIds: stringArraySchema(idSchema(ID_PREFIXES.sample), { uniqueItems: true }),
-        auditIds: stringArraySchema(idSchema(ID_PREFIXES.audit), { uniqueItems: true }),
-        markdownPaths: stringArraySchema(stringSchema({ pattern: RELATIVE_PATH_PATTERN }), { uniqueItems: true }),
-      }),
     },
   ),
 );
@@ -432,6 +400,5 @@ export const schemaCatalog = Object.freeze({
   "frontmatter-experiment": experimentFrontmatterSchema,
   "frontmatter-journal-day": journalDayFrontmatterSchema,
   "sample-record": sampleRecordSchema,
-  "transform-record": transformRecordSchema,
   "vault-metadata": vaultMetadataSchema,
 });

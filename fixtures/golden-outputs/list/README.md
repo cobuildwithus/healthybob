@@ -1,3 +1,7 @@
 # `vault-cli list`
 
-Reserve this directory for list-command output samples once CLI output envelopes and filter behavior are finalized.
+Current smoke expectation:
+
+- returns filtered `items` plus `nextCursor`
+- baseline `nextCursor` is currently `null`
+- listed ids may need conversion to a queryable lookup before `show`

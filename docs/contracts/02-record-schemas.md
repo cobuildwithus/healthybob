@@ -6,20 +6,20 @@ Schema sources live in `packages/contracts/src/`. Generated JSON Schema artifact
 
 ## ID Policy
 
-All durable IDs use one format: `<prefix>_<ULID>`.
+Canonical record ids and importer batch ids use one format: `<prefix>_<ULID>`.
+Derived export-pack directories use a path-safe pack name and are not canonical vault record ids.
 
-| Family | Prefix |
-| --- | --- |
-| vault | `vault` |
-| event | `evt` |
-| sample | `smp` |
-| audit | `aud` |
-| transform | `xfm` |
-| document | `doc` |
-| meal | `meal` |
-| experiment | `exp` |
-| provider | `prov` |
-| export pack | `pack` |
+| Family | Prefix | Notes |
+| --- | --- | --- |
+| vault | `vault` | vault metadata id |
+| event | `evt` | canonical event record id |
+| sample | `smp` | canonical sample record id |
+| audit | `aud` | canonical audit record id |
+| transform batch | `xfm` | import-batch id returned from sample-import flows and used in raw paths |
+| document | `doc` | related id stored on document events |
+| meal | `meal` | related id stored on meal events |
+| experiment | `exp` | experiment page id and related event id |
+| provider | `prov` | provider page id |
 
 ## Baseline Record Families
 
@@ -31,10 +31,10 @@ All durable IDs use one format: `<prefix>_<ULID>`.
   `schemaVersion`, `id`, `stream`, `recordedAt`, `dayKey`, `source`, `quality`, plus stream-specific fields
 - Audit records:
   `schemaVersion`, `id`, `action`, `status`, `occurredAt`, `actor`, `commandName`, `summary`, `changes`
-- Transform records:
-  `schemaVersion`, `id`, `transformType`, `status`, `appliedAt`, `input`, `output`
 - Markdown frontmatter:
   `CORE.md`, journal day pages, and experiment pages each use a closed frontmatter schema
+
+Baseline does not define a standalone transform record family. `xfm_*` ids are batch identifiers surfaced by import flows and raw-path layout only.
 
 ## Baseline Event Kinds
 
@@ -80,7 +80,6 @@ Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `r
 - `event-record.schema.json`
 - `sample-record.schema.json`
 - `audit-record.schema.json`
-- `transform-record.schema.json`
 - `frontmatter-core.schema.json`
 - `frontmatter-journal-day.schema.json`
 - `frontmatter-experiment.schema.json`

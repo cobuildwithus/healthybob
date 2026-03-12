@@ -1,3 +1,6 @@
 # `vault-cli init`
 
-Reserve this directory for the post-init tree snapshot once `vault.json` and ledger bootstrap details are finalized.
+Current smoke expectation:
+
+- returns `created: true` plus the initialized directories and files
+- bootstraps `vault.json` and `CORE.md`

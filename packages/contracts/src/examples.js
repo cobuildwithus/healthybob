@@ -273,7 +273,6 @@ export const exampleAuditRecords = Object.freeze([
     commandName: "vault-cli meal add",
     summary: "Stored a meal event and copied one photo attachment.",
     targetIds: ["evt_01JNV42F34M22V2PE9Q4KQ7H1X", "meal_01JNV42NP0KH6JQXMZM1G0V6SE"],
-    transformId: "xfm_01JNV48D6G8ZNTVWYWWJ5YZ5H0",
     changes: [
       {
         path: "raw/meals/2026/03/meal_01JNV42NP0KH6JQXMZM1G0V6SE/photo-01.jpg",
@@ -296,45 +295,6 @@ export const exampleAuditRecords = Object.freeze([
     summary: "Rejected a sample shard with an unsupported stream name.",
     errorCode: "HB_ENUM_UNSUPPORTED",
     changes: [],
-  },
-]);
-
-export const exampleTransformRecords = Object.freeze([
-  {
-    schemaVersion: "hb.transform.v1",
-    id: "xfm_01JNV4924HHKTSVHAF4C4P4VBM",
-    transformType: "document_import",
-    status: "success",
-    appliedAt: "2026-03-12T08:16:00Z",
-    input: {
-      sourceKind: "file",
-      rawPaths: ["raw/documents/2026/03/doc_01JNV41Q9MN0S1R6ZMW7FGD9DG/visit-summary.pdf"],
-      sourceLabel: "visit-summary.pdf",
-    },
-    output: {
-      eventIds: ["evt_01JNV41B483QH9GQ1Y08D7RMTA"],
-      sampleIds: [],
-      auditIds: ["aud_01JNV49BDRMJ1TBGQ0Z71R4Y4Y"],
-      markdownPaths: [],
-    },
-  },
-  {
-    schemaVersion: "hb.transform.v1",
-    id: "xfm_01JNV49Q1XSTBBE5D5D7YZ5ZAG",
-    transformType: "samples_import_csv",
-    status: "success",
-    appliedAt: "2026-03-12T19:45:00Z",
-    input: {
-      sourceKind: "csv",
-      rawPaths: ["raw/samples/glucose/2026/03/xfm_01JNV49Q1XSTBBE5D5D7YZ5ZAG/glucose.csv"],
-      sourceLabel: "glucose.csv",
-    },
-    output: {
-      eventIds: [],
-      sampleIds: ["smp_01JNV47Q7KJ8Y6JAZ2RW1H7MYN"],
-      auditIds: ["aud_01JNV4A0MVWRCZ4KQ6DF7QZ5J0"],
-      markdownPaths: [],
-    },
   },
 ]);
 

@@ -5,7 +5,6 @@ export declare const CONTRACT_SCHEMA_VERSION: Readonly<{
   journalDayFrontmatter: "hb.frontmatter.journal-day.v1";
   coreFrontmatter: "hb.frontmatter.core.v1";
   sample: "hb.sample.v1";
-  transform: "hb.transform.v1";
   vault: "hb.vault.v1";
 }>;
 
@@ -70,16 +69,6 @@ export declare const AUDIT_ACTIONS: readonly [
 export declare const AUDIT_ACTORS: readonly ["cli", "core", "importer", "query"];
 export declare const AUDIT_STATUSES: readonly ["success", "failure"];
 export declare const FILE_CHANGE_OPERATIONS: readonly ["create", "append", "update", "copy"];
-
-export declare const TRANSFORM_TYPES: readonly [
-  "document_import",
-  "meal_add",
-  "samples_import_csv",
-  "export_pack"
-];
-
-export declare const TRANSFORM_SOURCE_KINDS: readonly ["file", "csv", "manual", "derived"];
-export declare const TRANSFORM_STATUSES: readonly ["success", "failed"];
 
 export declare const FRONTMATTER_DOC_TYPES: Readonly<{
   core: "core";

@@ -7,7 +7,7 @@ import {
 import type { VaultCliServices } from '../vault-cli-services.js'
 
 export function registerExperimentCommands(
-  cli: Cli,
+  cli: Cli.Cli,
   services: VaultCliServices,
 ) {
   const experiment = Cli.create('experiment', {
@@ -18,7 +18,7 @@ export function registerExperimentCommands(
     'create',
     defineCommand({
       command: 'experiment create',
-      description: 'Create or confirm a baseline experiment document.',
+      description: 'Create a baseline experiment document.',
       args: z.object({
         slug: slugSchema,
       }),
@@ -32,7 +32,7 @@ export function registerExperimentCommands(
         })
       },
       renderMarkdown({ data }) {
-        return `# Experiment Ready\n\n- slug: ${data.slug}\n- path: ${data.experimentPath}\n- created: ${data.created}`
+        return `# Experiment Created\n\n- experimentId: ${data.experimentId}\n- lookupId: ${data.lookupId}\n- slug: ${data.slug}\n- path: ${data.experimentPath}\n- created: ${data.created}`
       },
     }),
   )

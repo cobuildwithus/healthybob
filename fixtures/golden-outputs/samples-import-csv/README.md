@@ -1,3 +1,7 @@
 # `vault-cli samples import-csv`
 
-Reserve this directory for sample-import smoke artifacts after sample ledger schemas and importer behavior are implemented.
+Current smoke expectation:
+
+- returns `importedCount`, `transformId`, `lookupIds`, and `ledgerFiles`
+- `transformId` is an import-batch id, not a `show` target
+- `lookupIds` point at the created sample records

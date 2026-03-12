@@ -18,7 +18,9 @@ export interface CommandRunContext<TArgs, TOptions extends BaseCommandOptions> {
   format: OutputFormat
 }
 
-interface SuccessEnvelopeBase<TData> {
+type ObjectSchema = z.ZodObject<z.ZodRawShape>
+
+export interface SuccessEnvelopeBase<TData> {
   command: string
   ok: true
   format: OutputFormat
@@ -29,8 +31,8 @@ interface SuccessEnvelopeBase<TData> {
 }
 
 export interface WrappedCommandSpec<
-  TArgsSchema extends z.AnyZodObject,
-  TOptionsSchema extends z.AnyZodObject,
+  TArgsSchema extends ObjectSchema,
+  TOptionsSchema extends ObjectSchema,
   TDataSchema extends z.ZodTypeAny,
 > {
   command: string
@@ -39,23 +41,23 @@ export interface WrappedCommandSpec<
   options: TOptionsSchema
   data: TDataSchema
   examples?: Array<{
-    args?: Record<string, unknown>
-    options?: Record<string, unknown>
+    args?: Partial<z.input<TArgsSchema>>
+    options?: Partial<z.input<TOptionsSchema>>
     description: string
   }>
-  run(input: CommandRunContext<z.infer<TArgsSchema>, z.infer<TOptionsSchema>>): Promise<
-    z.infer<TDataSchema>
-  >
+  run(
+    input: CommandRunContext<z.infer<TArgsSchema>, z.infer<TOptionsSchema> & BaseCommandOptions>,
+  ): Promise<z.infer<TDataSchema>>
   renderMarkdown?(
     envelope: SuccessEnvelopeBase<z.infer<TDataSchema>>,
   ): string | undefined
 }
 
 export function wrapCommand<
-  TArgsSchema extends z.AnyZodObject,
-  TOptionsSchema extends z.AnyZodObject,
+  TArgsSchema extends ObjectSchema,
+  TOptionsSchema extends ObjectSchema,
   TDataSchema extends z.ZodTypeAny,
->(spec: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>) {
+>(spec: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>): any {
   return {
     description: spec.description,
     args: spec.args,
@@ -67,28 +69,31 @@ export function wrapCommand<
       options,
     }: {
       args: z.infer<TArgsSchema>
-      options: z.infer<TOptionsSchema>
+      options: z.infer<TOptionsSchema> & BaseCommandOptions
     }): Promise<SuccessEnvelopeBase<z.infer<TDataSchema>> | FailureEnvelope> {
+      const requestId =
+        typeof options.requestId === 'string' ? options.requestId : null
+      const format: OutputFormat = options.format === 'md' ? 'md' : 'json'
+
       try {
-        const requestId = options.requestId ?? null
         const envelope = {
           command: spec.command,
           ok: true as const,
-          format: options.format,
+          format,
           requestId,
           data: await spec.run({
             args,
             options,
             requestId,
             vault: options.vault,
-            format: options.format,
+            format,
           }),
         }
 
         return {
           ...envelope,
           rendered:
-            options.format === 'md'
+            format === 'md'
               ? spec.renderMarkdown?.(envelope)
               : undefined,
         }
@@ -98,8 +103,8 @@ export function wrapCommand<
         return failureEnvelopeSchema.parse({
           command: spec.command,
           ok: false,
-          format: options.format,
-          requestId: options.requestId ?? null,
+          format,
+          requestId,
           error: {
             code: normalized.code,
             message: normalized.message,

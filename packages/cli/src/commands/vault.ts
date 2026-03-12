@@ -1,4 +1,4 @@
-import type { Cli } from 'incur'
+import { Cli } from 'incur'
 import { defineCommand, emptyArgsSchema, withBaseOptions } from '../command-helpers.js'
 import {
   vaultInitResultSchema,
@@ -6,7 +6,7 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-export function registerVaultCommands(cli: Cli, services: VaultCliServices) {
+export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) {
   cli.command(
     'init',
     defineCommand({

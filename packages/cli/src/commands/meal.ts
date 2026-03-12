@@ -7,7 +7,7 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-export function registerMealCommands(cli: Cli, services: VaultCliServices) {
+export function registerMealCommands(cli: Cli.Cli, services: VaultCliServices) {
   const meal = Cli.create('meal', {
     description: 'Meal capture commands routed through the core write API.',
   })
@@ -18,18 +18,16 @@ export function registerMealCommands(cli: Cli, services: VaultCliServices) {
       command: 'meal add',
       description: 'Record a meal event using media references plus optional notes.',
       args: emptyArgsSchema,
-      options: withBaseOptions(
-        z.object({
-          photo: pathSchema.describe('Required meal photo path.'),
-          audio: pathSchema
-            .optional()
-            .describe('Optional audio note path.'),
-          note: z.string().min(1).optional().describe('Optional freeform note.'),
-          occurredAt: isoTimestampSchema
-            .optional()
-            .describe('Optional occurrence timestamp in ISO 8601 form.'),
-        }),
-      ),
+      options: withBaseOptions({
+        photo: pathSchema.describe('Required meal photo path.'),
+        audio: pathSchema
+          .optional()
+          .describe('Optional audio note path.'),
+        note: z.string().min(1).optional().describe('Optional freeform note.'),
+        occurredAt: isoTimestampSchema
+          .optional()
+          .describe('Optional occurrence timestamp in ISO 8601 form.'),
+      }),
       data: mealAddResultSchema,
       async run({ options, vault, requestId }) {
         return services.core.addMeal({
@@ -42,7 +40,7 @@ export function registerMealCommands(cli: Cli, services: VaultCliServices) {
         })
       },
       renderMarkdown({ data }) {
-        return `# Meal Added\n\n- meal: ${data.mealId}\n- event: ${data.eventId}\n- photo: ${data.photoPath}\n- occurredAt: ${data.occurredAt ?? 'unknown'}`
+        return `# Meal Added\n\n- mealId: ${data.mealId}\n- lookupId: ${data.lookupId}\n- event: ${data.eventId}\n- photo: ${data.photoPath}\n- occurredAt: ${data.occurredAt ?? 'unknown'}`
       },
     }),
   )

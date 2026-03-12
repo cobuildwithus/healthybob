@@ -1,21 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-
-import {
-  REQUIRED_DIRECTORIES,
-  addMeal,
-  createExperiment,
-  ensureJournalDay,
-  initializeVault,
-  validateVault,
-} from "../../core/src/index.js"
-import { createImporters } from "../../importers/src/index.js"
-import {
-  buildExportPack,
-  listRecords,
-  lookupRecordById,
-  readVault,
-} from "../../query/src/index.js"
 import type {
   DocumentImportResult,
   ExperimentCreateResult,
@@ -30,6 +14,18 @@ import type {
   SamplesImportCsvResult,
 } from "./vault-cli-contracts.js"
 import { VaultCliError } from "./vault-cli-errors.js"
+
+const RUNTIME_PACKAGES = Object.freeze([
+  "@healthybob/core",
+  "@healthybob/importers",
+  "@healthybob/query",
+  "incur",
+])
+
+const dynamicImport = new Function(
+  "specifier",
+  "return import(specifier)",
+) as (specifier: string) => Promise<unknown>
 
 export interface CommandContext {
   vault: string
@@ -101,6 +97,127 @@ export interface VaultCliServices {
   query: QueryServices
 }
 
+interface CoreRuntimeModule {
+  REQUIRED_DIRECTORIES: readonly string[]
+  initializeVault(input: {
+    vaultRoot: string
+  }): Promise<unknown>
+  validateVault(input: {
+    vaultRoot: string
+  }): Promise<{
+    valid: boolean
+    issues?: Array<Record<string, unknown>>
+  }>
+  addMeal(input: {
+    vaultRoot: string
+    photoPath: string
+    audioPath?: string
+    note?: string
+    occurredAt?: string
+  }): Promise<{
+    mealId: string
+    event: {
+      id: string
+      occurredAt?: string | null
+    }
+    photo: {
+      relativePath: string
+    }
+    audio?: {
+      relativePath: string
+    } | null
+  }>
+  createExperiment(input: {
+    vaultRoot: string
+    slug: string
+    title?: string
+  }): Promise<{
+    created?: boolean
+    experiment: {
+      id: string
+      slug: string
+      relativePath: string
+    }
+  }>
+  ensureJournalDay(input: {
+    vaultRoot: string
+    date: string
+  }): Promise<{
+    relativePath: string
+    created: boolean
+  }>
+}
+
+interface ImportersRuntimeModule {
+  createImporters(): {
+    importDocument(input: {
+      filePath: string
+      vaultRoot: string
+    }): Promise<{
+      raw: {
+        relativePath: string
+      }
+      documentId: string
+      event: {
+        id: string
+      }
+    }>
+    importCsvSamples(input: {
+      filePath: string
+      vaultRoot: string
+      stream: string
+      tsColumn: string
+      valueColumn: string
+      unit: string
+    }): Promise<{
+      count: number
+      records: Array<{
+        id: string
+      }>
+      transformId: string
+      shardPaths: string[]
+    }>
+  }
+}
+
+interface QueryRecord {
+  id: string
+  recordType: string
+  sourcePath?: string | null
+  occurredAt?: string | null
+  kind?: string | null
+  title?: string | null
+  body?: string | null
+  data: Record<string, unknown>
+}
+
+interface QueryRuntimeModule {
+  readVault(vaultRoot: string): Promise<unknown>
+  lookupRecordById(readModel: unknown, recordId: string): QueryRecord | null
+  listRecords(
+    readModel: unknown,
+    filters?: Record<string, unknown>,
+  ): QueryRecord[]
+  buildExportPack(
+    readModel: unknown,
+    options?: Record<string, unknown>,
+  ): {
+    packId: string
+    files: Array<{
+      path: string
+      contents: string
+    }>
+  }
+}
+
+interface IntegratedRuntime {
+  core: CoreRuntimeModule
+  importers: ReturnType<ImportersRuntimeModule["createImporters"]>
+  query: QueryRuntimeModule
+}
+
+let integratedRuntimePromise: Promise<IntegratedRuntime> | null = null
+
 function createUnwiredMethod(name: string) {
   return async () => {
     throw new VaultCliError(
@@ -110,7 +227,9 @@ function createUnwiredMethod(name: string) {
   }
 }
 
-function normalizeIssues(issues: Array<Record<string, unknown>> = []) {
+function normalizeIssues(
+  issues: Array<Record<string, unknown>> = [],
+): VaultValidateResult["issues"] {
   return issues.map((issue) => ({
     code: String(issue.code ?? "validation_issue"),
     path: String(issue.path ?? "vault.json"),
@@ -123,6 +242,10 @@ function normalizeIssues(issues: Array<Record<string, unknown>> = []) {
 }
 
 function inferEntityKind(id: string) {
+  if (id === "core") {
+    return "core"
+  }
+
   if (id.startsWith("evt_")) {
     return "event"
   }
@@ -150,6 +273,41 @@ function inferEntityKind(id: string) {
   return "entity"
 }
 
+function isQueryableRecordId(id: string) {
+  return (
+    id === "core" ||
+    id.startsWith("aud_") ||
+    id.startsWith("evt_") ||
+    id.startsWith("exp_") ||
+    id.startsWith("smp_") ||
+    id.startsWith("audit:") ||
+    id.startsWith("event:") ||
+    id.startsWith("experiment:") ||
+    id.startsWith("journal:") ||
+    id.startsWith("sample:")
+  )
+}
+
+function describeLookupConstraint(id: string) {
+  if (id.startsWith("meal_")) {
+    return "Meal ids are stable related ids, not query-layer record ids. Use the returned lookupId/eventId with `show` instead."
+  }
+
+  if (id.startsWith("doc_")) {
+    return "Document ids are stable related ids, not query-layer record ids. Use the returned lookupId/eventId with `show` instead."
+  }
+
+  if (id.startsWith("xfm_")) {
+    return "Transform ids identify an import batch, not a query-layer record. Use the returned lookupIds or `list --kind sample` instead."
+  }
+
+  if (id.startsWith("pack_")) {
+    return "Export pack ids identify derived exports, not canonical vault records. Inspect the materialized pack files instead of passing the pack id to `show`."
+  }
+
+  return null
+}
+
 function buildEntityLinks(record: {
   data: Record<string, unknown>
 }) {
@@ -163,6 +321,7 @@ function buildEntityLinks(record: {
       links.push({
         id: relatedId,
         kind: inferEntityKind(relatedId),
+        queryable: isQueryableRecordId(relatedId),
       })
     }
   }
@@ -175,6 +334,7 @@ function buildEntityLinks(record: {
       links.push({
         id: eventId,
         kind: "event",
+        queryable: true,
       })
     }
   }
@@ -193,22 +353,77 @@ async function materializeExportPack(
   }
 }
 
-export function createIntegratedVaultCliServices(): VaultCliServices {
-  const importers = createImporters()
+function createRuntimeUnavailableError(
+  operation: string,
+  cause: unknown,
+) {
+  const details =
+    cause instanceof Error
+      ? {
+          cause: cause.message,
+          packages: [...RUNTIME_PACKAGES],
+        }
+      : {
+          packages: [...RUNTIME_PACKAGES],
+        }
 
+  return new VaultCliError(
+    "runtime_unavailable",
+    `packages/cli can describe ${operation}, but local execution is blocked until the integrating workspace installs incur and links @healthybob/core, @healthybob/importers, and @healthybob/query.`,
+    details,
+  )
+}
+
+async function loadIntegratedRuntime() {
+  if (!integratedRuntimePromise) {
+    integratedRuntimePromise = (async () => {
+      try {
+        const [coreModule, importersModule, queryModule] = await Promise.all([
+          dynamicImport("@healthybob/core"),
+          dynamicImport("@healthybob/importers"),
+          dynamicImport("@healthybob/query"),
+        ])
+
+        return {
+          core: coreModule as CoreRuntimeModule,
+          importers: (
+            importersModule as ImportersRuntimeModule
+          ).createImporters(),
+          query: queryModule as QueryRuntimeModule,
+        }
+      } catch (error) {
+        integratedRuntimePromise = null
+        throw createRuntimeUnavailableError(
+          "integrated vault-cli services",
+          error,
+        )
+      }
+    })()
+  }
+
+  return integratedRuntimePromise
+}
+
+function toJournalLookupId(date: string) {
+  return `journal:${date}`
+}
+
+export function createIntegratedVaultCliServices(): VaultCliServices {
   return {
     core: {
       async init({ vault }) {
-        await initializeVault({ vaultRoot: vault })
+        const { core } = await loadIntegratedRuntime()
+        await core.initializeVault({ vaultRoot: vault })
         return {
           vault,
           created: true,
-          directories: [...REQUIRED_DIRECTORIES],
+          directories: [...core.REQUIRED_DIRECTORIES],
           files: ["vault.json", "CORE.md"],
         }
       },
       async validate({ vault }) {
-        const result = await validateVault({ vaultRoot: vault })
+        const { core } = await loadIntegratedRuntime()
+        const result = await core.validateVault({ vaultRoot: vault })
         return {
           vault,
           valid: result.valid,
@@ -216,7 +431,8 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         }
       },
       async addMeal({ vault, photo, audio, note, occurredAt }) {
-        const result = await addMeal({
+        const { core } = await loadIntegratedRuntime()
+        const result = await core.addMeal({
           vaultRoot: vault,
           photoPath: photo,
           audioPath: audio,
@@ -228,6 +444,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           vault,
           mealId: result.mealId,
           eventId: result.event.id,
+          lookupId: result.event.id,
           occurredAt: result.event.occurredAt ?? null,
           photoPath: result.photo.relativePath,
           audioPath: result.audio?.relativePath ?? null,
@@ -235,7 +452,8 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         }
       },
       async createExperiment({ vault, slug }) {
-        const result = await createExperiment({
+        const { core } = await loadIntegratedRuntime()
+        const result = await core.createExperiment({
           vaultRoot: vault,
           slug,
           title: slug,
@@ -243,13 +461,16 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
 
         return {
           vault,
+          experimentId: result.experiment.id,
+          lookupId: result.experiment.id,
           slug: result.experiment.slug,
           experimentPath: result.experiment.relativePath,
-          created: true,
+          created: result.created ?? true,
         }
       },
       async ensureJournal({ vault, date }) {
-        const result = await ensureJournalDay({
+        const { core } = await loadIntegratedRuntime()
+        const result = await core.ensureJournalDay({
           vaultRoot: vault,
           date,
         })
@@ -257,6 +478,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         return {
           vault,
           date,
+          lookupId: toJournalLookupId(date),
           journalPath: result.relativePath,
           created: result.created,
         }
@@ -264,6 +486,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
     },
     importers: {
       async importDocument({ vault, file }) {
+        const { importers } = await loadIntegratedRuntime()
         const result = await importers.importDocument({
           filePath: file,
           vaultRoot: vault,
@@ -275,6 +498,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           rawFile: result.raw.relativePath,
           documentId: result.documentId,
           eventId: result.event.id,
+          lookupId: result.event.id,
         }
       },
       async importSamplesCsv({
@@ -285,6 +509,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         valueColumn,
         unit,
       }) {
+        const { importers } = await loadIntegratedRuntime()
         const result = await importers.importCsvSamples({
           filePath: file,
           vaultRoot: vault,
@@ -300,14 +525,24 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           stream,
           importedCount: result.count,
           transformId: result.transformId,
+          lookupIds: result.records.map((record) => record.id),
           ledgerFiles: result.shardPaths,
         }
       },
     },
     query: {
       async show({ vault, id }) {
-        const readModel = await readVault(vault)
-        const record = lookupRecordById(readModel, id)
+        const constraint = describeLookupConstraint(id)
+
+        if (constraint) {
+          throw new VaultCliError("invalid_lookup_id", constraint, {
+            id,
+          })
+        }
+
+        const { query } = await loadIntegratedRuntime()
+        const readModel = await query.readVault(vault)
+        const record = query.lookupRecordById(readModel, id)
 
         if (!record) {
           throw new VaultCliError("not_found", `No record found for "${id}".`)
@@ -336,8 +571,10 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         cursor,
         limit,
       }) {
-        const readModel = await readVault(vault)
-        const items = listRecords(readModel, {
+        const { query } = await loadIntegratedRuntime()
+        const readModel = await query.readVault(vault)
+        const items = query
+          .listRecords(readModel, {
           kinds: kind ? [kind] : undefined,
           experimentSlug: experiment,
           from: dateFrom,
@@ -367,8 +604,9 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
         }
       },
       async exportPack({ vault, from, to, experiment, out }) {
-        const readModel = await readVault(vault)
-        const pack = buildExportPack(readModel, {
+        const { query } = await loadIntegratedRuntime()
+        const readModel = await query.readVault(vault)
+        const pack = query.buildExportPack(readModel, {
           from,
           to,
           experimentSlug: experiment,

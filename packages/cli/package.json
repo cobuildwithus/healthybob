@@ -3,10 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
-    "vault-cli": "dist/index.js"
+    "vault-cli": "dist/bin.js"
+  },
+  "scripts": {
+    "build": "node ./scripts/require-cli-toolchain.mjs build && tsc -p tsconfig.build.json",
+    "typecheck": "node ./scripts/require-cli-toolchain.mjs typecheck && tsc -p tsconfig.json --noEmit",
+    "test": "node ./scripts/verify-package-shape.mjs && node --test ./test/*.test.mjs"
+  },
+  "dependencies": {
+    "@healthybob/core": "workspace:*",
+    "@healthybob/importers": "workspace:*",
+    "@healthybob/query": "workspace:*",
+    "incur": "*"
   }
 }

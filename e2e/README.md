@@ -6,9 +6,9 @@ Current scope:
 
 - command-to-scenario coverage for the frozen baseline command surface
 - fixture-corpus integrity checks
-- golden-output directory presence checks
+- golden-output expectation coverage for lookup, validation, and export-pack behavior
 
 Out of scope for now:
 
 - executing the CLI against a live vault
-- freezing unresolved output envelopes or canonical record payloads
+- pretending the CLI binary ran successfully when the local toolchain is unavailable

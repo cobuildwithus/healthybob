@@ -41,10 +41,6 @@ export type AuditAction =
 export type AuditActor = "cli" | "core" | "importer" | "query";
 export type AuditStatus = "success" | "failure";
 export type FileChangeOperation = "create" | "append" | "update" | "copy";
-
-export type TransformType = "document_import" | "meal_add" | "samples_import_csv" | "export_pack";
-export type TransformSourceKind = "file" | "csv" | "manual" | "derived";
-export type TransformStatus = "success" | "failed";
 export type ExperimentStatus = "planned" | "active" | "paused" | "completed" | "abandoned";
 
 export type ErrorCodeValue =
@@ -55,7 +51,6 @@ export type ErrorCodeValue =
   | "HB_EVENT_INVALID"
   | "HB_SAMPLE_INVALID"
   | "HB_AUDIT_INVALID"
-  | "HB_TRANSFORM_INVALID"
   | "HB_FRONTMATTER_INVALID"
   | "HB_ENUM_UNSUPPORTED"
   | "HB_SHARD_KEY_INVALID"
@@ -204,7 +199,6 @@ export interface SampleRecordBase {
   dayKey: string;
   source: SampleSource;
   quality: SampleQuality;
-  transformId?: string;
 }
 
 export interface HeartRateSampleRecord extends SampleRecordBase {
@@ -272,31 +266,10 @@ export interface AuditRecord {
   summary: string;
   targetIds?: string[];
   errorCode?: ErrorCodeValue;
-  transformId?: string;
   changes: Array<{
     path: string;
     op: FileChangeOperation;
   }>;
-}
-
-export interface TransformRecord {
-  schemaVersion: "hb.transform.v1";
-  id: string;
-  transformType: TransformType;
-  status: TransformStatus;
-  appliedAt: string;
-  errorCode?: ErrorCodeValue;
-  input: {
-    sourceKind: TransformSourceKind;
-    rawPaths: string[];
-    sourceLabel: string;
-  };
-  output: {
-    eventIds: string[];
-    sampleIds: string[];
-    auditIds: string[];
-    markdownPaths: string[];
-  };
 }
 
 export interface CoreFrontmatter {

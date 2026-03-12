@@ -1,3 +1,6 @@
 # `vault-cli journal ensure`
 
-Reserve this directory for journal bootstrap snapshots once journal frontmatter rules are finalized.
+Current smoke expectation:
+
+- returns `date`, `journalPath`, `created`, and `lookupId`
+- `lookupId` uses the `journal:<YYYY-MM-DD>` form for follow-on reads

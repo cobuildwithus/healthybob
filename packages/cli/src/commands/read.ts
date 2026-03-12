@@ -7,14 +7,17 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-export function registerReadCommands(cli: Cli, services: VaultCliServices) {
+export function registerReadCommands(cli: Cli.Cli, services: VaultCliServices) {
   cli.command(
     'show',
     defineCommand({
       command: 'show',
-      description: 'Read one vault entity through the query layer.',
+      description: 'Read one canonical vault record through the query layer.',
       args: z.object({
-        id: z.string().min(1).describe('Entity identifier to resolve.'),
+        id: z
+          .string()
+          .min(1)
+          .describe('Queryable record identifier to resolve with `show`.'),
       }),
       options: withBaseOptions(),
       data: showResultSchema,
@@ -35,9 +38,9 @@ export function registerReadCommands(cli: Cli, services: VaultCliServices) {
     'list',
     defineCommand({
       command: 'list',
-      description: 'List vault entities through the query layer.',
+      description: 'List canonical vault records through the query layer.',
       args: z.object({}),
-      options: withBaseOptions(listFilterSchema),
+      options: withBaseOptions(listFilterSchema.shape),
       data: listResultSchema,
       async run({ options, vault, requestId }) {
         return services.query.list({

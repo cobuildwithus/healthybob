@@ -34,7 +34,6 @@ export async function emitAuditRecord({
   files = [],
   targetIds = [],
   errorCode,
-  transformId,
   changes,
 }) {
   const occurredTimestamp = toIsoTimestamp(occurredAt, "occurredAt");
@@ -71,7 +70,6 @@ export async function emitAuditRecord({
     summary: String(summary ?? action),
     targetIds: Array.isArray(targetIds) && targetIds.length > 0 ? [...targetIds] : undefined,
     errorCode: errorCode || undefined,
-    transformId: transformId || undefined,
     changes: normalizedChanges,
   };
 

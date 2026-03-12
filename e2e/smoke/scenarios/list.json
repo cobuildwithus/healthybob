@@ -7,5 +7,5 @@
     "fixtures/minimal-vault/journal/2026/2026-03-10.md"
   ],
   "goldenOutput": "fixtures/golden-outputs/list",
-  "purpose": "Reserves list coverage against stable fixture namespaces and future filter behavior."
+  "purpose": "Covers read-model listing semantics, including stable filters and ids that may need conversion to a queryable lookup before show."
 }

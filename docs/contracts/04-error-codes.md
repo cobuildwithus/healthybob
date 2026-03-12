@@ -13,7 +13,6 @@ These are the shared contract-level validation codes defined in `packages/contra
 | `HB_EVENT_INVALID` | An event record failed validation. |
 | `HB_SAMPLE_INVALID` | A sample record failed validation. |
 | `HB_AUDIT_INVALID` | An audit record failed validation. |
-| `HB_TRANSFORM_INVALID` | A transform record failed validation. |
 | `HB_FRONTMATTER_INVALID` | A Markdown frontmatter block failed validation. |
 | `HB_ENUM_UNSUPPORTED` | A value fell outside the frozen baseline enums. |
 | `HB_SHARD_KEY_INVALID` | A day key or monthly shard key failed format validation. |

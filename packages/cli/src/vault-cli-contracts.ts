@@ -86,12 +86,14 @@ export const documentImportResultSchema = z.object({
   rawFile: pathSchema,
   documentId: z.string().min(1),
   eventId: z.string().min(1),
+  lookupId: z.string().min(1),
 })
 
 export const mealAddResultSchema = z.object({
   vault: pathSchema,
   mealId: z.string().min(1),
   eventId: z.string().min(1),
+  lookupId: z.string().min(1),
   occurredAt: isoTimestampSchema.nullable(),
   photoPath: pathSchema,
   audioPath: pathSchema.nullable(),
@@ -104,11 +106,14 @@ export const samplesImportCsvResultSchema = z.object({
   stream: z.string().min(1),
   importedCount: z.number().int().nonnegative(),
   transformId: z.string().min(1),
+  lookupIds: z.array(z.string().min(1)).min(1),
   ledgerFiles: z.array(pathSchema).min(1),
 })
 
 export const experimentCreateResultSchema = z.object({
   vault: pathSchema,
+  experimentId: z.string().min(1),
+  lookupId: z.string().min(1),
   slug: slugSchema,
   experimentPath: pathSchema,
   created: z.boolean(),
@@ -117,6 +122,7 @@ export const experimentCreateResultSchema = z.object({
 export const journalEnsureResultSchema = z.object({
   vault: pathSchema,
   date: localDateSchema,
+  lookupId: z.string().min(1),
   journalPath: pathSchema,
   created: z.boolean(),
 })
@@ -124,6 +130,7 @@ export const journalEnsureResultSchema = z.object({
 export const entityRefSchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1),
+  queryable: z.boolean(),
 })
 
 export const showResultSchema = z.object({

@@ -10,15 +10,17 @@ import {
 
 export const emptyArgsSchema = z.object({})
 
-export function withBaseOptions<TOptions extends z.AnyZodObject>(
-  schema?: TOptions,
+type ObjectSchema = z.ZodObject<z.ZodRawShape>
+
+export function withBaseOptions<TShape extends z.ZodRawShape>(
+  shape: TShape = {} as TShape,
 ) {
-  return schema ? baseCommandOptionsSchema.extend(schema.shape) : baseCommandOptionsSchema
+  return baseCommandOptionsSchema.extend(shape)
 }
 
 export function defineCommand<
-  TArgsSchema extends z.AnyZodObject,
-  TOptionsSchema extends z.AnyZodObject,
+  TArgsSchema extends ObjectSchema,
+  TOptionsSchema extends ObjectSchema,
   TDataSchema extends z.ZodTypeAny,
 >(
   spec: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>,

@@ -9,7 +9,6 @@ import {
   exampleFrontmatterMarkdown,
   exampleFrontmatterObjects,
   exampleSampleRecords,
-  exampleTransformRecords,
   exampleVaultMetadata,
 } from "../src/examples.js";
 import {
@@ -20,7 +19,6 @@ import {
   journalDayFrontmatterSchema,
   sampleRecordSchema,
   schemaCatalog,
-  transformRecordSchema,
   vaultMetadataSchema,
 } from "../src/schemas.js";
 import { parseFrontmatterMarkdown, validateAgainstSchema } from "../src/validate.js";
@@ -49,9 +47,6 @@ assertNoErrors("vault metadata example", vaultMetadataSchema, exampleVaultMetada
 exampleEventRecords.forEach((record, index) => assertNoErrors(`event example ${index + 1}`, eventRecordSchema, record));
 exampleSampleRecords.forEach((record, index) => assertNoErrors(`sample example ${index + 1}`, sampleRecordSchema, record));
 exampleAuditRecords.forEach((record, index) => assertNoErrors(`audit example ${index + 1}`, auditRecordSchema, record));
-exampleTransformRecords.forEach((record, index) =>
-  assertNoErrors(`transform example ${index + 1}`, transformRecordSchema, record),
-);
 
 assertNoErrors("core frontmatter object", coreFrontmatterSchema, exampleFrontmatterObjects.core);
 assertNoErrors("journal day frontmatter object", journalDayFrontmatterSchema, exampleFrontmatterObjects.journalDay);
@@ -67,6 +62,5 @@ console.log(
     `events=${exampleEventRecords.length}`,
     `samples=${exampleSampleRecords.length}`,
     `audits=${exampleAuditRecords.length}`,
-    `transforms=${exampleTransformRecords.length}`,
   ].join(" "),
 );

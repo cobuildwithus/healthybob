@@ -7,5 +7,5 @@
     "fixtures/sample-imports/documents/care-plan.txt"
   ],
   "goldenOutput": "fixtures/golden-outputs/document-import",
-  "purpose": "Reserves document-import smoke coverage against deterministic text inputs."
+  "purpose": "Covers deterministic document imports where the command returns documentId plus a queryable lookupId/eventId for follow-on show calls."
 }

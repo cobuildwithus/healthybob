@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
   "scripts": {
     "typecheck": "node --check src/*.js test/*.test.js && node --input-type=module -e \"await import('./src/index.js')\"",
     "test": "node --test ./test/*.test.js"

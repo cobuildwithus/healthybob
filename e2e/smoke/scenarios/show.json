@@ -7,5 +7,5 @@
     "fixtures/minimal-vault/bank/experiments/baseline-observation.md"
   ],
   "goldenOutput": "fixtures/golden-outputs/show",
-  "purpose": "Reserves read-path smoke coverage without freezing unresolved output envelopes."
+  "purpose": "Covers queryable read-path behavior and documents that meal_*, doc_*, xfm_*, and export-pack ids are not valid CLI show targets."
 }

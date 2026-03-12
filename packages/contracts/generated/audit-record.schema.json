@@ -86,16 +86,11 @@
         "HB_EVENT_INVALID",
         "HB_SAMPLE_INVALID",
         "HB_AUDIT_INVALID",
-        "HB_TRANSFORM_INVALID",
         "HB_FRONTMATTER_INVALID",
         "HB_ENUM_UNSUPPORTED",
         "HB_SHARD_KEY_INVALID",
         "HB_SCHEMA_ARTIFACT_STALE"
       ]
-    },
-    "transformId": {
-      "type": "string",
-      "pattern": "^xfm_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "changes": {
       "type": "array",

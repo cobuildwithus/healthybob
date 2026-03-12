@@ -168,12 +168,22 @@ async function validateFrontmatterFile({
   schema,
   code,
 }) {
-  const content = await readUtf8File(vaultRoot, relativePath);
-  const parsed = parseFrontmatterDocument(content);
-  const errors = validateAgainstSchema(schema, parsed.attributes);
+  try {
+    const content = await readUtf8File(vaultRoot, relativePath);
+    const parsed = parseFrontmatterDocument(content);
+    const errors = validateAgainstSchema(schema, parsed.attributes);
 
-  if (errors.length > 0) {
-    return [validationIssue(code, errors.join("; "), relativePath)];
+    if (errors.length > 0) {
+      return [validationIssue(code, errors.join("; "), relativePath)];
+    }
+  } catch (error) {
+    return [
+      validationIssue(
+        error instanceof VaultError && error.code === "VAULT_FILE_MISSING" ? error.code : code,
+        error instanceof Error ? error.message : String(error),
+        relativePath,
+      ),
+    ];
   }
 
   return [];
@@ -250,24 +260,14 @@ export async function validateVault({ vaultRoot } = {}) {
     }
   }
 
-  try {
-    issues.push(
-      ...(await validateFrontmatterFile({
-        vaultRoot: absoluteRoot,
-        relativePath: VAULT_LAYOUT.coreDocument,
-        schema: coreFrontmatterSchema,
-        code: "HB_FRONTMATTER_INVALID",
-      })),
-    );
-  } catch (error) {
-    issues.push(
-      validationIssue(
-        error instanceof VaultError ? error.code : "VAULT_CORE_READ_FAILED",
-        error instanceof Error ? error.message : String(error),
-        VAULT_LAYOUT.coreDocument,
-      ),
-    );
-  }
+  issues.push(
+    ...(await validateFrontmatterFile({
+      vaultRoot: absoluteRoot,
+      relativePath: VAULT_LAYOUT.coreDocument,
+      schema: coreFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
 
   const experimentFiles = await walkVaultFiles(absoluteRoot, VAULT_LAYOUT.experimentsDirectory, {
     extension: ".md",

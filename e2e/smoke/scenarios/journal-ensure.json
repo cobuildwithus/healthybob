@@ -6,5 +6,5 @@
     "fixtures/minimal-vault/journal/2026/2026-03-10.md"
   ],
   "goldenOutput": "fixtures/golden-outputs/journal-ensure",
-  "purpose": "Reserves journal bootstrap coverage against the fixture journal layout."
+  "purpose": "Covers journal bootstrap semantics where the command returns a queryable journal:<date> lookupId."
 }

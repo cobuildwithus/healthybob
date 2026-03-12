@@ -7,10 +7,10 @@ Healthy Bob is a file-native health vault with Markdown as the human-reviewable 
 - Repository-local agent harness is installed.
 - The baseline vault package layout and contract docs are scaffolded under `packages/` and `docs/contracts/`.
 - `packages/contracts`, `packages/core`, `packages/importers`, and `packages/query` now agree on the frozen vault metadata, frontmatter, event, sample, and audit shapes.
-- `packages/cli` is wired to real package services in source, but the executable `vault-cli` runtime is not exercised by repo-level checks because this workspace does not currently include the `incur` toolchain.
+- `packages/cli` now typechecks, builds, and executes against the local workspace toolchain and package boundaries.
 - Deterministic fixtures, sample-import placeholders, golden-output scaffolding, and smoke scenario manifests now live under `fixtures/` and `e2e/`.
 - Durable process and architecture docs live under `agent-docs/` plus `ARCHITECTURE.md` and `docs/architecture.md`.
-- Runtime verification now covers contracts plus the executable `core`, `importers`, and `query` packages directly.
+- Runtime verification now covers contracts, the executable `core`/`importers`/`query` packages, and the built `vault-cli` package.
 
 ## Package Layout
 
@@ -29,12 +29,12 @@ Healthy Bob is a file-native health vault with Markdown as the human-reviewable 
 
 ## Verification
 
-- `pnpm typecheck`: validates repo shell wrappers, smoke verifier syntax, contract artifacts/examples, and JS package syntax for `core`, `importers`, and `query`
-- `pnpm test`: runs agent-doc drift checks, package runtime tests (`contracts`, `core`, `importers`, `query`), and fixture/scenario integrity verification
-- `pnpm test:coverage`: runs doc-gardening checks, package runtime tests, and command-surface smoke coverage verification
-- `pnpm test:packages`: runs the executable package-runtime checks without the worktree-sensitive doc-drift wrapper
+- `pnpm typecheck`: validates repo shell wrappers, smoke verifier syntax, contract artifacts/examples, JS package syntax for `core`/`importers`/`query`, and `packages/cli` typecheck/build/test
+- `pnpm test`: runs agent-doc drift checks, package verification (`contracts`, `cli`, `core`, `importers`, `query`), and fixture/scenario integrity verification
+- `pnpm test:coverage`: runs doc-gardening checks, package verification, and command-surface smoke coverage verification
+- `pnpm test:packages`: runs the executable package-runtime checks plus the built CLI verification without the worktree-sensitive doc-drift wrapper
 
-These checks do not execute the CLI binary yet. They verify the runtime packages that are executable in this workspace and keep the fixture/smoke scaffold honest.
+These checks now execute the CLI build path in-repo. Targeted manual runtime checks can execute `node packages/cli/dist/bin.js ...` against a local vault when a behavior seam needs end-to-end confirmation.
 
 ## Near-Term Scope
 

@@ -7,5 +7,5 @@
     "fixtures/sample-imports/samples/glucose.csv"
   ],
   "goldenOutput": "fixtures/golden-outputs/samples-import-csv",
-  "purpose": "Reserves sample-import smoke coverage with explicit CSV column names."
+  "purpose": "Covers CSV sample imports where transformId is an import-batch id, lookupIds point at sample records, and one or more sample ledgers are written."
 }
