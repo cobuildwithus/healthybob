@@ -4,3 +4,5 @@ coverage/
 .DS_Store
 .turbo/
 *.log
+.codex-runs/
+.codex-worker-prompts/

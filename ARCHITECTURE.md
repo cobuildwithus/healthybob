@@ -2,27 +2,37 @@
 
 Last verified: 2026-03-12
 
-## Current State
+## Module Map
 
-This repository is currently a bootstrap harness only. It has workflow docs, execution-plan storage, and shared repo-tools wrappers, but no product/runtime modules yet.
+- `packages/contracts`: runtime schemas, TypeScript types, and generated JSON Schema artifacts
+- `packages/core`: the only package allowed to mutate canonical vault data
+- `packages/importers`: ingestion adapters that parse external files and delegate all writes to core
+- `packages/query`: read helpers and export-pack generation over canonical vault data
+- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query
+- `fixtures/` and `e2e/`: deterministic fixture corpus and end-to-end smoke flows
+
+## Trust Boundaries
+
+- Canonical vault storage is file-native under the vault root.
+- Human-facing truth lives in Markdown documents such as `CORE.md`, journal pages, and experiment pages.
+- Machine-facing truth lives in append-only JSONL ledgers for events, samples, and audit records.
+- Raw imported artifacts are immutable once copied into `raw/`.
+- Assistant/session state belongs outside the canonical vault under `assistant-state/`.
+
+## Control Flow
+
+1. Operators, automations, and future agent layers call `vault-cli` or package APIs.
+2. CLI commands perform validation and delegate to `packages/core`, `packages/importers`, or `packages/query`.
+3. Importers may parse and normalize external inputs but must never write canonical vault files directly.
+4. Query/export paths are read-only and must not mutate canonical vault state.
 
 ## Source Of Truth
 
-- Process and routing rules: `AGENTS.md`
-- Durable repository docs: `agent-docs/index.md`
-- Verification/runtime policy: `agent-docs/operations/verification-and-runtime.md`
+- Routing and hard rules: `AGENTS.md`
+- Durable docs index: `agent-docs/index.md`
+- Detailed architecture summary: `docs/architecture.md`
+- Frozen baseline contracts: `docs/contracts/*.md`
 
-## Intended Evolution
+## Current Verification Posture
 
-When the first production subsystem is added, update this file in the same change with:
-
-1. The top-level module map.
-2. Data and control-flow boundaries.
-3. External systems and trust boundaries.
-4. Runtime entrypoints and verification commands.
-
-## Bootstrap Boundaries
-
-- Do not infer product behavior from the repository name alone.
-- Treat all domain assumptions as `UNCONFIRMED` until a product-spec doc says otherwise.
-- Keep the first implementation simple enough that docs and ownership boundaries stay current.
+The repository still uses the bootstrap verification commands until implementation lanes land their first truthful runtime/tooling checks.

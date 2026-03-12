@@ -12,6 +12,8 @@ This index is the table of contents for durable, repository-local context that a
 | --- | --- | --- | --- | --- | --- | --- |
 | `README.md` | Repo bootstrap summary and next-step entrypoint for humans. | Repository bootstrap decisions | Healthy Bob Maintainer | Per bootstrap/process change | Medium | 2026-03-12 |
 | `ARCHITECTURE.md` | Top-level module map and trust-boundary summary. | Product/runtime code plus repo decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
+| `docs/architecture.md` | One-page architecture summary and target repo shape for the baseline vault. | Baseline vault architecture decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
+| `docs/contracts/` | Frozen contract docs for vault layout, schemas, command surface, and invariants. | Baseline vault interface decisions | Healthy Bob Maintainer | Per contract change | High | 2026-03-12 |
 | `agent-docs/PLANS.md` | Execution-plan workflow and storage conventions. | `agent-docs/exec-plans/**` | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
 | `agent-docs/PRODUCT_SENSE.md` | Product-behavior guardrails for future implementation work. | Product specs + user-facing behavior | Healthy Bob Maintainer | Monthly | Medium | 2026-03-12 |
 | `agent-docs/QUALITY_SCORE.md` | Current quality posture by area. | Docs, checks, audits, test posture | Healthy Bob Maintainer | Bi-weekly | Medium | 2026-03-12 |
