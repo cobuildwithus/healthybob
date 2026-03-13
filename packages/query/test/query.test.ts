@@ -8,6 +8,8 @@ import {
   buildExportPack,
   getExperiment,
   getJournalEntry,
+  listFamilyMembers,
+  listGeneticVariants,
   listExperiments,
   listJournalEntries,
   listRecords,
@@ -163,7 +165,7 @@ test("buildExportPack produces derived exports payloads without touching the vau
     assert.equal(pack.manifest.recordCount, 0);
     assert.equal(pack.manifest.experimentCount, 1);
     assert.equal(pack.manifest.journalCount, 0);
-    assert.equal(pack.manifest.questionCount, 3);
+    assert.equal(pack.manifest.questionCount, 4);
     assert.equal(pack.manifest.fileCount, 5);
     assert.equal(pack.files.length, 5);
     assert.ok(pack.files.every((file) => file.path.startsWith("exports/packs/focus-pack/")));
@@ -233,6 +235,38 @@ test("readVault tolerates missing optional files and normalizes alias-heavy fixt
       }).map((record) => record.id),
       ["journal:2026-03-09"],
     );
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test("health registry queries prefer canonical fields and stable title ordering", async () => {
+  const vaultRoot = await createFixtureVault();
+
+  try {
+    const family = await listFamilyMembers(vaultRoot);
+    const genetics = await listGeneticVariants(vaultRoot);
+
+    assert.deepEqual(
+      family.map((record) => record.id),
+      [
+        "fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F9",
+        "fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F8",
+      ],
+    );
+    assert.deepEqual(family[0]?.relatedVariantIds, ["var_01JNW7YJ7MNE7M9Q2QWQK4Z400"]);
+    assert.deepEqual(family[1]?.relatedVariantIds, []);
+    assert.equal(family[1]?.updatedAt, "2026-03-12T09:00:00Z");
+
+    assert.deepEqual(
+      genetics.map((record) => record.id),
+      [
+        "var_01JNW7YJ7MNE7M9Q2QWQK4Z400",
+        "var_01JNW7YJ7MNE7M9Q2QWQK4Z401",
+      ],
+    );
+    assert.equal(genetics[1]?.updatedAt, "2026-03-12T11:00:00Z");
+    assert.deepEqual(genetics[1]?.sourceFamilyMemberIds, ["fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F8"]);
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
   }
@@ -559,6 +593,8 @@ async function createFixtureVault(): Promise<string> {
   const vaultRoot = await mkdtemp(path.join(os.tmpdir(), "healthybob-query-"));
 
   await mkdir(path.join(vaultRoot, "bank/experiments"), { recursive: true });
+  await mkdir(path.join(vaultRoot, "bank/family"), { recursive: true });
+  await mkdir(path.join(vaultRoot, "bank/genetics"), { recursive: true });
   await mkdir(path.join(vaultRoot, "journal/2026"), { recursive: true });
   await mkdir(path.join(vaultRoot, "ledger/events/2026"), { recursive: true });
   await mkdir(path.join(vaultRoot, "ledger/samples/heart_rate/2026"), { recursive: true });
@@ -609,6 +645,84 @@ async function createFixtureVault(): Promise<string> {
       null,
       2,
     ),
+  );
+
+  await writeFile(
+    path.join(vaultRoot, "bank/family/mother.md"),
+    `---
+schemaVersion: hb.frontmatter.family-member.v1
+docType: family_member
+familyMemberId: fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F8
+slug: mother
+title: Mother
+relationship: mother
+familyMemberIds:
+  - var_should_not_leak_from_wrong_field
+updatedAt: 2026-03-12T09:00:00Z
+---
+# Mother
+
+Tracked for query ordering checks.
+`,
+  );
+
+  await writeFile(
+    path.join(vaultRoot, "bank/family/father.md"),
+    `---
+schemaVersion: hb.frontmatter.family-member.v1
+docType: family_member
+familyMemberId: fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F9
+slug: father
+title: Father
+relationship: father
+relatedVariantIds:
+  - var_01JNW7YJ7MNE7M9Q2QWQK4Z400
+updatedAt: 2026-03-10T09:00:00Z
+---
+# Father
+
+Has a linked canonical variant id.
+`,
+  );
+
+  await writeFile(
+    path.join(vaultRoot, "bank/genetics/apoe-e4.md"),
+    `---
+schemaVersion: hb.frontmatter.genetic-variant.v1
+docType: genetic_variant
+variantId: var_01JNW7YJ7MNE7M9Q2QWQK4Z400
+slug: apoe-e4
+title: APOE e4 allele
+gene: APOE
+significance: risk_factor
+sourceFamilyMemberIds:
+  - fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F9
+updatedAt: 2026-03-10T10:00:00Z
+---
+# APOE e4 allele
+
+Older genetics record.
+`,
+  );
+
+  await writeFile(
+    path.join(vaultRoot, "bank/genetics/mthfr-c677t.md"),
+    `---
+schemaVersion: hb.frontmatter.genetic-variant.v1
+docType: genetic_variant
+variantId: var_01JNW7YJ7MNE7M9Q2QWQK4Z401
+slug: mthfr-c677t
+title: MTHFR C677T
+gene: MTHFR
+significance: risk_factor
+sourceFamilyMemberIds:
+  - fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F8
+updatedAt: 2026-03-12T11:00:00Z
+---
+# MTHFR C677T
+
+Newer genetics record.
+`,
   );
 
   await writeFile(

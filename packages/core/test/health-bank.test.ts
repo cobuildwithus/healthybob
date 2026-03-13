@@ -4,7 +4,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { test } from "vitest";
 
-import { initializeVault } from "../src/index.js";
+import { initializeVault, readJsonlRecords } from "../src/index.js";
 import {
   listAllergies,
   listConditions,
@@ -56,17 +56,41 @@ test("goals support multiple active records and preserve relationships in markdo
   });
 
   const listed = await listGoals(vaultRoot);
+  const updated = await upsertGoal({
+    vaultRoot,
+    goalId: secondary.record.goalId,
+  });
+  const refreshedByTitle = await upsertGoal({
+    vaultRoot,
+    title: "Lift three days per week",
+  });
   const read = await readGoal({
     vaultRoot,
     goalId: secondary.record.goalId,
   });
+  const goalAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: updated.auditPath,
+  });
 
   assert.equal(primary.created, true);
   assert.equal(secondary.created, true);
+  assert.equal(updated.created, false);
+  assert.equal(refreshedByTitle.created, false);
+  assert.equal(refreshedByTitle.record.goalId, secondary.record.goalId);
   assert.equal(listed.length, 2);
+  assert.equal(read.title, secondary.record.title);
   assert.equal(read.parentGoalId, primary.record.goalId);
+  assert.deepEqual(read.relatedGoalIds, [primary.record.goalId]);
+  assert.deepEqual(read.relatedExperimentIds, ["exp_01JNW7YJ7MNE7M9Q2QWQK4Z3F8"]);
+  assert.equal(read.priority, 6);
+  assert.equal(read.window.startAt, "2026-03-05");
   assert.deepEqual(primary.record.domains, ["metabolic-health", "sleep"]);
   assert.match(read.markdown, /## Related Experiments/);
+  assert.equal(
+    goalAuditRecords.filter((record) => (record as { action?: string }).action === "goal_upsert").length,
+    3,
+  );
 });
 
 test("conditions and allergies are stored as deterministic markdown registry pages", async () => {
@@ -123,13 +147,44 @@ test("conditions and allergies are stored as deterministic markdown registry pag
     vaultRoot,
     allergyId: allergy.record.allergyId,
   });
+  const patchedCondition = await upsertCondition({
+    vaultRoot,
+    conditionId: condition.record.conditionId,
+  });
+  const patchedAllergy = await upsertAllergy({
+    vaultRoot,
+    allergyId: allergy.record.allergyId,
+  });
+  const conditionAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: patchedCondition.auditPath,
+  });
+  const allergyAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: patchedAllergy.auditPath,
+  });
 
   assert.equal(conditions.length, 1);
   assert.equal(allergies.length, 1);
+  assert.equal(patchedCondition.record.title, condition.record.title);
+  assert.equal(patchedAllergy.record.title, allergy.record.title);
   assert.deepEqual(readConditionRecord.relatedGoalIds, [goal.record.goalId]);
   assert.deepEqual(readAllergyRecord.relatedConditionIds, [condition.record.conditionId]);
   assert.match(readConditionRecord.markdown, /## Related Regimens/);
   assert.match(readAllergyRecord.markdown, /## Related Conditions/);
+  assert.deepEqual(patchedCondition.record.relatedGoalIds, [goal.record.goalId]);
+  assert.deepEqual(patchedCondition.record.relatedRegimenIds, [regimen.record.regimenId]);
+  assert.equal(patchedCondition.record.note, "Likely worsened by sleep disruption.");
+  assert.deepEqual(patchedAllergy.record.relatedConditionIds, [condition.record.conditionId]);
+  assert.equal(patchedAllergy.record.substance, "penicillin");
+  assert.equal(
+    conditionAuditRecords.filter((record) => (record as { action?: string }).action === "condition_upsert").length,
+    2,
+  );
+  assert.equal(
+    allergyAuditRecords.filter((record) => (record as { action?: string }).action === "allergy_upsert").length,
+    2,
+  );
 });
 
 test("regimens support medication and supplement groups plus stop handling", async () => {
@@ -174,12 +229,35 @@ test("regimens support medication and supplement groups plus stop handling", asy
     slug: supplement.record.slug,
     group: "supplement",
   });
+  const patchedSupplement = await upsertRegimenItem({
+    vaultRoot,
+    regimenId: supplement.record.regimenId,
+  });
+  const regimenAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: patchedSupplement.auditPath,
+  });
+  const stopAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: stopped.auditPath,
+  });
 
   assert.equal(listed.length, 2);
   assert.equal(readMedication.group, "medication");
   assert.equal(readSupplement.group, "supplement");
   assert.equal(stopped.record.status, "stopped");
   assert.equal(stopped.record.stoppedOn, "2026-03-20");
+  assert.equal(patchedSupplement.record.title, supplement.record.title);
+  assert.equal(patchedSupplement.record.schedule, "with breakfast");
+  assert.equal(patchedSupplement.record.startedOn, "2026-02-15");
   assert.match(stopped.record.relativePath, /^bank\/regimens\/medication\//);
   assert.match(readMedication.markdown, /Stopped on: 2026-03-20/);
+  assert.equal(
+    regimenAuditRecords.filter((record) => (record as { action?: string }).action === "regimen_upsert").length,
+    3,
+  );
+  assert.equal(
+    stopAuditRecords.filter((record) => (record as { action?: string }).action === "regimen_stop").length,
+    1,
+  );
 });

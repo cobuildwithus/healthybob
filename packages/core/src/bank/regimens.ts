@@ -1,3 +1,4 @@
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
 import { writeVaultTextFile } from "../fs.js";
@@ -161,11 +162,13 @@ async function loadRegimenItems(vaultRoot: string): Promise<RegimenItemRecord[]>
 function selectRegimenRecord(
   records: RegimenItemRecord[],
   regimenId: string | undefined,
-  slug: string,
+  slug: string | undefined,
   group: string | undefined,
 ): RegimenItemRecord | null {
   const byId = regimenId ? records.find((record) => record.regimenId === regimenId) ?? null : null;
-  const slugMatches = records.filter((record) => record.slug === slug && (!group || record.group === group));
+  const slugMatches = slug
+    ? records.filter((record) => record.slug === slug && (!group || record.group === group))
+    : [];
   const bySlug = slugMatches.length > 0 ? slugMatches[0] ?? null : null;
 
   if (slugMatches.length > 1 && !regimenId) {
@@ -218,13 +221,20 @@ export async function upsertRegimenItem(
   input: UpsertRegimenItemInput,
 ): Promise<UpsertRegimenItemResult> {
   const normalizedRegimenId = normalizeId(input.regimenId, "regimenId", "reg");
-  const title = requireString(input.title, "title", 160);
-  const kind = optionalEnum(input.kind, REGIMEN_KINDS, "kind") ?? "medication";
-  const slug = normalizeSlug(input.slug, "slug", title);
-  const requestedGroup = normalizeGroupPath(input.group, kind);
   const existingRecords = await loadRegimenItems(input.vaultRoot);
-  const existingRecord = selectRegimenRecord(existingRecords, normalizedRegimenId, slug, requestedGroup);
+  const selectorSlug =
+    normalizeSelectorSlug(input.slug) ??
+    (input.title ? normalizeSlug(undefined, "slug", input.title) : undefined);
+  const requestedGroup = input.group ? normalizeGroupPath(input.group, input.kind ?? "regimen") : undefined;
+  const existingRecord = selectRegimenRecord(existingRecords, normalizedRegimenId, selectorSlug, requestedGroup);
+  const title = requireString(input.title ?? existingRecord?.title, "title", 160);
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
+  const kind =
+    input.kind === undefined
+      ? existingRecord?.kind ?? "medication"
+      : optionalEnum(input.kind, REGIMEN_KINDS, "kind") ?? "medication";
   const regimenId = existingRecord?.regimenId ?? normalizedRegimenId ?? generateRecordId("reg");
+  const group = existingRecord?.group ?? requestedGroup ?? normalizeGroupPath(undefined, kind);
   const record = validateRegimenTiming(
     stripUndefined({
       schemaVersion: REGIMEN_SCHEMA_VERSION,
@@ -233,17 +243,42 @@ export async function upsertRegimenItem(
       slug: existingRecord?.slug ?? slug,
       title,
       kind,
-      status: optionalEnum(input.status ?? "active", REGIMEN_STATUSES, "status") ?? "active",
-      startedOn: optionalDateOnly(input.startedOn ?? new Date(), "startedOn") ?? "",
-      stoppedOn: optionalDateOnly(input.stoppedOn, "stoppedOn"),
-      substance: optionalString(input.substance, "substance", 160),
-      dose: optionalFiniteNumber(input.dose, "dose", 0),
-      unit: optionalString(input.unit, "unit", 40),
-      schedule: optionalString(input.schedule, "schedule", 160),
-      relatedGoalIds: normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal"),
-      relatedConditionIds: normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
-      group: existingRecord?.group ?? requestedGroup,
-      relativePath: existingRecord?.relativePath ?? `${REGIMENS_DIRECTORY}/${requestedGroup}/${slug}.md`,
+      status:
+        input.status === undefined
+          ? existingRecord?.status ?? "active"
+          : optionalEnum(input.status, REGIMEN_STATUSES, "status") ?? "active",
+      startedOn:
+        optionalDateOnly(input.startedOn ?? existingRecord?.startedOn ?? new Date(), "startedOn") ?? "",
+      stoppedOn:
+        input.stoppedOn === undefined
+          ? existingRecord?.stoppedOn
+          : optionalDateOnly(input.stoppedOn, "stoppedOn"),
+      substance:
+        input.substance === undefined
+          ? existingRecord?.substance
+          : optionalString(input.substance, "substance", 160),
+      dose:
+        input.dose === undefined
+          ? existingRecord?.dose
+          : optionalFiniteNumber(input.dose, "dose", 0),
+      unit:
+        input.unit === undefined
+          ? existingRecord?.unit
+          : optionalString(input.unit, "unit", 40),
+      schedule:
+        input.schedule === undefined
+          ? existingRecord?.schedule
+          : optionalString(input.schedule, "schedule", 160),
+      relatedGoalIds:
+        input.relatedGoalIds === undefined
+          ? existingRecord?.relatedGoalIds
+          : normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal"),
+      relatedConditionIds:
+        input.relatedConditionIds === undefined
+          ? existingRecord?.relatedConditionIds
+          : normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
+      group,
+      relativePath: existingRecord?.relativePath ?? `${REGIMENS_DIRECTORY}/${group}/${slug}.md`,
     }) as RegimenItemRecord,
   );
   const markdown = stringifyFrontmatterDocument({
@@ -252,9 +287,23 @@ export async function upsertRegimenItem(
   });
 
   await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "regimen_upsert",
+    commandName: "core.upsertRegimenItem",
+    summary: `Upserted regimen ${record.regimenId}.`,
+    targetIds: [record.regimenId],
+    changes: [
+      {
+        path: record.relativePath,
+        op: existingRecord ? "update" : "create",
+      },
+    ],
+  });
 
   return {
     created: !existingRecord,
+    auditPath: audit.relativePath,
     record: {
       ...record,
       markdown,
@@ -286,8 +335,22 @@ export async function stopRegimenItem(
   });
 
   await writeVaultTextFile(input.vaultRoot, updatedRecord.relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "regimen_stop",
+    commandName: "core.stopRegimenItem",
+    summary: `Stopped regimen ${updatedRecord.regimenId}.`,
+    targetIds: [updatedRecord.regimenId],
+    changes: [
+      {
+        path: updatedRecord.relativePath,
+        op: "update",
+      },
+    ],
+  });
 
   return {
+    auditPath: audit.relativePath,
     record: {
       ...updatedRecord,
       markdown,

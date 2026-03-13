@@ -1,4 +1,5 @@
 import { ID_PREFIXES, VAULT_LAYOUT } from "../constants.js";
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
 import { generateRecordId } from "../ids.js";
@@ -264,8 +265,23 @@ export async function appendHistoryEvent(
     relativePath,
     record,
   });
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "history_add",
+    commandName: "core.appendHistoryEvent",
+    summary: `Appended ${record.kind} history event ${record.id}.`,
+    occurredAt: record.recordedAt,
+    targetIds: [record.id],
+    changes: [
+      {
+        path: relativePath,
+        op: "append",
+      },
+    ],
+  });
 
   return {
+    auditPath: audit.relativePath,
     relativePath,
     record,
   };

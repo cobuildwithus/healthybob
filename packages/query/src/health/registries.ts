@@ -57,19 +57,6 @@ export function buildPriorityTitleComparator<TRecord extends RegistryMarkdownRec
   return compareNullableStrings(left.title, right.title);
 }
 
-export function buildUpdatedAtTitleComparator<
-  TRecord extends RegistryMarkdownRecord & { updatedAt: string | null },
->(
-  left: TRecord,
-  right: TRecord,
-): number {
-  if (left.updatedAt !== right.updatedAt) {
-    return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
-  }
-
-  return compareNullableStrings(left.title, right.title);
-}
-
 export function readPriority(
   attributes: FrontmatterObject,
   keys: readonly string[],
@@ -302,14 +289,13 @@ export const familyRegistryDefinition: RegistryDefinition<FamilyQueryRecord> = {
   idKeys: ["familyMemberId", "memberId"],
   titleKeys: ["title", "name"],
   statusKeys: [],
-  compare: buildUpdatedAtTitleComparator,
   transform(base, attributes) {
     return {
       ...base,
       relationship: firstString(attributes, ["relationship", "relation"]),
       deceased: attributes.deceased === undefined ? null : Boolean(attributes.deceased),
       conditions: readRegistryStrings(attributes, ["conditions"]),
-      relatedVariantIds: readRegistryStrings(attributes, ["relatedVariantIds", "familyMemberIds"]),
+      relatedVariantIds: readRegistryStrings(attributes, ["relatedVariantIds"]),
       note: firstString(attributes, ["note", "summary", "notes"]),
       lineage: firstString(attributes, ["lineage"]),
       updatedAt: firstString(attributes, ["updatedAt"]),
@@ -332,7 +318,6 @@ export const geneticsRegistryDefinition: RegistryDefinition<GeneticsQueryRecord>
   idKeys: ["variantId"],
   titleKeys: ["title", "label"],
   statusKeys: ["significance"],
-  compare: buildUpdatedAtTitleComparator,
   transform(base, attributes) {
     return {
       ...base,

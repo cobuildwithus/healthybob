@@ -44,8 +44,16 @@ test("health history appends to the shared event ledger and supports list/read f
     vaultRoot,
     relativePath: encounter.relativePath,
   });
+  const auditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: adverseEffect.auditPath,
+  });
 
   assert.equal(shardRecords.length, 2);
+  assert.equal(
+    auditRecords.filter((record) => (record as { action?: string }).action === "history_add").length,
+    2,
+  );
 
   const listed = await listHistoryEvents({
     vaultRoot,
@@ -85,8 +93,6 @@ test("family members are stored as deterministic markdown registry entries", asy
     vaultRoot,
     familyMemberId: created.record.familyMemberId,
     slug: "changed-slug-that-should-not-rename",
-    title: "Maternal Grandmother",
-    relationship: "grandmother",
     note: "Updated summary.",
   });
 
@@ -104,6 +110,17 @@ test("family members are stored as deterministic markdown registry entries", asy
   assert.equal(read.familyMemberId, created.record.familyMemberId);
   assert.match(read.markdown, /## Related Variants/);
   assert.deepEqual(read.relatedVariantIds, ["var_01JNW7YJ7MNE7M9Q2QWQK4Z3F8"]);
+  assert.doesNotMatch(read.markdown, /updatedAt:/);
+
+  const auditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: updated.auditPath,
+  });
+
+  assert.equal(
+    auditRecords.filter((record) => (record as { action?: string }).action === "family_upsert").length,
+    2,
+  );
 });
 
 test("genetic variants are stored in markdown registries and can link to family members", async () => {
@@ -119,15 +136,15 @@ test("genetic variants are stored in markdown registries and can link to family 
     vaultRoot,
     gene: "APOE",
     title: "APOE e4 allele",
+    zygosity: "compound_heterozygous",
     significance: "risk_factor",
+    inheritance: "maternal lineage",
     sourceFamilyMemberIds: [familyMember.record.familyMemberId],
     note: "Family history and genotype raise late-life risk.",
   });
   const updated = await upsertGeneticVariant({
     vaultRoot,
     variantId: created.record.variantId,
-    gene: "APOE",
-    title: "APOE e4 allele",
     significance: "risk_factor",
     note: "Maintain aggressive cardiometabolic prevention.",
     sourceFamilyMemberIds: [familyMember.record.familyMemberId],
@@ -144,6 +161,19 @@ test("genetic variants are stored in markdown registries and can link to family 
   assert.equal(listed.length, 1);
   assert.equal(read.variantId, created.record.variantId);
   assert.equal(read.gene, "APOE");
+  assert.equal(read.zygosity, "compound_heterozygous");
+  assert.equal(read.inheritance, "maternal lineage");
   assert.deepEqual(read.sourceFamilyMemberIds, [familyMember.record.familyMemberId]);
   assert.match(read.markdown, /## Source Family Members/);
+  assert.doesNotMatch(read.markdown, /updatedAt:/);
+
+  const auditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: updated.auditPath,
+  });
+
+  assert.equal(
+    auditRecords.filter((record) => (record as { action?: string }).action === "genetics_upsert").length,
+    2,
+  );
 });

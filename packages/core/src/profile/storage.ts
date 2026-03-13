@@ -1,5 +1,6 @@
 import { unlink } from "node:fs/promises";
 
+import { emitAuditRecord } from "../audit.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
 import { pathExists, readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
 import { generateRecordId } from "../ids.js";
@@ -215,6 +216,7 @@ export async function appendProfileSnapshot({
   sourceEventIds,
   profile,
 }: AppendProfileSnapshotInput): Promise<{
+  auditPath: string;
   snapshot: ProfileSnapshotRecord;
   ledgerPath: string;
   currentProfile: RebuiltCurrentProfile;
@@ -247,8 +249,23 @@ export async function appendProfileSnapshot({
   });
 
   const currentProfile = await rebuildCurrentProfile({ vaultRoot });
+  const audit = await emitAuditRecord({
+    vaultRoot,
+    action: "profile_snapshot_add",
+    commandName: "core.appendProfileSnapshot",
+    summary: `Appended profile snapshot ${snapshot.id}.`,
+    occurredAt: snapshot.recordedAt,
+    targetIds: [snapshot.id],
+    changes: [
+      {
+        path: ledgerPath,
+        op: "append",
+      },
+    ],
+  });
 
   return {
+    auditPath: audit.relativePath,
     snapshot,
     ledgerPath,
     currentProfile,
@@ -306,7 +323,25 @@ export async function rebuildCurrentProfile({
       await unlink(resolved.absolutePath);
     }
 
+    const audit = await emitAuditRecord({
+      vaultRoot,
+      action: "profile_current_rebuild",
+      commandName: "core.rebuildCurrentProfile",
+      summary: exists
+        ? "Removed stale current profile because no snapshots remain."
+        : "Profile current rebuild found no snapshots to materialize.",
+      changes: exists
+        ? [
+            {
+              path: PROFILE_CURRENT_DOCUMENT_PATH,
+              op: "update",
+            },
+          ]
+        : [],
+    });
+
     return {
+      auditPath: audit.relativePath,
       relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
       exists: false,
       markdown: null,
@@ -324,7 +359,25 @@ export async function rebuildCurrentProfile({
     await writeVaultTextFile(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH, markdown, { overwrite: true });
   }
 
+  const audit = await emitAuditRecord({
+    vaultRoot,
+    action: "profile_current_rebuild",
+    commandName: "core.rebuildCurrentProfile",
+    summary: `Rebuilt current profile from snapshot ${snapshot.id}.`,
+    occurredAt: snapshot.recordedAt,
+    targetIds: [snapshot.id],
+    changes: updated
+      ? [
+          {
+            path: PROFILE_CURRENT_DOCUMENT_PATH,
+            op: exists ? "update" : "create",
+          },
+        ]
+      : [],
+  });
+
   return {
+    auditPath: audit.relativePath,
     relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
     exists: true,
     markdown,

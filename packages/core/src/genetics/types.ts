@@ -1,21 +1,18 @@
-import type { DateInput } from "../types.js";
+import {
+  CONTRACT_SCHEMA_VERSION,
+  FRONTMATTER_DOC_TYPES,
+  VARIANT_SIGNIFICANCES as CONTRACT_VARIANT_SIGNIFICANCES,
+  VARIANT_ZYGOSITIES as CONTRACT_VARIANT_ZYGOSITIES,
+} from "@healthybob/contracts";
 
-export const GENETIC_VARIANT_SCHEMA_VERSION = "hb.genetic-variant.v1";
-export const GENETIC_VARIANT_DOC_TYPE = "genetic_variant";
-export const VARIANT_ZYGOSITIES = ["heterozygous", "homozygous", "hemizygous", "unknown"] as const;
-export const VARIANT_SIGNIFICANCES = [
-  "pathogenic",
-  "likely_pathogenic",
-  "vus",
-  "benign",
-  "risk_factor",
-  "unknown",
-] as const;
-export const VARIANT_INHERITANCES = ["maternal", "paternal", "de_novo", "unknown"] as const;
+export const GENETIC_VARIANT_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.geneticVariantFrontmatter;
+export const GENETIC_VARIANT_DOC_TYPE = FRONTMATTER_DOC_TYPES.geneticVariant;
+export const VARIANT_ZYGOSITIES = CONTRACT_VARIANT_ZYGOSITIES;
+export const VARIANT_SIGNIFICANCES = CONTRACT_VARIANT_SIGNIFICANCES;
 
 export type VariantZygosity = (typeof VARIANT_ZYGOSITIES)[number];
 export type VariantSignificance = (typeof VARIANT_SIGNIFICANCES)[number];
-export type VariantInheritance = (typeof VARIANT_INHERITANCES)[number];
+export type VariantInheritance = string;
 
 export interface GeneticVariantRecord {
   schemaVersion: typeof GENETIC_VARIANT_SCHEMA_VERSION;
@@ -47,11 +44,11 @@ export interface UpsertGeneticVariantInput {
   familyMemberIds?: string[];
   note?: string;
   summary?: string;
-  updatedAt?: DateInput;
 }
 
 export interface UpsertGeneticVariantResult {
   created: boolean;
+  auditPath: string;
   record: GeneticVariantRecord;
 }
 

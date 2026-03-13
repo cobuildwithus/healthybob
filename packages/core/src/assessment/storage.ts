@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { readFile } from "node:fs/promises";
 
+import { emitAuditRecord } from "../audit.js";
 import { copyRawArtifact } from "../raw.js";
 import { generateRecordId } from "../ids.js";
 import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
@@ -10,7 +11,11 @@ import { VaultError } from "../errors.js";
 import { isPlainRecord } from "../types.js";
 
 import type { UnknownRecord } from "../types.js";
-import type { AssessmentResponseRecord, ImportAssessmentResponseInput } from "./types.js";
+import type {
+  AssessmentResponseRecord,
+  ImportAssessmentResponseInput,
+  ImportAssessmentResponseResult,
+} from "./types.js";
 import {
   ASSESSMENT_LEDGER_DIRECTORY,
   ASSESSMENT_RESPONSE_SCHEMA_VERSION,
@@ -151,11 +156,7 @@ export async function importAssessmentResponse({
   source,
   questionnaireSlug,
   relatedIds,
-}: ImportAssessmentResponseInput): Promise<{
-  assessment: AssessmentResponseRecord;
-  raw: Awaited<ReturnType<typeof copyRawArtifact>>;
-  ledgerPath: string;
-}> {
+}: ImportAssessmentResponseInput): Promise<ImportAssessmentResponseResult> {
   const recordedTimestamp = toIsoTimestamp(recordedAt ?? importedAt ?? new Date(), "recordedAt");
   const id = generateRecordId("asmt");
   const content = await readFile(sourcePath, "utf8");
@@ -200,10 +201,30 @@ export async function importAssessmentResponse({
     record: assessment,
   });
 
+  const audit = await emitAuditRecord({
+    vaultRoot,
+    action: "intake_import",
+    commandName: "core.importAssessmentResponse",
+    summary: `Imported assessment ${assessment.id}.`,
+    occurredAt: recordedTimestamp,
+    targetIds: [assessment.id],
+    changes: [
+      {
+        path: raw.relativePath,
+        op: "copy",
+      },
+      {
+        path: ledgerPath,
+        op: "append",
+      },
+    ],
+  });
+
   return {
     assessment,
     raw,
     ledgerPath,
+    auditPath: audit.relativePath,
   };
 }
 

@@ -1,3 +1,6 @@
+import { geneticVariantFrontmatterSchema } from "@healthybob/contracts/schemas";
+
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "../frontmatter.js";
 import { readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
@@ -24,12 +27,43 @@ import type {
 import {
   GENETIC_VARIANT_DOC_TYPE,
   GENETIC_VARIANT_SCHEMA_VERSION,
-  VARIANT_INHERITANCES,
   VARIANT_SIGNIFICANCES,
   VARIANT_ZYGOSITIES,
 } from "./types.js";
 
 const GENETICS_DIRECTORY = "bank/genetics";
+const GENETIC_TITLE_MAX_LENGTH = readMaxLength(geneticVariantFrontmatterSchema, "title");
+const GENETIC_GENE_MAX_LENGTH = readMaxLength(geneticVariantFrontmatterSchema, "gene");
+const GENETIC_INHERITANCE_MAX_LENGTH = readMaxLength(geneticVariantFrontmatterSchema, "inheritance");
+const GENETIC_NOTE_MAX_LENGTH = readMaxLength(geneticVariantFrontmatterSchema, "note");
+const GENETIC_FAMILY_ID_MAX_LENGTH = 80;
+
+function readSchemaProperty(
+  schema: unknown,
+  propertyName: string,
+): Record<string, unknown> {
+  const properties =
+    typeof schema === "object" && schema !== null && "properties" in schema
+      ? (schema.properties as Record<string, unknown>)
+      : null;
+  const property = properties?.[propertyName];
+
+  if (!property || typeof property !== "object") {
+    throw new Error(`Missing genetics contract property "${propertyName}".`);
+  }
+
+  return property as Record<string, unknown>;
+}
+
+function readMaxLength(schema: unknown, propertyName: string): number {
+  const candidate = readSchemaProperty(schema, propertyName).maxLength;
+
+  if (typeof candidate !== "number") {
+    throw new Error(`Missing maxLength for genetics contract property "${propertyName}".`);
+  }
+
+  return candidate;
+}
 
 function buildBody(record: {
   gene: string;
@@ -61,19 +95,19 @@ function recordFromParts(
     docType: requireString(attributes.docType, "docType", 40) as typeof GENETIC_VARIANT_DOC_TYPE,
     variantId: requireString(attributes.variantId, "variantId", 64),
     slug: requireString(attributes.slug, "slug", 160),
-    title: requireString(attributes.title, "title", 240),
-    gene: requireString(attributes.gene, "gene", 80),
+    title: requireString(attributes.title, "title", GENETIC_TITLE_MAX_LENGTH),
+    gene: requireString(attributes.gene, "gene", GENETIC_GENE_MAX_LENGTH),
     zygosity: optionalEnum(attributes.zygosity, VARIANT_ZYGOSITIES, "zygosity"),
     significance: optionalEnum(attributes.significance, VARIANT_SIGNIFICANCES, "significance"),
-    inheritance: optionalEnum(attributes.inheritance, VARIANT_INHERITANCES, "inheritance"),
+    inheritance: optionalString(attributes.inheritance, "inheritance", GENETIC_INHERITANCE_MAX_LENGTH),
     sourceFamilyMemberIds: normalizeStringList(
       attributes.sourceFamilyMemberIds,
       "sourceFamilyMemberIds",
       "familyMemberId",
       24,
-      80,
+      GENETIC_FAMILY_ID_MAX_LENGTH,
     ),
-    note: optionalString(attributes.note, "note", 4000),
+    note: optionalString(attributes.note, "note", GENETIC_NOTE_MAX_LENGTH),
     relativePath,
     markdown,
   };
@@ -95,17 +129,19 @@ async function loadGeneticVariants(vaultRoot: string): Promise<GeneticVariantRec
     records.push(record);
   }
 
-  records.sort((left, right) => left.gene.localeCompare(right.gene) || left.title.localeCompare(right.title) || left.variantId.localeCompare(right.variantId));
+  records.sort(
+    (left, right) => left.gene.localeCompare(right.gene) || left.title.localeCompare(right.title) || left.variantId.localeCompare(right.variantId),
+  );
   return records;
 }
 
 function selectExistingRecord(
   records: GeneticVariantRecord[],
   variantId: string | undefined,
-  slug: string,
+  slug: string | undefined,
 ): GeneticVariantRecord | null {
   const byId = variantId ? records.find((record) => record.variantId === variantId) ?? null : null;
-  const bySlug = records.find((record) => record.slug === slug) ?? null;
+  const bySlug = slug ? records.find((record) => record.slug === slug) ?? null : null;
 
   if (byId && bySlug && byId.variantId !== bySlug.variantId) {
     throw new VaultError("VAULT_GENETIC_VARIANT_CONFLICT", "variantId and slug resolve to different variants.");
@@ -146,22 +182,34 @@ export async function upsertGeneticVariant(
   input: UpsertGeneticVariantInput,
 ): Promise<UpsertGeneticVariantResult> {
   const normalizedVariantId = normalizeId(input.variantId, "variantId", "var");
-  const title = requireString(input.title ?? input.label, "title", 240);
-  const gene = requireString(input.gene, "gene", 80);
-  const slug = normalizeSlug(input.slug, "slug", `${gene}-${title}`);
   const existingRecords = await loadGeneticVariants(input.vaultRoot);
-  const existingRecord = selectExistingRecord(existingRecords, normalizedVariantId, slug);
+  const selectorSlug =
+    (input.slug ? normalizeSlug(input.slug, "slug") : undefined) ??
+    (input.gene && (input.title ?? input.label)
+      ? normalizeSlug(undefined, "slug", `${input.gene}-${input.title ?? input.label}`)
+      : undefined);
+  const existingRecord = selectExistingRecord(existingRecords, normalizedVariantId, selectorSlug);
+  const title = requireString(input.title ?? input.label ?? existingRecord?.title, "title", GENETIC_TITLE_MAX_LENGTH);
+  const gene = requireString(input.gene ?? existingRecord?.gene, "gene", GENETIC_GENE_MAX_LENGTH);
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", `${gene}-${title}`);
   const variantId = existingRecord?.variantId ?? normalizedVariantId ?? generateRecordId("var");
   const relativePath = existingRecord?.relativePath ?? `${GENETICS_DIRECTORY}/${slug}.md`;
   const sourceIdsInput = input.sourceFamilyMemberIds ?? input.familyMemberIds;
   const sourceFamilyMemberIds =
     sourceIdsInput === undefined
       ? existingRecord?.sourceFamilyMemberIds
-      : normalizeStringList(sourceIdsInput, "sourceFamilyMemberIds", "familyMemberId", 24, 80);
+      : normalizeStringList(
+          sourceIdsInput,
+          "sourceFamilyMemberIds",
+          "familyMemberId",
+          24,
+          GENETIC_FAMILY_ID_MAX_LENGTH,
+        );
   const note =
     input.note === undefined && input.summary === undefined
       ? existingRecord?.note
-      : optionalString(input.note ?? input.summary, "note", 4000);
+      : optionalString(input.note ?? input.summary, "note", GENETIC_NOTE_MAX_LENGTH);
+  const created = !existingRecord;
   const attributes = buildAttributes({
     variantId,
     slug: existingRecord?.slug ?? slug,
@@ -178,7 +226,7 @@ export async function upsertGeneticVariant(
     inheritance:
       input.inheritance === undefined
         ? existingRecord?.inheritance
-        : optionalEnum(input.inheritance, VARIANT_INHERITANCES, "inheritance"),
+        : optionalString(input.inheritance, "inheritance", GENETIC_INHERITANCE_MAX_LENGTH),
     sourceFamilyMemberIds,
     note,
   });
@@ -193,9 +241,19 @@ export async function upsertGeneticVariant(
   });
 
   await writeVaultTextFile(input.vaultRoot, relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "genetics_upsert",
+    commandName: "core.upsertGeneticVariant",
+    summary: `${created ? "Created" : "Updated"} genetic variant registry record.`,
+    files: [relativePath],
+    targetIds: [variantId],
+    changes: [{ path: relativePath, op: created ? "create" : "update" }],
+  });
 
   return {
-    created: !existingRecord,
+    created,
+    auditPath: audit.relativePath,
     record: recordFromParts(attributes, relativePath, markdown),
   };
 }

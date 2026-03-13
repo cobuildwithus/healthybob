@@ -37,5 +37,6 @@ export interface CurrentProfileState {
 }
 
 export interface RebuiltCurrentProfile extends CurrentProfileState {
+  auditPath: string;
   updated: boolean;
 }

@@ -1,3 +1,4 @@
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
 import { writeVaultTextFile } from "../fs.js";
@@ -183,31 +184,42 @@ function ensureGoalLinks(record: GoalRecord): GoalRecord {
 
 export async function upsertGoal(input: UpsertGoalInput): Promise<UpsertGoalResult> {
   const normalizedGoalId = normalizeId(input.goalId, "goalId", "goal");
-  const title = requireString(input.title, "title", 160);
-  const slug = normalizeSlug(input.slug, "slug", title);
   const existingRecords = await loadGoals(input.vaultRoot);
+  const selectorSlug =
+    normalizeSelectorSlug(input.slug) ??
+    (input.title ? normalizeSlug(undefined, "slug", input.title) : undefined);
   const existingRecord = selectRecordByIdOrSlug(
     existingRecords,
     normalizedGoalId,
-    slug,
+    selectorSlug,
     (record) => record.goalId,
     "Goal",
     "VAULT_GOAL_CONFLICT",
   );
+  const title = requireString(input.title ?? existingRecord?.title, "title", 160);
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
   const goalId = existingRecord?.goalId ?? normalizedGoalId ?? generateRecordId("goal");
+  const existingWindow = existingRecord?.window;
   const record: GoalRecord = {
     schemaVersion: GOAL_SCHEMA_VERSION,
     docType: GOAL_DOC_TYPE,
     goalId,
     slug: existingRecord?.slug ?? slug,
     title,
-    status: optionalEnum(input.status ?? "active", GOAL_STATUSES, "status") ?? "active",
-    horizon: optionalEnum(input.horizon ?? "ongoing", GOAL_HORIZONS, "horizon") ?? "ongoing",
-    priority: normalizePriority(input.priority),
+    status:
+      input.status === undefined
+        ? existingRecord?.status ?? "active"
+        : optionalEnum(input.status, GOAL_STATUSES, "status") ?? "active",
+    horizon:
+      input.horizon === undefined
+        ? existingRecord?.horizon ?? "ongoing"
+        : optionalEnum(input.horizon, GOAL_HORIZONS, "horizon") ?? "ongoing",
+    priority: input.priority === undefined ? existingRecord?.priority ?? 5 : normalizePriority(input.priority),
     window: normalizeGoalWindow(
       {
-        startAt: input.window?.startAt ?? new Date(),
-        targetAt: input.window?.targetAt,
+        startAt: input.window?.startAt ?? existingWindow?.startAt ?? new Date(),
+        targetAt:
+          input.window?.targetAt === undefined ? existingWindow?.targetAt : input.window.targetAt,
       },
       "window",
     ),
@@ -215,28 +227,36 @@ export async function upsertGoal(input: UpsertGoalInput): Promise<UpsertGoalResu
     markdown: existingRecord?.markdown ?? "",
   };
 
-  if (input.parentGoalId !== undefined) {
-    record.parentGoalId =
-      input.parentGoalId === null
+  const parentGoalId =
+    input.parentGoalId === undefined
+      ? existingRecord?.parentGoalId
+      : input.parentGoalId === null
         ? null
         : normalizeId(input.parentGoalId, "parentGoalId", "goal");
+  if (parentGoalId !== undefined) {
+    record.parentGoalId = parentGoalId;
   }
 
-  const relatedGoalIds = normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal");
+  const relatedGoalIds =
+    input.relatedGoalIds === undefined
+      ? existingRecord?.relatedGoalIds
+      : normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal");
   if (relatedGoalIds !== undefined) {
     record.relatedGoalIds = relatedGoalIds;
   }
 
-  const relatedExperimentIds = normalizeRecordIdList(
-    input.relatedExperimentIds,
-    "relatedExperimentIds",
-    "exp",
-  );
+  const relatedExperimentIds =
+    input.relatedExperimentIds === undefined
+      ? existingRecord?.relatedExperimentIds
+      : normalizeRecordIdList(input.relatedExperimentIds, "relatedExperimentIds", "exp");
   if (relatedExperimentIds !== undefined) {
     record.relatedExperimentIds = relatedExperimentIds;
   }
 
-  const domains = normalizeDomainList(input.domains, "domains");
+  const domains =
+    input.domains === undefined
+      ? existingRecord?.domains
+      : normalizeDomainList(input.domains, "domains");
   if (domains !== undefined) {
     record.domains = domains;
   }
@@ -248,9 +268,23 @@ export async function upsertGoal(input: UpsertGoalInput): Promise<UpsertGoalResu
   });
 
   await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "goal_upsert",
+    commandName: "core.upsertGoal",
+    summary: `Upserted goal ${record.goalId}.`,
+    targetIds: [record.goalId],
+    changes: [
+      {
+        path: record.relativePath,
+        op: existingRecord ? "update" : "create",
+      },
+    ],
+  });
 
   return {
     created: !existingRecord,
+    auditPath: audit.relativePath,
     record: {
       ...record,
       markdown,

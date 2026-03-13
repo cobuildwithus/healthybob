@@ -19,9 +19,11 @@ import {
   createExperiment,
   ensureJournalDay,
   importDocument,
+  importAssessmentResponse,
   importSamples,
   initializeVault,
   parseFrontmatterDocument,
+  projectAssessmentResponse,
   readJsonlRecords,
   validateVault,
   VaultError,
@@ -305,6 +307,66 @@ test("createExperiment returns the existing experiment for idempotent retries", 
   );
 });
 
+test("assessment imports append contract-shaped records and emit intake audits", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-source");
+  await initializeVault({ vaultRoot });
+
+  const assessmentPath = await writeExternalFile(
+    sourceRoot,
+    "intake.json",
+    JSON.stringify({
+      profile: {
+        topGoalIds: ["goal_sleep"],
+      },
+      family: [
+        {
+          title: "Mother",
+          relationship: "mother",
+        },
+      ],
+    }),
+  );
+
+  const imported = await importAssessmentResponse({
+    vaultRoot,
+    sourcePath: assessmentPath,
+    assessmentType: "intake",
+    questionnaireSlug: "baseline-intake",
+    relatedIds: ["goal_sleep"],
+  });
+  const projected = await projectAssessmentResponse({
+    vaultRoot,
+    assessmentId: imported.assessment.id,
+  });
+
+  const assessmentRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: imported.ledgerPath,
+  });
+  const importAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: imported.auditPath,
+  });
+  const projectionAuditRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: projected.auditPath as string,
+  });
+
+  assert.equal(assessmentRecords.length, 1);
+  assert.equal(expectRecord<{ id: string }>(assessmentRecords[0]).id, imported.assessment.id);
+  assert.equal(
+    importAuditRecords.filter((record) => expectRecord<AuditRecord>(record).action === "intake_import").length,
+    1,
+  );
+  assert.equal(
+    projectionAuditRecords.filter((record) => expectRecord<AuditRecord>(record).action === "intake_project").length,
+    1,
+  );
+  assert.equal(projected.assessmentId, imported.assessment.id);
+  assert.equal(projected.profileSnapshots.length, 1);
+});
+
 test("ensureJournalDay rethrows non-file-exists write failures", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-vault");
   await initializeVault({ vaultRoot });
@@ -560,6 +622,67 @@ test("validateVault accumulates missing directory and malformed event issues", a
         issue.path === "ledger/events/2026/2026-03.jsonl",
     ),
   );
+});
+
+test("validateVault covers health ledgers, registries, and the derived current profile page", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  await fs.mkdir(path.join(vaultRoot, "ledger/assessments/2026"), { recursive: true });
+  await fs.mkdir(path.join(vaultRoot, "ledger/profile-snapshots/2026"), { recursive: true });
+
+  await fs.writeFile(
+    path.join(vaultRoot, "ledger/assessments/2026/2026-03.jsonl"),
+    `${JSON.stringify({ schemaVersion: "hb.assessment-response.v1", id: "asmt_invalid" })}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(vaultRoot, "ledger/profile-snapshots/2026/2026-03.jsonl"),
+    `${JSON.stringify({ schemaVersion: "hb.profile-snapshot.v1", id: "psnap_invalid" })}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(vaultRoot, "bank/family/father.md"),
+    [
+      "---",
+      "schemaVersion: hb.frontmatter.family-member.v1",
+      "docType: family_member",
+      "familyMemberId: fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F9",
+      "slug: father",
+      "title: Father",
+      "relationship: father",
+      "updatedAt: 2026-03-12T09:00:00Z",
+      "---",
+      "",
+      "# Father",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(vaultRoot, "bank/profile/current.md"),
+    [
+      "---",
+      "schemaVersion: hb.frontmatter.profile-current.v1",
+      "docType: profile_current",
+      "snapshotId: psnap_invalid",
+      "updatedAt: not-a-timestamp",
+      "---",
+      "",
+      "# Current Profile",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const validation = await validateVault({ vaultRoot });
+  const issuePaths = new Set(validation.issues.map((issue) => issue.path));
+
+  assert.equal(validation.valid, false);
+  assert.ok(issuePaths.has("ledger/assessments/2026/2026-03.jsonl"));
+  assert.ok(issuePaths.has("ledger/profile-snapshots/2026/2026-03.jsonl"));
+  assert.ok(issuePaths.has("bank/family/father.md"));
+  assert.ok(issuePaths.has("bank/profile/current.md"));
 });
 
 test("mutation helpers reject missing meal photos and invalid sample batches", async () => {

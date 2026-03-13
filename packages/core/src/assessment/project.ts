@@ -1,3 +1,4 @@
+import { emitAuditRecord } from "../audit.js";
 import { toIsoTimestamp } from "../time.js";
 import { isPlainRecord } from "../types.js";
 import { VaultError } from "../errors.js";
@@ -478,7 +479,7 @@ export async function projectAssessmentResponse(
     .map((entry) => normalizeGeneticVariantProposal(entry.value, buildSource(assessmentResponse, entry.pointer)))
     .filter((entry): entry is GeneticVariantProposal => entry !== null);
 
-  return {
+  const proposal: AssessmentResponseProposal = {
     assessmentId: assessmentResponse.id,
     sourcePath: assessmentResponse.rawPath,
     profileSnapshots,
@@ -490,4 +491,18 @@ export async function projectAssessmentResponse(
     familyMembers,
     geneticVariants,
   };
+
+  if (input.vaultRoot) {
+    const audit = await emitAuditRecord({
+      vaultRoot: input.vaultRoot,
+      action: "intake_project",
+      commandName: "core.projectAssessmentResponse",
+      summary: `Projected assessment ${assessmentResponse.id} into health proposals.`,
+      occurredAt: new Date(),
+      targetIds: [assessmentResponse.id],
+    });
+    proposal.auditPath = audit.relativePath;
+  }
+
+  return proposal;
 }

@@ -68,7 +68,7 @@ export interface UpsertGoalInput {
   vaultRoot: string;
   goalId?: string;
   slug?: string;
-  title: string;
+  title?: string;
   status?: GoalStatus;
   horizon?: GoalHorizon;
   priority?: number;
@@ -84,6 +84,7 @@ export interface UpsertGoalInput {
 
 export interface UpsertGoalResult {
   created: boolean;
+  auditPath: string;
   record: GoalRecord;
 }
 
@@ -116,7 +117,7 @@ export interface UpsertConditionInput {
   vaultRoot: string;
   conditionId?: string;
   slug?: string;
-  title: string;
+  title?: string;
   clinicalStatus?: ConditionClinicalStatus;
   verificationStatus?: ConditionVerificationStatus;
   assertedOn?: DateInput;
@@ -130,6 +131,7 @@ export interface UpsertConditionInput {
 
 export interface UpsertConditionResult {
   created: boolean;
+  auditPath: string;
   record: ConditionRecord;
 }
 
@@ -160,8 +162,8 @@ export interface UpsertAllergyInput {
   vaultRoot: string;
   allergyId?: string;
   slug?: string;
-  title: string;
-  substance: string;
+  title?: string;
+  substance?: string;
   status?: AllergyStatus;
   criticality?: AllergyCriticality;
   reaction?: string;
@@ -172,6 +174,7 @@ export interface UpsertAllergyInput {
 
 export interface UpsertAllergyResult {
   created: boolean;
+  auditPath: string;
   record: AllergyRecord;
 }
 
@@ -206,8 +209,8 @@ export interface UpsertRegimenItemInput {
   vaultRoot: string;
   regimenId?: string;
   slug?: string;
-  title: string;
-  kind: RegimenKind;
+  title?: string;
+  kind?: RegimenKind;
   status?: RegimenStatus;
   startedOn?: DateInput;
   stoppedOn?: DateInput;
@@ -222,6 +225,7 @@ export interface UpsertRegimenItemInput {
 
 export interface UpsertRegimenItemResult {
   created: boolean;
+  auditPath: string;
   record: RegimenItemRecord;
 }
 
@@ -241,5 +245,6 @@ export interface StopRegimenItemInput {
 }
 
 export interface StopRegimenItemResult {
+  auditPath: string;
   record: RegimenItemRecord;
 }

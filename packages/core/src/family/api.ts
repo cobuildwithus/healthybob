@@ -1,3 +1,6 @@
+import { familyMemberFrontmatterSchema } from "@healthybob/contracts/schemas";
+
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "../frontmatter.js";
 import { readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
@@ -24,6 +27,48 @@ import type {
 import { FAMILY_MEMBER_DOC_TYPE, FAMILY_MEMBER_SCHEMA_VERSION } from "./types.js";
 
 const FAMILY_DIRECTORY = "bank/family";
+const FAMILY_TITLE_MAX_LENGTH = readMaxLength(familyMemberFrontmatterSchema, "title");
+const FAMILY_RELATIONSHIP_MAX_LENGTH = readMaxLength(familyMemberFrontmatterSchema, "relationship");
+const FAMILY_NOTE_MAX_LENGTH = readMaxLength(familyMemberFrontmatterSchema, "note");
+const FAMILY_CONDITION_MAX_LENGTH = readArrayItemMaxLength(familyMemberFrontmatterSchema, "conditions");
+const FAMILY_VARIANT_ID_MAX_LENGTH = 80;
+
+function readSchemaProperty(
+  schema: unknown,
+  propertyName: string,
+): Record<string, unknown> {
+  const properties =
+    typeof schema === "object" && schema !== null && "properties" in schema
+      ? (schema.properties as Record<string, unknown>)
+      : null;
+  const property = properties?.[propertyName];
+
+  if (!property || typeof property !== "object") {
+    throw new Error(`Missing family contract property "${propertyName}".`);
+  }
+
+  return property as Record<string, unknown>;
+}
+
+function readMaxLength(schema: unknown, propertyName: string): number {
+  const candidate = readSchemaProperty(schema, propertyName).maxLength;
+
+  if (typeof candidate !== "number") {
+    throw new Error(`Missing maxLength for family contract property "${propertyName}".`);
+  }
+
+  return candidate;
+}
+
+function readArrayItemMaxLength(schema: unknown, propertyName: string): number {
+  const items = readSchemaProperty(schema, propertyName).items;
+
+  if (!items || typeof items !== "object" || typeof (items as Record<string, unknown>).maxLength !== "number") {
+    throw new Error(`Missing item maxLength for family contract property "${propertyName}".`);
+  }
+
+  return (items as Record<string, unknown>).maxLength as number;
+}
 
 function buildBody(record: {
   title: string;
@@ -60,17 +105,23 @@ function recordFromParts(
     docType: requireString(attributes.docType, "docType", 40) as typeof FAMILY_MEMBER_DOC_TYPE,
     familyMemberId: requireString(attributes.familyMemberId, "familyMemberId", 64),
     slug: requireString(attributes.slug, "slug", 160),
-    title: requireString(attributes.title, "title", 160),
-    relationship: requireString(attributes.relationship, "relationship", 120),
-    conditions: normalizeStringList(attributes.conditions, "conditions", "condition", 24, 160),
+    title: requireString(attributes.title, "title", FAMILY_TITLE_MAX_LENGTH),
+    relationship: requireString(attributes.relationship, "relationship", FAMILY_RELATIONSHIP_MAX_LENGTH),
+    conditions: normalizeStringList(
+      attributes.conditions,
+      "conditions",
+      "condition",
+      24,
+      FAMILY_CONDITION_MAX_LENGTH,
+    ),
     deceased: optionalBoolean(attributes.deceased, "deceased"),
-    note: optionalString(attributes.note, "note", 4000),
+    note: optionalString(attributes.note, "note", FAMILY_NOTE_MAX_LENGTH),
     relatedVariantIds: normalizeStringList(
       attributes.relatedVariantIds,
       "relatedVariantIds",
       "variantId",
       24,
-      80,
+      FAMILY_VARIANT_ID_MAX_LENGTH,
     ),
     relativePath,
     markdown,
@@ -93,17 +144,19 @@ async function loadFamilyRecords(vaultRoot: string): Promise<FamilyMemberRecord[
     records.push(record);
   }
 
-  records.sort((left, right) => left.title.localeCompare(right.title) || left.familyMemberId.localeCompare(right.familyMemberId));
+  records.sort(
+    (left, right) => left.title.localeCompare(right.title) || left.familyMemberId.localeCompare(right.familyMemberId),
+  );
   return records;
 }
 
 function selectExistingRecord(
   records: FamilyMemberRecord[],
   familyMemberId: string | undefined,
-  slug: string,
+  slug: string | undefined,
 ): FamilyMemberRecord | null {
   const byId = familyMemberId ? records.find((record) => record.familyMemberId === familyMemberId) ?? null : null;
-  const bySlug = records.find((record) => record.slug === slug) ?? null;
+  const bySlug = slug ? records.find((record) => record.slug === slug) ?? null : null;
 
   if (byId && bySlug && byId.familyMemberId !== bySlug.familyMemberId) {
     throw new VaultError("VAULT_FAMILY_MEMBER_CONFLICT", "familyMemberId and slug resolve to different family members.");
@@ -142,25 +195,39 @@ export async function upsertFamilyMember(
   input: UpsertFamilyMemberInput,
 ): Promise<UpsertFamilyMemberResult> {
   const normalizedFamilyMemberId = normalizeId(input.familyMemberId, "familyMemberId", "fam");
-  const title = requireString(input.title ?? input.name, "title", 160);
-  const relationship = requireString(input.relationship ?? input.relation, "relationship", 120);
-  const slug = normalizeSlug(input.slug, "slug", title);
   const existingRecords = await loadFamilyRecords(input.vaultRoot);
-  const existingRecord = selectExistingRecord(existingRecords, normalizedFamilyMemberId, slug);
+  const selectorSlug =
+    (input.slug ? normalizeSlug(input.slug, "slug") : undefined) ??
+    (input.title ?? input.name ? normalizeSlug(undefined, "slug", input.title ?? input.name) : undefined);
+  const existingRecord = selectExistingRecord(existingRecords, normalizedFamilyMemberId, selectorSlug);
+  const title = requireString(input.title ?? input.name ?? existingRecord?.title, "title", FAMILY_TITLE_MAX_LENGTH);
+  const relationship = requireString(
+    input.relationship ?? input.relation ?? existingRecord?.relationship,
+    "relationship",
+    FAMILY_RELATIONSHIP_MAX_LENGTH,
+  );
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
   const familyMemberId = existingRecord?.familyMemberId ?? normalizedFamilyMemberId ?? generateRecordId("fam");
   const relativePath = existingRecord?.relativePath ?? `${FAMILY_DIRECTORY}/${slug}.md`;
   const conditions =
     input.conditions === undefined
       ? existingRecord?.conditions
-      : normalizeStringList(input.conditions, "conditions", "condition", 24, 160);
+      : normalizeStringList(input.conditions, "conditions", "condition", 24, FAMILY_CONDITION_MAX_LENGTH);
   const note =
     input.note === undefined && input.summary === undefined
       ? existingRecord?.note
-      : optionalString(input.note ?? input.summary, "note", 4000);
+      : optionalString(input.note ?? input.summary, "note", FAMILY_NOTE_MAX_LENGTH);
   const relatedVariantIds =
     input.relatedVariantIds === undefined
       ? existingRecord?.relatedVariantIds
-      : normalizeStringList(input.relatedVariantIds, "relatedVariantIds", "variantId", 24, 80);
+      : normalizeStringList(
+          input.relatedVariantIds,
+          "relatedVariantIds",
+          "variantId",
+          24,
+          FAMILY_VARIANT_ID_MAX_LENGTH,
+        );
+  const created = !existingRecord;
   const attributes = buildAttributes({
     familyMemberId,
     slug: existingRecord?.slug ?? slug,
@@ -184,9 +251,19 @@ export async function upsertFamilyMember(
   });
 
   await writeVaultTextFile(input.vaultRoot, relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "family_upsert",
+    commandName: "core.upsertFamilyMember",
+    summary: `${created ? "Created" : "Updated"} family member registry record.`,
+    files: [relativePath],
+    targetIds: [familyMemberId],
+    changes: [{ path: relativePath, op: created ? "create" : "update" }],
+  });
 
   return {
-    created: !existingRecord,
+    created,
+    auditPath: audit.relativePath,
     record: recordFromParts(attributes, relativePath, markdown),
   };
 }

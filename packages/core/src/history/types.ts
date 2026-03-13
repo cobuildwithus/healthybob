@@ -145,6 +145,7 @@ export type AppendHistoryEventInput =
   | AppendExposureHistoryEventInput;
 
 export interface AppendHistoryEventResult {
+  auditPath: string;
   relativePath: string;
   record: HistoryEventRecord;
 }

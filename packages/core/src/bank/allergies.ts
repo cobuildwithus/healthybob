@@ -1,3 +1,4 @@
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
 import { writeVaultTextFile } from "../fs.js";
@@ -115,17 +116,20 @@ async function loadAllergies(vaultRoot: string): Promise<AllergyRecord[]> {
 
 export async function upsertAllergy(input: UpsertAllergyInput): Promise<UpsertAllergyResult> {
   const normalizedAllergyId = normalizeId(input.allergyId, "allergyId", "alg");
-  const title = requireString(input.title, "title", 160);
-  const slug = normalizeSlug(input.slug, "slug", title);
   const existingRecords = await loadAllergies(input.vaultRoot);
+  const selectorSlug =
+    normalizeSelectorSlug(input.slug) ??
+    (input.title ? normalizeSlug(undefined, "slug", input.title) : undefined);
   const existingRecord = selectRecordByIdOrSlug(
     existingRecords,
     normalizedAllergyId,
-    slug,
+    selectorSlug,
     (record) => record.allergyId,
     "Allergy",
     "VAULT_ALLERGY_CONFLICT",
   );
+  const title = requireString(input.title ?? existingRecord?.title, "title", 160);
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
   const allergyId = existingRecord?.allergyId ?? normalizedAllergyId ?? generateRecordId("alg");
   const record = validateAllergyTimeline(
     stripUndefined({
@@ -134,13 +138,31 @@ export async function upsertAllergy(input: UpsertAllergyInput): Promise<UpsertAl
       allergyId,
       slug: existingRecord?.slug ?? slug,
       title,
-      substance: requireString(input.substance, "substance", 160),
-      status: optionalEnum(input.status ?? "active", ALLERGY_STATUSES, "status") ?? "active",
-      criticality: optionalEnum(input.criticality, ALLERGY_CRITICALITIES, "criticality"),
-      reaction: optionalString(input.reaction, "reaction", 160),
-      recordedOn: optionalDateOnly(input.recordedOn, "recordedOn"),
-      relatedConditionIds: normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
-      note: optionalString(input.note, "note", 4000),
+      substance: requireString(input.substance ?? existingRecord?.substance, "substance", 160),
+      status:
+        input.status === undefined
+          ? existingRecord?.status ?? "active"
+          : optionalEnum(input.status, ALLERGY_STATUSES, "status") ?? "active",
+      criticality:
+        input.criticality === undefined
+          ? existingRecord?.criticality
+          : optionalEnum(input.criticality, ALLERGY_CRITICALITIES, "criticality"),
+      reaction:
+        input.reaction === undefined
+          ? existingRecord?.reaction
+          : optionalString(input.reaction, "reaction", 160),
+      recordedOn:
+        input.recordedOn === undefined
+          ? existingRecord?.recordedOn
+          : optionalDateOnly(input.recordedOn, "recordedOn"),
+      relatedConditionIds:
+        input.relatedConditionIds === undefined
+          ? existingRecord?.relatedConditionIds
+          : normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
+      note:
+        input.note === undefined
+          ? existingRecord?.note
+          : optionalString(input.note, "note", 4000),
       relativePath: existingRecord?.relativePath ?? `${ALLERGIES_DIRECTORY}/${slug}.md`,
     }) as AllergyRecord,
   );
@@ -150,9 +172,23 @@ export async function upsertAllergy(input: UpsertAllergyInput): Promise<UpsertAl
   });
 
   await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "allergy_upsert",
+    commandName: "core.upsertAllergy",
+    summary: `Upserted allergy ${record.allergyId}.`,
+    targetIds: [record.allergyId],
+    changes: [
+      {
+        path: record.relativePath,
+        op: existingRecord ? "update" : "create",
+      },
+    ],
+  });
 
   return {
     created: !existingRecord,
+    auditPath: audit.relativePath,
     record: {
       ...record,
       markdown,

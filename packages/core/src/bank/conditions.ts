@@ -1,3 +1,4 @@
+import { emitAuditRecord } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
 import { writeVaultTextFile } from "../fs.js";
@@ -141,17 +142,20 @@ export async function upsertCondition(
   input: UpsertConditionInput,
 ): Promise<UpsertConditionResult> {
   const normalizedConditionId = normalizeId(input.conditionId, "conditionId", "cond");
-  const title = requireString(input.title, "title", 160);
-  const slug = normalizeSlug(input.slug, "slug", title);
   const existingRecords = await loadConditions(input.vaultRoot);
+  const selectorSlug =
+    normalizeSelectorSlug(input.slug) ??
+    (input.title ? normalizeSlug(undefined, "slug", input.title) : undefined);
   const existingRecord = selectRecordByIdOrSlug(
     existingRecords,
     normalizedConditionId,
-    slug,
+    selectorSlug,
     (record) => record.conditionId,
     "Condition",
     "VAULT_CONDITION_CONFLICT",
   );
+  const title = requireString(input.title ?? existingRecord?.title, "title", 160);
+  const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
   const conditionId = existingRecord?.conditionId ?? normalizedConditionId ?? generateRecordId("cond");
   const record = validateConditionTimeline(
     stripUndefined({
@@ -161,19 +165,45 @@ export async function upsertCondition(
       slug: existingRecord?.slug ?? slug,
       title,
       clinicalStatus:
-        optionalEnum(input.clinicalStatus ?? "active", CONDITION_CLINICAL_STATUSES, "clinicalStatus") ?? "active",
-      verificationStatus: optionalEnum(
-        input.verificationStatus,
-        CONDITION_VERIFICATION_STATUSES,
-        "verificationStatus",
-      ),
-      assertedOn: optionalDateOnly(input.assertedOn, "assertedOn"),
-      resolvedOn: optionalDateOnly(input.resolvedOn, "resolvedOn"),
-      severity: optionalEnum(input.severity, CONDITION_SEVERITIES, "severity"),
-      bodySites: normalizeStringList(input.bodySites, "bodySites", "bodySite", 16, 120),
-      relatedGoalIds: normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal"),
-      relatedRegimenIds: normalizeRecordIdList(input.relatedRegimenIds, "relatedRegimenIds", "reg"),
-      note: optionalString(input.note, "note", 4000),
+        input.clinicalStatus === undefined
+          ? existingRecord?.clinicalStatus ?? "active"
+          : optionalEnum(input.clinicalStatus, CONDITION_CLINICAL_STATUSES, "clinicalStatus") ?? "active",
+      verificationStatus:
+        input.verificationStatus === undefined
+          ? existingRecord?.verificationStatus
+          : optionalEnum(
+              input.verificationStatus,
+              CONDITION_VERIFICATION_STATUSES,
+              "verificationStatus",
+            ),
+      assertedOn:
+        input.assertedOn === undefined
+          ? existingRecord?.assertedOn
+          : optionalDateOnly(input.assertedOn, "assertedOn"),
+      resolvedOn:
+        input.resolvedOn === undefined
+          ? existingRecord?.resolvedOn
+          : optionalDateOnly(input.resolvedOn, "resolvedOn"),
+      severity:
+        input.severity === undefined
+          ? existingRecord?.severity
+          : optionalEnum(input.severity, CONDITION_SEVERITIES, "severity"),
+      bodySites:
+        input.bodySites === undefined
+          ? existingRecord?.bodySites
+          : normalizeStringList(input.bodySites, "bodySites", "bodySite", 16, 120),
+      relatedGoalIds:
+        input.relatedGoalIds === undefined
+          ? existingRecord?.relatedGoalIds
+          : normalizeRecordIdList(input.relatedGoalIds, "relatedGoalIds", "goal"),
+      relatedRegimenIds:
+        input.relatedRegimenIds === undefined
+          ? existingRecord?.relatedRegimenIds
+          : normalizeRecordIdList(input.relatedRegimenIds, "relatedRegimenIds", "reg"),
+      note:
+        input.note === undefined
+          ? existingRecord?.note
+          : optionalString(input.note, "note", 4000),
       relativePath: existingRecord?.relativePath ?? `${CONDITIONS_DIRECTORY}/${slug}.md`,
     }) as ConditionRecord,
   );
@@ -183,9 +213,23 @@ export async function upsertCondition(
   });
 
   await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
+  const audit = await emitAuditRecord({
+    vaultRoot: input.vaultRoot,
+    action: "condition_upsert",
+    commandName: "core.upsertCondition",
+    summary: `Upserted condition ${record.conditionId}.`,
+    targetIds: [record.conditionId],
+    changes: [
+      {
+        path: record.relativePath,
+        op: existingRecord ? "update" : "create",
+      },
+    ],
+  });
 
   return {
     created: !existingRecord,
+    auditPath: audit.relativePath,
     record: {
       ...record,
       markdown,

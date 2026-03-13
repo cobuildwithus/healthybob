@@ -1,3 +1,4 @@
+import type { RawArtifact } from "../raw.js";
 import type { UnknownRecord } from "../types.js";
 import type { ProfileSnapshotSource } from "../profile/types.js";
 
@@ -30,6 +31,13 @@ export interface ImportAssessmentResponseInput {
   source?: AssessmentSource;
   questionnaireSlug?: string;
   relatedIds?: string[];
+}
+
+export interface ImportAssessmentResponseResult {
+  assessment: AssessmentResponseRecord;
+  raw: RawArtifact;
+  ledgerPath: string;
+  auditPath: string;
 }
 
 export interface AssessmentProposalSource {
@@ -115,6 +123,7 @@ export interface GeneticVariantProposal {
 export interface AssessmentResponseProposal {
   assessmentId?: string;
   sourcePath?: string;
+  auditPath?: string;
   profileSnapshots: ProfileSnapshotProposal[];
   goals: GoalProposal[];
   conditions: ConditionProposal[];

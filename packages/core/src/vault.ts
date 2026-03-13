@@ -1,9 +1,18 @@
 import {
+  allergyFrontmatterSchema,
+  assessmentResponseSchema,
+  conditionFrontmatterSchema,
   auditRecordSchema,
   coreFrontmatterSchema,
   eventRecordSchema,
   experimentFrontmatterSchema,
+  familyMemberFrontmatterSchema,
+  geneticVariantFrontmatterSchema,
+  goalFrontmatterSchema,
   journalDayFrontmatterSchema,
+  profileCurrentFrontmatterSchema,
+  profileSnapshotSchema,
+  regimenFrontmatterSchema,
   sampleRecordSchema,
   vaultMetadataSchema,
 } from "@healthybob/contracts/schemas";
@@ -69,6 +78,13 @@ interface LoadVaultInput {
 interface ValidateFrontmatterFileInput {
   vaultRoot: string;
   relativePath: string;
+  schema: JsonSchema;
+  code: string;
+}
+
+interface ValidateFrontmatterDirectoryInput {
+  vaultRoot: string;
+  relativeDirectory: string;
   schema: JsonSchema;
   code: string;
 }
@@ -284,6 +300,31 @@ async function validateFrontmatterFile({
   return [];
 }
 
+async function validateFrontmatterDirectory({
+  vaultRoot,
+  relativeDirectory,
+  schema,
+  code,
+}: ValidateFrontmatterDirectoryInput): Promise<ValidationIssue[]> {
+  const relativePaths = await walkVaultFiles(vaultRoot, relativeDirectory, {
+    extension: ".md",
+  });
+  const issues: ValidationIssue[] = [];
+
+  for (const relativePath of relativePaths) {
+    issues.push(
+      ...(await validateFrontmatterFile({
+        vaultRoot,
+        relativePath,
+        schema,
+        code,
+      })),
+    );
+  }
+
+  return issues;
+}
+
 async function validateJsonlFamily({
   vaultRoot,
   relativeDirectory,
@@ -388,11 +429,88 @@ export async function validateVault({ vaultRoot }: LoadVaultInput = {}): Promise
   }
 
   issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.goalsDirectory,
+      schema: goalFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.conditionsDirectory,
+      schema: conditionFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.allergiesDirectory,
+      schema: allergyFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.regimensDirectory,
+      schema: regimenFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.familyDirectory,
+      schema: familyMemberFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateFrontmatterDirectory({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.geneticsDirectory,
+      schema: geneticVariantFrontmatterSchema,
+      code: "HB_FRONTMATTER_INVALID",
+    })),
+  );
+
+  const currentProfilePath = resolveVaultPath(absoluteRoot, VAULT_LAYOUT.profileCurrentDocument);
+  if (await pathExists(currentProfilePath.absolutePath)) {
+    issues.push(
+      ...(await validateFrontmatterFile({
+        vaultRoot: absoluteRoot,
+        relativePath: VAULT_LAYOUT.profileCurrentDocument,
+        schema: profileCurrentFrontmatterSchema,
+        code: "HB_FRONTMATTER_INVALID",
+      })),
+    );
+  }
+
+  issues.push(
+    ...(await validateJsonlFamily({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.assessmentLedgerDirectory,
+      schema: assessmentResponseSchema,
+      code: "HB_CONTRACT_INVALID",
+    })),
+  );
+  issues.push(
     ...(await validateJsonlFamily({
       vaultRoot: absoluteRoot,
       relativeDirectory: VAULT_LAYOUT.eventLedgerDirectory,
       schema: eventRecordSchema,
       code: "HB_EVENT_INVALID",
+    })),
+  );
+  issues.push(
+    ...(await validateJsonlFamily({
+      vaultRoot: absoluteRoot,
+      relativeDirectory: VAULT_LAYOUT.profileSnapshotsDirectory,
+      schema: profileSnapshotSchema,
+      code: "HB_CONTRACT_INVALID",
     })),
   );
   issues.push(

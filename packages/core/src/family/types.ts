@@ -1,7 +1,7 @@
-import type { DateInput } from "../types.js";
+import { CONTRACT_SCHEMA_VERSION, FRONTMATTER_DOC_TYPES } from "@healthybob/contracts";
 
-export const FAMILY_MEMBER_SCHEMA_VERSION = "hb.family-member.v1";
-export const FAMILY_MEMBER_DOC_TYPE = "family_member";
+export const FAMILY_MEMBER_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.familyMemberFrontmatter;
+export const FAMILY_MEMBER_DOC_TYPE = FRONTMATTER_DOC_TYPES.familyMember;
 
 export interface FamilyMemberRecord {
   schemaVersion: typeof FAMILY_MEMBER_SCHEMA_VERSION;
@@ -31,11 +31,11 @@ export interface UpsertFamilyMemberInput {
   note?: string;
   summary?: string;
   relatedVariantIds?: string[];
-  updatedAt?: DateInput;
 }
 
 export interface UpsertFamilyMemberResult {
   created: boolean;
+  auditPath: string;
   record: FamilyMemberRecord;
 }
 
