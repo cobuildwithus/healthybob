@@ -4,7 +4,14 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { test } from "vitest";
 
-import { initializeVault, readJsonlRecords, VaultError } from "../src/index.js";
+import {
+  appendJsonlRecord,
+  initializeVault,
+  readJsonlRecords,
+  toMonthlyShardRelativePath,
+  VAULT_LAYOUT,
+  VaultError,
+} from "../src/index.js";
 import { appendHistoryEvent, listHistoryEvents, readHistoryEvent } from "../src/history/index.js";
 import { listFamilyMembers, readFamilyMember, upsertFamilyMember } from "../src/family/index.js";
 import { listGeneticVariants, readGeneticVariant, upsertGeneticVariant } from "../src/genetics/index.js";
@@ -75,6 +82,79 @@ test("health history appends to the shared event ledger and supports list/read f
   assert.equal(filtered[0]?.id, adverseEffect.record.id);
   assert.equal(read.record.kind, "adverse_effect");
   assert.equal(read.record.effect, "rash");
+});
+
+test("history test-event normalization keeps write behavior strict while reading legacy status aliases", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-history-test-aliases");
+  await initializeVault({ vaultRoot });
+
+  const writeInput = {
+    vaultRoot,
+    kind: "test" as const,
+    occurredAt: "2026-03-03T12:00:00.000Z",
+    title: "CBC results imported from legacy payload",
+    testName: "CBC",
+    status: "abnormal",
+  } as Parameters<typeof appendHistoryEvent>[0] & { status?: string };
+
+  const appended = await appendHistoryEvent(writeInput);
+  assert.equal(appended.record.resultStatus, "unknown");
+
+  const storedWriteRecord = await readJsonlRecords({
+    vaultRoot,
+    relativePath: appended.relativePath,
+  });
+  assert.equal((storedWriteRecord[0] as { resultStatus?: string }).resultStatus, "unknown");
+  assert.equal((storedWriteRecord[0] as { status?: string }).status, undefined);
+
+  const legacyRelativePath = toMonthlyShardRelativePath(
+    VAULT_LAYOUT.eventLedgerDirectory,
+    "2026-03-03T18:00:00.000Z",
+    "occurredAt",
+  );
+  const legacyEventId = "evt_01JNW7YJ7MNE7M9Q2QWQK4Z3F8";
+
+  await appendJsonlRecord({
+    vaultRoot,
+    relativePath: legacyRelativePath,
+    record: {
+      schemaVersion: "hb.event.v1",
+      id: legacyEventId,
+      kind: "test",
+      occurredAt: "2026-03-03T18:00:00.000Z",
+      recordedAt: "2026-03-03T18:05:00.000Z",
+      dayKey: "2026-03-03",
+      source: "manual",
+      title: "Legacy CBC result",
+      testName: "CBC",
+      status: "abnormal",
+      summary: "Legacy payload used status.",
+    },
+  });
+
+  const readLegacy = await readHistoryEvent({
+    vaultRoot,
+    eventId: legacyEventId,
+  });
+  const listed = await listHistoryEvents({
+    vaultRoot,
+    kinds: ["test"],
+    order: "asc",
+  });
+
+  assert.equal(readLegacy.record.kind, "test");
+  assert.equal(readLegacy.record.resultStatus, "abnormal");
+  assert.equal(readLegacy.record.summary, "Legacy payload used status.");
+  assert.deepEqual(
+    listed.map((record) => ({
+      id: record.id,
+      resultStatus: record.kind === "test" ? record.resultStatus : undefined,
+    })),
+    [
+      { id: appended.record.id, resultStatus: "unknown" },
+      { id: legacyEventId, resultStatus: "abnormal" },
+    ],
+  );
 });
 
 test("family members are stored as deterministic markdown registry entries", async () => {

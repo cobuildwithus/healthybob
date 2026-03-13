@@ -39,6 +39,14 @@ import type {
 } from "./types.js";
 
 const HISTORY_KIND_SET = new Set<HistoryEventKind>(HEALTH_HISTORY_KINDS);
+type HistoryNormalizationMode = "build" | "parse";
+type HistorySourceRecord = Record<string, unknown>;
+
+interface HistoryFieldDefinition<TValue> {
+  sources?: Partial<Record<HistoryNormalizationMode, readonly string[]>>;
+  defaults?: Partial<Record<HistoryNormalizationMode, unknown>>;
+  normalize: (value: unknown, fieldName: string) => TValue;
+}
 
 function normalizeBaseEvent(input: AppendHistoryEventInput) {
   const occurredAt = normalizeTimestamp(input.occurredAt, "occurredAt");
@@ -67,60 +75,156 @@ function stripUndefined<TRecord>(record: TRecord): TRecord {
   ) as TRecord;
 }
 
-function buildHistoryEventRecord(input: AppendHistoryEventInput): HistoryEventRecord {
-  const baseRecord = normalizeBaseEvent(input);
+const HISTORY_KIND_DEFINITIONS: Record<
+  HistoryEventKind,
+  Record<string, HistoryFieldDefinition<unknown>>
+> = {
+  encounter: {
+    encounterType: {
+      normalize: (value, fieldName) => requireString(value, fieldName, 120),
+    },
+    location: {
+      sources: {
+        build: ["location", "facility"],
+        parse: ["location", "facility"],
+      },
+      normalize: (value, fieldName) => optionalString(value, fieldName, 160),
+    },
+    providerId: {
+      normalize: (value, fieldName) => optionalString(value, fieldName, 80),
+    },
+  },
+  procedure: {
+    procedure: {
+      sources: {
+        build: ["procedure", "procedureName"],
+        parse: ["procedure", "procedureName"],
+      },
+      normalize: (value, fieldName) => requireString(value, fieldName, 160),
+    },
+    status: {
+      defaults: {
+        build: "completed",
+        parse: "completed",
+      },
+      normalize: (value, fieldName) => optionalEnum(value, PROCEDURE_STATUSES, fieldName) ?? "completed",
+    },
+  },
+  test: {
+    testName: {
+      normalize: (value, fieldName) => requireString(value, fieldName, 160),
+    },
+    resultStatus: {
+      sources: {
+        build: ["resultStatus"],
+        parse: ["resultStatus", "status"],
+      },
+      defaults: {
+        build: "unknown",
+        parse: "unknown",
+      },
+      normalize: (value, fieldName) => optionalEnum(value, TEST_STATUSES, fieldName) ?? "unknown",
+    },
+    summary: {
+      sources: {
+        build: ["summary", "resultSummary"],
+        parse: ["summary", "resultSummary"],
+      },
+      normalize: (value, fieldName) => optionalString(value, fieldName, 1000),
+    },
+  },
+  adverse_effect: {
+    substance: {
+      normalize: (value, fieldName) => requireString(value, fieldName, 160),
+    },
+    effect: {
+      normalize: (value, fieldName) => requireString(value, fieldName, 240),
+    },
+    severity: {
+      defaults: {
+        build: "moderate",
+        parse: "moderate",
+      },
+      normalize: (value, fieldName) =>
+        optionalEnum(value, ADVERSE_EFFECT_SEVERITIES, fieldName) ?? "moderate",
+    },
+  },
+  exposure: {
+    exposureType: {
+      sources: {
+        build: ["exposureType", "route"],
+        parse: ["exposureType", "route"],
+      },
+      defaults: {
+        build: "unspecified",
+        parse: "unspecified",
+      },
+      normalize: (value, fieldName) => requireString(value, fieldName, 120),
+    },
+    substance: {
+      sources: {
+        build: ["substance", "agent"],
+        parse: ["substance", "agent"],
+      },
+      normalize: (value, fieldName) => requireString(value, fieldName, 160),
+    },
+    duration: {
+      sources: {
+        build: ["duration", "durationText"],
+        parse: ["duration", "durationText"],
+      },
+      normalize: (value, fieldName) => optionalString(value, fieldName, 120),
+    },
+  },
+};
 
-  switch (input.kind) {
-    case "encounter":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "encounter",
-        encounterType: requireString(input.encounterType, "encounterType", 120),
-        location:
-          optionalString(input.location, "location", 160) ??
-          optionalString(input.facility, "facility", 160),
-        providerId: optionalString(input.providerId, "providerId", 80),
-      });
-    case "procedure":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "procedure",
-        procedure: requireString(input.procedure ?? input.procedureName, "procedure", 160),
-        status: optionalEnum(input.status ?? "completed", PROCEDURE_STATUSES, "status") ?? "completed",
-      });
-    case "test":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "test",
-        testName: requireString(input.testName, "testName", 160),
-        resultStatus:
-          optionalEnum(input.resultStatus ?? "unknown", TEST_STATUSES, "resultStatus") ?? "unknown",
-        summary:
-          optionalString(input.summary, "summary", 1000) ??
-          optionalString(input.resultSummary, "resultSummary", 1000),
-      });
-    case "adverse_effect":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "adverse_effect",
-        substance: requireString(input.substance, "substance", 160),
-        effect: requireString(input.effect, "effect", 240),
-        severity: optionalEnum(input.severity ?? "moderate", ADVERSE_EFFECT_SEVERITIES, "severity") ?? "moderate",
-      });
-    case "exposure":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "exposure",
-        exposureType:
-          requireString(input.exposureType ?? input.route ?? "unspecified", "exposureType", 120),
-        substance: requireString(input.substance ?? input.agent, "substance", 160),
-        duration:
-          optionalString(input.duration, "duration", 120) ??
-          optionalString(input.durationText, "durationText", 120),
-      });
-    default:
-      throw new VaultError("VAULT_INVALID_INPUT", "Unsupported health history kind.");
+function readHistoryFieldValue(
+  source: HistorySourceRecord,
+  aliases: readonly string[],
+  fallback: unknown,
+): unknown {
+  for (const alias of aliases) {
+    const value = source[alias];
+
+    if (value !== undefined && value !== null) {
+      return value;
+    }
   }
+
+  return fallback;
+}
+
+function normalizeHistoryKindFields(
+  kind: HistoryEventKind,
+  source: HistorySourceRecord,
+  mode: HistoryNormalizationMode,
+): Record<string, unknown> {
+  const definition = HISTORY_KIND_DEFINITIONS[kind];
+  const normalized: Record<string, unknown> = {};
+
+  for (const [recordKey, fieldDefinition] of Object.entries(definition)) {
+    const aliases = fieldDefinition.sources?.[mode] ?? [recordKey];
+    const fallback = fieldDefinition.defaults?.[mode];
+    normalized[recordKey] = fieldDefinition.normalize(
+      readHistoryFieldValue(source, aliases, fallback),
+      recordKey,
+    );
+  }
+
+  return stripUndefined(normalized);
+}
+
+function buildHistoryEventRecord(input: AppendHistoryEventInput): HistoryEventRecord {
+  if (!HISTORY_KIND_SET.has(input.kind)) {
+    throw new VaultError("VAULT_INVALID_INPUT", "Unsupported health history kind.");
+  }
+
+  const baseRecord = normalizeBaseEvent(input);
+  return stripUndefined({
+    ...baseRecord,
+    kind: input.kind,
+    ...normalizeHistoryKindFields(input.kind, input as unknown as HistorySourceRecord, "build"),
+  }) as HistoryEventRecord;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -132,7 +236,8 @@ function parseStoredHistoryEvent(value: unknown): HistoryEventRecord | null {
     return null;
   }
 
-  if (!HISTORY_KIND_SET.has(value.kind as HistoryEventKind)) {
+  const kind = value.kind as HistoryEventKind;
+  if (!HISTORY_KIND_SET.has(kind)) {
     return null;
   }
 
@@ -151,57 +256,11 @@ function parseStoredHistoryEvent(value: unknown): HistoryEventRecord | null {
     rawRefs: normalizeRelativePathList(value.rawRefs, "rawRefs"),
   };
 
-  switch (value.kind) {
-    case "encounter":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "encounter",
-        encounterType: requireString(value.encounterType, "encounterType", 120),
-        location:
-          optionalString(value.location, "location", 160) ??
-          optionalString(value.facility, "facility", 160),
-        providerId: optionalString(value.providerId, "providerId", 80),
-      });
-    case "procedure":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "procedure",
-        procedure: requireString(value.procedure ?? value.procedureName, "procedure", 160),
-        status: optionalEnum(value.status ?? "completed", PROCEDURE_STATUSES, "status") ?? "completed",
-      });
-    case "test":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "test",
-        testName: requireString(value.testName, "testName", 160),
-        resultStatus:
-          optionalEnum(value.resultStatus ?? value.status ?? "unknown", TEST_STATUSES, "resultStatus") ?? "unknown",
-        summary:
-          optionalString(value.summary, "summary", 1000) ??
-          optionalString(value.resultSummary, "resultSummary", 1000),
-      });
-    case "adverse_effect":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "adverse_effect",
-        substance: requireString(value.substance, "substance", 160),
-        effect: requireString(value.effect, "effect", 240),
-        severity: optionalEnum(value.severity ?? "moderate", ADVERSE_EFFECT_SEVERITIES, "severity") ?? "moderate",
-      });
-    case "exposure":
-      return stripUndefined({
-        ...baseRecord,
-        kind: "exposure",
-        exposureType:
-          requireString(value.exposureType ?? value.route ?? "unspecified", "exposureType", 120),
-        substance: requireString(value.substance ?? value.agent, "substance", 160),
-        duration:
-          optionalString(value.duration, "duration", 120) ??
-          optionalString(value.durationText, "durationText", 120),
-      });
-    default:
-      return null;
-  }
+  return stripUndefined({
+    ...baseRecord,
+    kind,
+    ...normalizeHistoryKindFields(kind, value, "parse"),
+  }) as HistoryEventRecord;
 }
 
 function normalizeOrder(order: HistoryEventOrder | undefined): HistoryEventOrder {
