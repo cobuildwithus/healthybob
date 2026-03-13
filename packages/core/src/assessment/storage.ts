@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import { readFile } from "node:fs/promises";
 
+import { assessmentResponseSchema, safeParseContract } from "@healthybob/contracts";
+
 import { emitAuditRecord } from "../audit.js";
 import { copyRawArtifact } from "../raw.js";
 import { generateRecordId } from "../ids.js";
@@ -16,11 +18,7 @@ import type {
   ImportAssessmentResponseInput,
   ImportAssessmentResponseResult,
 } from "./types.js";
-import {
-  ASSESSMENT_LEDGER_DIRECTORY,
-  ASSESSMENT_RESPONSE_SCHEMA_VERSION,
-  ASSESSMENT_SOURCES,
-} from "./types.js";
+import { ASSESSMENT_LEDGER_DIRECTORY, ASSESSMENT_RESPONSE_SCHEMA_VERSION } from "./types.js";
 
 interface ReadAssessmentResponseInput {
   vaultRoot: string;
@@ -54,87 +52,57 @@ function toAssessmentResponseRecord(value: unknown): AssessmentResponseRecord {
     throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response record must be an object.");
   }
 
-  const {
-    schemaVersion,
-    id,
-    assessmentType,
-    recordedAt,
-    source,
-    rawPath,
-    title,
-    questionnaireSlug,
-    responses,
-    relatedIds,
-  } = value;
+  const rawPath = normalizeRawPath(value.rawPath);
+  const relatedIds = normalizeRelatedIds(value.relatedIds);
+  const result = safeParseContract(assessmentResponseSchema, {
+    schemaVersion: value.schemaVersion,
+    id: value.id,
+    assessmentType: value.assessmentType,
+    recordedAt: value.recordedAt,
+    source: value.source,
+    rawPath: toAssessmentContractRawPath(rawPath),
+    title: value.title,
+    questionnaireSlug: value.questionnaireSlug,
+    responses: value.responses,
+  });
 
-  if (schemaVersion !== ASSESSMENT_RESPONSE_SCHEMA_VERSION) {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response schemaVersion is invalid.", {
-      schemaVersion,
-    });
-  }
-
-  if (typeof id !== "string" || !id.startsWith("asmt_")) {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response id is invalid.", { id });
-  }
-
-  if (
-    typeof assessmentType !== "string" ||
-    typeof recordedAt !== "string" ||
-    typeof rawPath !== "string" ||
-    !isPlainRecord(responses)
-  ) {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response record fields are invalid.", {
-      id,
-    });
-  }
-
-  if (title !== undefined && typeof title !== "string") {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response title must be a string when provided.", {
-      id,
-      title,
-    });
-  }
-
-  if (!ASSESSMENT_SOURCES.includes(source as (typeof ASSESSMENT_SOURCES)[number])) {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response source must be a string when provided.", {
-      id,
-      source,
-    });
-  }
-
-  if (questionnaireSlug !== undefined && typeof questionnaireSlug !== "string") {
-    throw new VaultError(
-      "ASSESSMENT_RESPONSE_INVALID",
-      "Assessment response questionnaireSlug must be a string when provided.",
-      {
-        id,
-        questionnaireSlug,
-      },
-    );
-  }
-
-  if (
-    relatedIds !== undefined &&
-    (!Array.isArray(relatedIds) || relatedIds.some((entry) => typeof entry !== "string"))
-  ) {
-    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response relatedIds must be a string array.", {
-      id,
-      relatedIds,
+  if (!result.success) {
+    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response record failed contract validation.", {
+      errors: result.errors,
     });
   }
 
   return {
-    schemaVersion: ASSESSMENT_RESPONSE_SCHEMA_VERSION,
-    id,
-    assessmentType,
-    recordedAt,
-    source: source as AssessmentResponseRecord["source"],
+    ...result.data,
     rawPath,
-    title: title as string | undefined,
-    questionnaireSlug: questionnaireSlug as string | undefined,
-    responses,
-    relatedIds: relatedIds as string[] | undefined,
+    ...(relatedIds ? { relatedIds } : {}),
   };
+}
+
+function normalizeRelatedIds(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response relatedIds must be a string array.");
+  }
+
+  return value;
+}
+
+function normalizeRawPath(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new VaultError("ASSESSMENT_RESPONSE_INVALID", "Assessment response rawPath is invalid.", {
+      rawPath: value instanceof Error ? value.message : String(value),
+    });
+  }
+
+  return value;
+}
+
+function toAssessmentContractRawPath(rawPath: string): string {
+  return rawPath.replace(/[^/]+$/u, "source.json");
 }
 
 function sortAssessmentResponses(records: readonly AssessmentResponseRecord[]): AssessmentResponseRecord[] {
@@ -169,7 +137,7 @@ export async function importAssessmentResponse({
     recordId: id,
   });
 
-  const assessment: AssessmentResponseRecord = {
+  const assessment = toAssessmentResponseRecord({
     schemaVersion: ASSESSMENT_RESPONSE_SCHEMA_VERSION,
     id,
     assessmentType:
@@ -187,7 +155,7 @@ export async function importAssessmentResponse({
       relatedIds && relatedIds.length > 0
         ? [...new Set(relatedIds.map((entry) => entry.trim()).filter(Boolean))]
         : undefined,
-  };
+  });
 
   const ledgerPath = toMonthlyShardRelativePath(
     ASSESSMENT_LEDGER_DIRECTORY,
