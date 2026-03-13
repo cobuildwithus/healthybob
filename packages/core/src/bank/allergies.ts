@@ -13,6 +13,7 @@ import {
 } from "./types.js";
 import {
   detailList,
+  findRecordByIdOrSlug,
   loadMarkdownRegistry,
   normalizeRecordIdList,
   normalizeSelectorSlug,
@@ -97,14 +98,6 @@ function buildAttributes(record: AllergyRecord): FrontmatterObject {
   }) as FrontmatterObject;
 }
 
-function validateAllergyTimeline(record: AllergyRecord): AllergyRecord {
-  if (record.status === "resolved" && !record.recordedOn) {
-    return record;
-  }
-
-  return record;
-}
-
 async function loadAllergies(vaultRoot: string): Promise<AllergyRecord[]> {
   return loadMarkdownRegistry(
     vaultRoot,
@@ -131,41 +124,39 @@ export async function upsertAllergy(input: UpsertAllergyInput): Promise<UpsertAl
   const title = requireString(input.title ?? existingRecord?.title, "title", 160);
   const slug = existingRecord?.slug ?? selectorSlug ?? normalizeSlug(undefined, "slug", title);
   const allergyId = existingRecord?.allergyId ?? normalizedAllergyId ?? generateRecordId("alg");
-  const record = validateAllergyTimeline(
-    stripUndefined({
-      schemaVersion: ALLERGY_SCHEMA_VERSION,
-      docType: ALLERGY_DOC_TYPE,
-      allergyId,
-      slug: existingRecord?.slug ?? slug,
-      title,
-      substance: requireString(input.substance ?? existingRecord?.substance, "substance", 160),
-      status:
-        input.status === undefined
-          ? existingRecord?.status ?? "active"
-          : optionalEnum(input.status, ALLERGY_STATUSES, "status") ?? "active",
-      criticality:
-        input.criticality === undefined
-          ? existingRecord?.criticality
-          : optionalEnum(input.criticality, ALLERGY_CRITICALITIES, "criticality"),
-      reaction:
-        input.reaction === undefined
-          ? existingRecord?.reaction
-          : optionalString(input.reaction, "reaction", 160),
-      recordedOn:
-        input.recordedOn === undefined
-          ? existingRecord?.recordedOn
-          : optionalDateOnly(input.recordedOn, "recordedOn"),
-      relatedConditionIds:
-        input.relatedConditionIds === undefined
-          ? existingRecord?.relatedConditionIds
-          : normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
-      note:
-        input.note === undefined
-          ? existingRecord?.note
-          : optionalString(input.note, "note", 4000),
-      relativePath: existingRecord?.relativePath ?? `${ALLERGIES_DIRECTORY}/${slug}.md`,
-    }) as AllergyRecord,
-  );
+  const record = stripUndefined({
+    schemaVersion: ALLERGY_SCHEMA_VERSION,
+    docType: ALLERGY_DOC_TYPE,
+    allergyId,
+    slug: existingRecord?.slug ?? slug,
+    title,
+    substance: requireString(input.substance ?? existingRecord?.substance, "substance", 160),
+    status:
+      input.status === undefined
+        ? existingRecord?.status ?? "active"
+        : optionalEnum(input.status, ALLERGY_STATUSES, "status") ?? "active",
+    criticality:
+      input.criticality === undefined
+        ? existingRecord?.criticality
+        : optionalEnum(input.criticality, ALLERGY_CRITICALITIES, "criticality"),
+    reaction:
+      input.reaction === undefined
+        ? existingRecord?.reaction
+        : optionalString(input.reaction, "reaction", 160),
+    recordedOn:
+      input.recordedOn === undefined
+        ? existingRecord?.recordedOn
+        : optionalDateOnly(input.recordedOn, "recordedOn"),
+    relatedConditionIds:
+      input.relatedConditionIds === undefined
+        ? existingRecord?.relatedConditionIds
+        : normalizeRecordIdList(input.relatedConditionIds, "relatedConditionIds", "cond"),
+    note:
+      input.note === undefined
+        ? existingRecord?.note
+        : optionalString(input.note, "note", 4000),
+    relativePath: existingRecord?.relativePath ?? `${ALLERGIES_DIRECTORY}/${slug}.md`,
+  }) as AllergyRecord;
   const markdown = stringifyFrontmatterDocument({
     attributes: buildAttributes(record),
     body: buildBody(record),
@@ -204,13 +195,7 @@ export async function readAllergy({ vaultRoot, allergyId, slug }: ReadAllergyInp
   const normalizedAllergyId = normalizeId(allergyId, "allergyId", "alg");
   const normalizedSlug = normalizeSelectorSlug(slug);
   const records = await loadAllergies(vaultRoot);
-  const match = records.find((record) => {
-    if (normalizedAllergyId && record.allergyId === normalizedAllergyId) {
-      return true;
-    }
-
-    return normalizedSlug ? record.slug === normalizedSlug : false;
-  });
+  const match = findRecordByIdOrSlug(records, normalizedAllergyId, normalizedSlug, (record) => record.allergyId);
 
   if (!match) {
     throw new VaultError("VAULT_ALLERGY_MISSING", "Allergy was not found.");

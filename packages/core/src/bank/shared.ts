@@ -149,6 +149,23 @@ export function selectRecordByIdOrSlug<TRecord extends RegistryRecordBase>(
   return byId ?? bySlug;
 }
 
+export function findRecordByIdOrSlug<TRecord extends RegistryRecordBase>(
+  records: TRecord[],
+  idValue: string | undefined,
+  slug: string | undefined,
+  getId: (record: TRecord) => string,
+): TRecord | null {
+  return (
+    records.find((record) => {
+      if (idValue && getId(record) === idValue) {
+        return true;
+      }
+
+      return slug ? record.slug === slug : false;
+    }) ?? null
+  );
+}
+
 export function requireMatchingDocType(
   attributes: FrontmatterObject,
   schemaVersion: string,

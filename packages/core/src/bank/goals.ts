@@ -13,6 +13,7 @@ import {
 } from "./types.js";
 import {
   detailList,
+  findRecordByIdOrSlug,
   loadMarkdownRegistry,
   normalizeDateOnly,
   normalizeDomainList,
@@ -300,13 +301,7 @@ export async function readGoal({ vaultRoot, goalId, slug }: ReadGoalInput): Prom
   const normalizedGoalId = normalizeId(goalId, "goalId", "goal");
   const normalizedSlug = normalizeSelectorSlug(slug);
   const records = await loadGoals(vaultRoot);
-  const match = records.find((record) => {
-    if (normalizedGoalId && record.goalId === normalizedGoalId) {
-      return true;
-    }
-
-    return normalizedSlug ? record.slug === normalizedSlug : false;
-  });
+  const match = findRecordByIdOrSlug(records, normalizedGoalId, normalizedSlug, (record) => record.goalId);
 
   if (!match) {
     throw new VaultError("VAULT_GOAL_MISSING", "Goal was not found.");

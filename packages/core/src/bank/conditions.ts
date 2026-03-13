@@ -14,6 +14,7 @@ import {
 } from "./types.js";
 import {
   detailList,
+  findRecordByIdOrSlug,
   loadMarkdownRegistry,
   normalizeRecordIdList,
   normalizeSelectorSlug,
@@ -249,13 +250,7 @@ export async function readCondition({
   const normalizedConditionId = normalizeId(conditionId, "conditionId", "cond");
   const normalizedSlug = normalizeSelectorSlug(slug);
   const records = await loadConditions(vaultRoot);
-  const match = records.find((record) => {
-    if (normalizedConditionId && record.conditionId === normalizedConditionId) {
-      return true;
-    }
-
-    return normalizedSlug ? record.slug === normalizedSlug : false;
-  });
+  const match = findRecordByIdOrSlug(records, normalizedConditionId, normalizedSlug, (record) => record.conditionId);
 
   if (!match) {
     throw new VaultError("VAULT_CONDITION_MISSING", "Condition was not found.");
