@@ -1,4 +1,4 @@
-import { readHealthContext } from "./export-pack-health.js";
+import { readHealthContextTolerant } from "./export-pack-health.js";
 import type { FrontmatterObject } from "./health/shared.js";
 import { getExperiment, listJournalEntries, listRecords } from "./model.js";
 import type { VaultReadModel, VaultRecord } from "./model.js";
@@ -672,7 +672,5 @@ function buildHealthContext(
   vault: VaultReadModel,
   filters: ExportPackFilters,
 ): ExportPackHealthContext {
-  const result = readHealthContext(vault.vaultRoot, filters);
-  void result.failures;
-  return result.health;
+  return readHealthContextTolerant(vault.vaultRoot, filters);
 }

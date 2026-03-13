@@ -388,6 +388,13 @@ export function readHealthContext(
   };
 }
 
+export function readHealthContextTolerant(
+  vaultRoot: string,
+  filters: ExportPackFilters,
+): ExportPackHealthContext {
+  return readHealthContext(vaultRoot, filters).health;
+}
+
 function matchesDateWindow(
   value: string | null,
   filters: ExportPackFilters,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -89,41 +89,114 @@ function toStrictParseError(failure: ParseFailure): Error {
   );
 }
 
-export async function walkRelativeFiles(
-  vaultRoot: string,
+function collectRelativeFilePaths(
   relativeRoot: string,
   extension: string,
-): Promise<string[]> {
-  const basePath = path.join(vaultRoot, relativeRoot);
-  let entries;
-
-  try {
-    entries = await readdir(basePath, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
-
-  const files: string[] = [];
+  entries: readonly Dirent[],
+): { childDirectories: string[]; matchingFiles: string[] } {
+  const childDirectories: string[] = [];
+  const matchingFiles: string[] = [];
 
   for (const entry of entries) {
     const relativePath = path.posix.join(relativeRoot, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...(await walkRelativeFiles(vaultRoot, relativePath, extension)));
+      childDirectories.push(relativePath);
       continue;
     }
 
     if (entry.isFile() && entry.name.endsWith(extension)) {
-      files.push(relativePath);
+      matchingFiles.push(relativePath);
     }
   }
 
-  files.sort((left, right) => left.localeCompare(right));
-  return files;
+  return { childDirectories, matchingFiles };
+}
+
+function sortRelativePaths(relativePaths: string[]): string[] {
+  relativePaths.sort((left, right) => left.localeCompare(right));
+  return relativePaths;
+}
+
+function parseMarkdownDocumentOutcome(
+  relativePath: string,
+  markdown: string,
+): MarkdownDocumentOutcome {
+  try {
+    return {
+      ok: true,
+      relativePath,
+      document: buildMarkdownDocument(relativePath, markdown),
+    };
+  } catch (error) {
+    return buildFrontmatterParseFailure(relativePath, error);
+  }
+}
+
+function parseJsonlRecordOutcomes(
+  relativePath: string,
+  raw: string,
+): JsonlRecordOutcome[] {
+  const records: JsonlRecordOutcome[] = [];
+  const lines = raw.split(/\r?\n/u);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim();
+    if (!line) {
+      continue;
+    }
+
+    try {
+      records.push({
+        ok: true,
+        relativePath,
+        lineNumber: index + 1,
+        value: JSON.parse(line) as unknown,
+      });
+    } catch (error) {
+      records.push(buildJsonParseFailure(relativePath, index + 1, error));
+    }
+  }
+
+  return records;
+}
+
+export async function walkRelativeFiles(
+  vaultRoot: string,
+  relativeRoot: string,
+  extension: string,
+): Promise<string[]> {
+  const files: string[] = [];
+
+  async function walk(currentRelativeRoot: string): Promise<void> {
+    const basePath = path.join(vaultRoot, currentRelativeRoot);
+    let entries: Dirent[];
+
+    try {
+      entries = await readdir(basePath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+
+      throw error;
+    }
+
+    const { childDirectories, matchingFiles } = collectRelativeFilePaths(
+      currentRelativeRoot,
+      extension,
+      entries,
+    );
+
+    files.push(...matchingFiles);
+
+    for (const childDirectory of childDirectories) {
+      await walk(childDirectory);
+    }
+  }
+
+  await walk(relativeRoot);
+  return sortRelativePaths(files);
 }
 
 export function walkRelativeFilesSync(
@@ -131,36 +204,37 @@ export function walkRelativeFilesSync(
   relativeRoot: string,
   extension: string,
 ): string[] {
-  const basePath = path.join(vaultRoot, relativeRoot);
-  let entries;
-
-  try {
-    entries = readdirSync(basePath, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
-
   const files: string[] = [];
 
-  for (const entry of entries) {
-    const relativePath = path.posix.join(relativeRoot, entry.name);
+  function walk(currentRelativeRoot: string): void {
+    const basePath = path.join(vaultRoot, currentRelativeRoot);
+    let entries: Dirent[];
 
-    if (entry.isDirectory()) {
-      files.push(...walkRelativeFilesSync(vaultRoot, relativePath, extension));
-      continue;
+    try {
+      entries = readdirSync(basePath, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+
+      throw error;
     }
 
-    if (entry.isFile() && entry.name.endsWith(extension)) {
-      files.push(relativePath);
+    const { childDirectories, matchingFiles } = collectRelativeFilePaths(
+      currentRelativeRoot,
+      extension,
+      entries,
+    );
+
+    files.push(...matchingFiles);
+
+    for (const childDirectory of childDirectories) {
+      walk(childDirectory);
     }
   }
 
-  files.sort((left, right) => left.localeCompare(right));
-  return files;
+  walk(relativeRoot);
+  return sortRelativePaths(files);
 }
 
 export async function readMarkdownDocument(
@@ -208,15 +282,7 @@ export async function readOptionalMarkdownDocumentOutcome(
     throw error;
   }
 
-  try {
-    return {
-      ok: true,
-      relativePath,
-      document: buildMarkdownDocument(relativePath, markdown),
-    };
-  } catch (error) {
-    return buildFrontmatterParseFailure(relativePath, error);
-  }
+  return parseMarkdownDocumentOutcome(relativePath, markdown);
 }
 
 export function readOptionalMarkdownDocumentOutcomeSync(
@@ -229,16 +295,7 @@ export function readOptionalMarkdownDocumentOutcomeSync(
   }
 
   const markdown = readFileSync(absolutePath, "utf8");
-
-  try {
-    return {
-      ok: true,
-      relativePath,
-      document: buildMarkdownDocument(relativePath, markdown),
-    };
-  } catch (error) {
-    return buildFrontmatterParseFailure(relativePath, error);
-  }
+  return parseMarkdownDocumentOutcome(relativePath, markdown);
 }
 
 export async function readMarkdownDocumentOutcome(
@@ -296,25 +353,7 @@ export async function readJsonlRecordOutcomes(
   for (const relativePath of shardPaths) {
     const absolutePath = path.join(vaultRoot, relativePath);
     const raw = await readFile(absolutePath, "utf8");
-    const lines = raw.split(/\r?\n/u);
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]?.trim();
-      if (!line) {
-        continue;
-      }
-
-      try {
-        records.push({
-          ok: true,
-          relativePath,
-          lineNumber: index + 1,
-          value: JSON.parse(line) as unknown,
-        });
-      } catch (error) {
-        records.push(buildJsonParseFailure(relativePath, index + 1, error));
-      }
-    }
+    records.push(...parseJsonlRecordOutcomes(relativePath, raw));
   }
 
   return records;
@@ -330,25 +369,7 @@ export function readJsonlRecordOutcomesSync(
   for (const relativePath of shardPaths) {
     const absolutePath = path.join(vaultRoot, relativePath);
     const raw = readFileSync(absolutePath, "utf8");
-    const lines = raw.split(/\r?\n/u);
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]?.trim();
-      if (!line) {
-        continue;
-      }
-
-      try {
-        records.push({
-          ok: true,
-          relativePath,
-          lineNumber: index + 1,
-          value: JSON.parse(line) as unknown,
-        });
-      } catch (error) {
-        records.push(buildJsonParseFailure(relativePath, index + 1, error));
-      }
-    }
+    records.push(...parseJsonlRecordOutcomes(relativePath, raw));
   }
 
   return records;
