@@ -1,0 +1,11 @@
+{
+  "id": "samples-add",
+  "command": "vault-cli samples add --vault <path> --input @file.json [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/ledger/samples/README.md",
+    "fixtures/minimal-vault/CORE.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/journal-ensure",
+  "purpose": "Documents manual sample entry when operators already have curated JSON payloads and do not need the CSV importer path."
+}

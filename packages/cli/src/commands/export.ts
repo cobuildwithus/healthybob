@@ -6,11 +6,93 @@ import {
 } from '../command-helpers.js'
 import {
   exportPackResultSchema,
+  isoTimestampSchema,
   localDateSchema,
   pathSchema,
   slugSchema,
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
+import {
+  exportPackManifestSchema,
+  listStoredExportPacks,
+  materializeStoredExportPack,
+  pruneStoredExportPack,
+  showStoredExportPack,
+} from './export-intake-read-helpers.js'
+
+const exportPackIdSchema = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9_-]+$/u,
+    'Expected a materialized export pack id using letters, numbers, underscores, or dashes.',
+  )
+  .describe('Materialized export pack id under exports/packs/<packId>.')
+
+const exportPackShowResultSchema = z.object({
+  vault: pathSchema,
+  packId: z.string().min(1),
+  basePath: pathSchema,
+  manifestFile: pathSchema,
+  generatedAt: isoTimestampSchema,
+  filters: z.object({
+    from: localDateSchema.nullable(),
+    to: localDateSchema.nullable(),
+    experiment: slugSchema.nullable(),
+  }),
+  counts: z.object({
+    records: z.number().int().nonnegative(),
+    questions: z.number().int().nonnegative(),
+    files: z.number().int().nonnegative(),
+  }),
+  files: z.array(
+    z.object({
+      path: pathSchema,
+      mediaType: z.string().min(1),
+      role: z.string().min(1).nullable(),
+    }),
+  ),
+  manifest: exportPackManifestSchema,
+})
+
+const exportPackListItemSchema = z.object({
+  packId: z.string().min(1),
+  manifestFile: pathSchema,
+  generatedAt: isoTimestampSchema,
+  from: localDateSchema.nullable(),
+  to: localDateSchema.nullable(),
+  experiment: slugSchema.nullable(),
+  recordCount: z.number().int().nonnegative(),
+  questionCount: z.number().int().nonnegative(),
+  fileCount: z.number().int().nonnegative(),
+})
+
+const exportPackListResultSchema = z.object({
+  vault: pathSchema,
+  filters: z.object({
+    from: localDateSchema.nullable(),
+    to: localDateSchema.nullable(),
+    experiment: slugSchema.nullable(),
+    limit: z.number().int().positive().max(200),
+  }),
+  items: z.array(exportPackListItemSchema),
+})
+
+const exportPackMaterializeResultSchema = z.object({
+  vault: pathSchema,
+  packId: z.string().min(1),
+  manifestFile: pathSchema,
+  outDir: pathSchema,
+  rebuilt: z.boolean(),
+  files: z.array(pathSchema),
+})
+
+const exportPackPruneResultSchema = z.object({
+  vault: pathSchema,
+  packId: z.string().min(1),
+  packDirectory: pathSchema,
+  fileCount: z.number().int().nonnegative(),
+  pruned: z.literal(true),
+})
 
 export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices) {
   const exportCli = Cli.create('export', {
@@ -45,6 +127,87 @@ export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices)
       },
     },
   )
+
+  exportCli.command('show', {
+    description: 'Show one stored export pack manifest by pack id.',
+    args: z.object({
+      packId: exportPackIdSchema,
+    }),
+    options: withBaseOptions(),
+    output: exportPackShowResultSchema,
+    async run({ args, options }) {
+      return showStoredExportPack(options.vault, args.packId)
+    },
+  })
+
+  exportCli.command('list', {
+    description: 'List stored export packs from exports/packs with optional scope filters.',
+    args: emptyArgsSchema,
+    options: withBaseOptions({
+      from: localDateSchema
+        .optional()
+        .describe('Optional inclusive start date filter against the stored pack scope.'),
+      to: localDateSchema
+        .optional()
+        .describe('Optional inclusive end date filter against the stored pack scope.'),
+      experiment: slugSchema
+        .optional()
+        .describe('Optional experiment slug filter against the stored pack scope.'),
+      limit: z.number().int().positive().max(200).default(50),
+    }),
+    output: exportPackListResultSchema,
+    async run({ options }) {
+      const items = await listStoredExportPacks(options.vault, {
+        from: options.from,
+        to: options.to,
+        experiment: options.experiment,
+        limit: options.limit,
+      })
+
+      return {
+        vault: options.vault,
+        filters: {
+          from: options.from ?? null,
+          to: options.to ?? null,
+          experiment: options.experiment ?? null,
+          limit: options.limit,
+        },
+        items,
+      }
+    },
+  })
+
+  exportCli.command('materialize', {
+    description: 'Copy one stored export pack to the selected output root.',
+    args: z.object({
+      packId: exportPackIdSchema,
+    }),
+    options: withBaseOptions({
+      out: pathSchema
+        .optional()
+        .describe('Optional output root. Defaults to the selected vault root.'),
+    }),
+    output: exportPackMaterializeResultSchema,
+    async run({ args, options }) {
+      return materializeStoredExportPack({
+        vault: options.vault,
+        packId: args.packId,
+        out: options.out,
+      })
+    },
+  })
+
+  exportCli.command('prune', {
+    description: 'Remove one stored export pack directory from exports/packs.',
+    args: z.object({
+      packId: exportPackIdSchema,
+    }),
+    options: withBaseOptions(),
+    output: exportPackPruneResultSchema,
+    async run({ args, options }) {
+      return pruneStoredExportPack(options.vault, args.packId)
+    },
+  })
 
   cli.command(exportCli)
 }

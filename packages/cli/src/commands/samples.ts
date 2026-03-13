@@ -9,11 +9,15 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 import {
-  importCsvSamples,
-  listSampleBatches,
-  listSamples,
-  showSample,
-  showSampleBatch,
+  addSampleRecords,
+  loadJsonInputFile,
+} from './provider-event-read-helpers.js'
+import {
+  importCsvSamples as importCsvSamplesWithArtifacts,
+  listSampleBatches as listSampleBatchesWithArtifacts,
+  listSamples as listSamplesWithArtifacts,
+  showSample as showSampleWithArtifacts,
+  showSampleBatch as showSampleBatchWithArtifacts,
 } from './samples-audit-read-helpers.js'
 
 const sampleIdSchema = z
@@ -29,9 +33,24 @@ const csvOptionSchema = z
   .optional()
   .describe('Optional comma-separated values.')
 
+const inputFileOptionSchema = z
+  .string()
+  .regex(/^@.+/u, 'Expected an @file.json payload reference.')
+  .describe('Payload file reference in @file.json form.')
+
 const sampleListItemSchema = listItemSchema.extend({
   quality: z.string().min(1).nullable(),
   stream: z.string().min(1).nullable(),
+})
+
+const samplesAddResultSchema = z.object({
+  vault: pathSchema,
+  stream: z.string().min(1),
+  source: z.string().min(1),
+  quality: z.string().min(1),
+  addedCount: z.number().int().nonnegative(),
+  lookupIds: z.array(z.string().min(1)).min(1),
+  ledgerFiles: z.array(pathSchema).min(1),
 })
 
 const samplesListResultSchema = z.object({
@@ -92,6 +111,25 @@ export function registerSamplesCommands(
   })
 
   samples.command(
+    'add',
+    {
+      description: 'Append one or more manually curated sample records from an @file.json payload.',
+      args: emptyArgsSchema,
+      options: withBaseOptions({
+        input: inputFileOptionSchema,
+      }),
+      output: samplesAddResultSchema,
+      async run({ options }) {
+        const payload = await loadJsonInputFile(options.input.slice(1), 'samples payload')
+        return addSampleRecords({
+          vault: options.vault,
+          payload,
+        })
+      },
+    },
+  )
+
+  samples.command(
     'import-csv',
     {
       description: 'Import timestamped numeric samples from a CSV file.',
@@ -140,7 +178,7 @@ export function registerSamplesCommands(
       }),
       output: samplesImportCsvResultSchema,
       async run({ args, options }) {
-        return importCsvSamples({
+        return importCsvSamplesWithArtifacts({
           delimiter: options.delimiter,
           file: args.file,
           metadataColumns: parseCsvOption(options.metadataColumns),
@@ -167,7 +205,7 @@ export function registerSamplesCommands(
     async run({ args, options }) {
       return {
         vault: options.vault,
-        entity: await showSample(options.vault, args.sampleId),
+        entity: await showSampleWithArtifacts(options.vault, args.sampleId),
       }
     },
   })
@@ -184,7 +222,7 @@ export function registerSamplesCommands(
     }),
     output: samplesListResultSchema,
     async run({ options }) {
-      const items = await listSamples(options.vault, {
+      const items = await listSamplesWithArtifacts(options.vault, {
         from: options.from,
         limit: options.limit,
         quality: options.quality,
@@ -218,7 +256,7 @@ export function registerSamplesCommands(
     options: withBaseOptions(),
     output: sampleBatchShowResultSchema,
     async run({ args, options }) {
-      const batchDetails = await showSampleBatch(options.vault, args.batchId)
+      const batchDetails = await showSampleBatchWithArtifacts(options.vault, args.batchId)
 
       return {
         vault: options.vault,
@@ -238,7 +276,7 @@ export function registerSamplesCommands(
     }),
     output: sampleBatchListResultSchema,
     async run({ options }) {
-      const items = await listSampleBatches(options.vault, {
+      const items = await listSampleBatchesWithArtifacts(options.vault, {
         from: options.from,
         limit: options.limit,
         stream: options.stream,

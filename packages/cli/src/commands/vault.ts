@@ -16,6 +16,7 @@ import {
   showVaultPaths,
   showVaultStats,
   showVaultSummary,
+  updateVaultSummary,
 } from './experiment-journal-vault-read-helpers.js'
 
 const unknownRecordSchema = z.record(z.string(), z.unknown())
@@ -65,6 +66,16 @@ const vaultStatsResultSchema = z.object({
   }),
 })
 
+const vaultUpdateResultSchema = z.object({
+  vault: pathSchema,
+  metadataFile: pathSchema,
+  corePath: pathSchema,
+  title: z.string().min(1),
+  timezone: z.string().min(1),
+  updatedAt: isoTimestampSchema,
+  updated: z.boolean(),
+})
+
 export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) {
   cli.command(
     'init',
@@ -99,7 +110,7 @@ export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) 
   )
 
   const vaultGroup = Cli.create('vault', {
-    description: 'Read-only vault metadata and summary commands.',
+    description: 'Vault metadata, summary, and update commands.',
   })
 
   vaultGroup.command('show', {
@@ -129,6 +140,23 @@ export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) 
     output: vaultStatsResultSchema,
     async run({ options }) {
       return showVaultStats(options.vault)
+    },
+  })
+
+  vaultGroup.command('update', {
+    description: 'Update stable vault metadata fields such as title and timezone.',
+    args: emptyArgsSchema,
+    options: withBaseOptions({
+      title: z.string().min(1).optional().describe('Optional new vault title.'),
+      timezone: z.string().min(3).optional().describe('Optional new vault timezone.'),
+    }),
+    output: vaultUpdateResultSchema,
+    async run({ options }) {
+      return updateVaultSummary({
+        vault: options.vault,
+        title: options.title,
+        timezone: options.timezone,
+      })
     },
   })
 

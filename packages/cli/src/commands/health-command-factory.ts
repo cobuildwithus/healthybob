@@ -11,12 +11,10 @@ export function normalizeInputFileOption(input: string) {
   return input.slice(1)
 }
 
-const cursorOptionSchema = z
-  .string()
-  .min(1)
-  .optional()
-  .describe('Reserved for future pagination support. Accepted for compatibility but ignored today.')
 const limitOptionSchema = z.number().int().positive().max(200).default(50)
+const localDateOptionSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/u, 'Expected YYYY-MM-DD.')
 const statusOptionSchema = z.string().min(1).optional()
 
 interface CommandContext {
@@ -33,7 +31,9 @@ interface ShowCommandContext extends CommandContext {
 }
 
 interface ListCommandContext extends CommandContext {
-  cursor?: string
+  from?: string
+  to?: string
+  kind?: string
   limit?: number
   status?: string
 }
@@ -51,6 +51,8 @@ interface CrudHints {
   show?: string
   upsert?: string
 }
+
+type CrudListMode = 'limit-only' | 'date-range-limit' | 'history-kind-date-range-limit'
 
 type CrudCommandName = keyof CrudDescriptions
 type CommandExamples = Array<Record<string, unknown>>
@@ -98,6 +100,7 @@ interface HealthCrudConfig<
   group: Cli.Cli
   groupName: string
   hints?: CrudHints
+  listMode?: CrudListMode
   listStatusDescription?: string
   noun: string
   outputs: CrudOutputs<TScaffold, TUpsert, TShow, TList>
@@ -208,7 +211,7 @@ const defaultHintsByCommand: Partial<
   Record<CrudCommandName, (config: HealthCrudConfigAny) => string>
 > = {
   list() {
-    return 'Use --limit to cap results. --cursor is accepted for compatibility but ignored until pagination is implemented.'
+    return 'Use --limit to cap results.'
   },
   scaffold(config) {
     return `Edit the emitted payload, save it as ${config.payloadFile}, then pass it back with --input @${config.payloadFile}.`
@@ -422,16 +425,37 @@ export function registerHealthCrudCommands<
     },
   })
 
-  const listOptions = config.listStatusDescription
-    ? withBaseOptions({
-        cursor: cursorOptionSchema,
-        limit: limitOptionSchema,
-        status: statusOptionSchema.describe(config.listStatusDescription),
-      })
-    : withBaseOptions({
-        cursor: cursorOptionSchema,
-        limit: limitOptionSchema,
-      })
+  const listOptionShape: Record<string, z.ZodTypeAny> = {
+    limit: limitOptionSchema,
+  }
+
+  if (config.listStatusDescription) {
+    listOptionShape.status = statusOptionSchema.describe(config.listStatusDescription)
+  }
+
+  if (
+    config.listMode === 'date-range-limit' ||
+    config.listMode === 'history-kind-date-range-limit'
+  ) {
+    listOptionShape.from = localDateOptionSchema
+      .optional()
+      .describe('Optional inclusive lower date bound in YYYY-MM-DD form.')
+    listOptionShape.to = localDateOptionSchema
+      .optional()
+      .describe('Optional inclusive upper date bound in YYYY-MM-DD form.')
+  }
+
+  if (config.listMode === 'history-kind-date-range-limit') {
+    listOptionShape.kind = z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Optional history event kind filter such as encounter, procedure, test, adverse_effect, or exposure.',
+      )
+  }
+
+  const listOptions = withBaseOptions(listOptionShape)
 
   config.group.command('list', {
     args: z.object({}),
@@ -441,17 +465,47 @@ export function registerHealthCrudCommands<
     options: listOptions,
     output: config.outputs.list,
     async run(context) {
+      const limit =
+        'limit' in context.options &&
+        typeof context.options.limit === 'number'
+          ? context.options.limit
+          : undefined
+      const requestId =
+        'requestId' in context.options &&
+        typeof context.options.requestId === 'string'
+          ? context.options.requestId
+          : null
       const status =
         'status' in context.options &&
         typeof context.options.status === 'string'
           ? context.options.status
           : undefined
+      const vault =
+        'vault' in context.options &&
+        typeof context.options.vault === 'string'
+          ? context.options.vault
+          : ''
 
       return config.services.list({
-        limit: context.options.limit,
-        requestId: requestIdFromOptions(context.options),
+        from:
+          'from' in context.options &&
+          typeof context.options.from === 'string'
+            ? context.options.from
+            : undefined,
+        kind:
+          'kind' in context.options &&
+          typeof context.options.kind === 'string'
+            ? context.options.kind
+            : undefined,
+        limit,
+        requestId,
         status,
-        vault: context.options.vault,
+        to:
+          'to' in context.options &&
+          typeof context.options.to === 'string'
+            ? context.options.to
+            : undefined,
+        vault,
       })
     },
   })

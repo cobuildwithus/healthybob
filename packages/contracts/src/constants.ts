@@ -12,6 +12,7 @@ export const CONTRACT_SCHEMA_VERSION = Object.freeze({
   coreFrontmatter: "hb.frontmatter.core.v1",
   profileCurrentFrontmatter: "hb.frontmatter.profile-current.v1",
   profileSnapshot: "hb.profile-snapshot.v1",
+  providerFrontmatter: "hb.frontmatter.provider.v1",
   regimenFrontmatter: "hb.frontmatter.regimen.v1",
   sample: "hb.sample.v1",
   vault: "hb.vault.v1",
@@ -155,6 +156,7 @@ export const FRONTMATTER_DOC_TYPES = Object.freeze({
   goal: "goal",
   journalDay: "journal_day",
   profileCurrent: "profile_current",
+  provider: "provider",
   regimen: "regimen",
 } as const);
 

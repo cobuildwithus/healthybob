@@ -1,0 +1,11 @@
+{
+  "id": "provider-show",
+  "command": "vault-cli provider show <prov_*|slug> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/bank/providers/README.md",
+    "fixtures/minimal-vault/CORE.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/show",
+  "purpose": "Documents direct provider follow-up reads by canonical prov_* id or provider slug."
+}

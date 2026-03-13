@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
+import { z } from "zod";
 
 const MEDIA_TYPES: ReadonlyMap<string, string> = new Map([
   [".csv", "text/csv"],
@@ -35,67 +36,134 @@ export interface InspectedFileAsset {
   byteSize: number;
 }
 
+function parseValue<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    throw new TypeError(result.error.issues[0]?.message ?? "Invalid value");
+  }
+
+  return result.data;
+}
+
+export function requiredTrimmedStringSchema(label: string): z.ZodType<string> {
+  return z
+    .string({ error: `${label} must be a string` })
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      error: `${label} must be a non-empty string`,
+    });
+}
+
+export function optionalTrimmedStringSchema(
+  label: string,
+): z.ZodType<string | undefined> {
+  return z
+    .custom<string | undefined | null>(
+      (value): value is string | undefined | null =>
+        value === undefined || value === null || typeof value === "string",
+      { error: `${label} must be a string when provided` },
+    )
+    .transform((value) => {
+      if (typeof value !== "string") {
+        return undefined;
+      }
+
+      const trimmed = value.trim();
+      return trimmed.length === 0 ? undefined : trimmed;
+    });
+}
+
+export function optionalStringListSchema(label: string): z.ZodType<string[]> {
+  return z
+    .custom<readonly string[] | undefined | null>(
+      (value): value is readonly string[] | undefined | null =>
+        value === undefined ||
+        value === null ||
+        (Array.isArray(value) &&
+          value.every(
+            (entry) => typeof entry === "string" && entry.trim().length > 0,
+          )),
+      { error: `${label} must be an array of strings when provided` },
+    )
+    .transform((value) =>
+      value === undefined || value === null
+        ? []
+        : value.map((entry) => entry.trim()),
+    );
+}
+
+export function optionalTimestampSchema(
+  label: string,
+): z.ZodType<string | undefined> {
+  return z
+    .custom<string | number | Date | undefined | null>(
+      (value): value is string | number | Date | undefined | null => {
+        if (value === undefined || value === null) {
+          return true;
+        }
+
+        if (
+          typeof value !== "string" &&
+          typeof value !== "number" &&
+          !(value instanceof Date)
+        ) {
+          return false;
+        }
+
+        const candidate =
+          value instanceof Date ? value : new Date(value);
+        return !Number.isNaN(candidate.valueOf());
+      },
+      { error: `${label} must be a valid timestamp` },
+    )
+    .transform((value) => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+
+      const candidate =
+        value instanceof Date ? value : new Date(value);
+      return candidate.toISOString();
+    });
+}
+
+export function parseInputObject<T>(
+  value: unknown,
+  label: string,
+  schema: z.ZodType<T>,
+): T {
+  const object = assertPlainObject(value, label);
+  return parseValue(schema, object);
+}
+
 export function assertPlainObject(value: unknown, label: string): PlainObject {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${label} must be an object`);
-  }
-
-  return value as PlainObject;
-}
-
-export function normalizeRequiredString(value: unknown, label: string): string {
-  if (typeof value !== "string") {
-    throw new TypeError(`${label} must be a string`);
-  }
-
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    throw new TypeError(`${label} must be a non-empty string`);
-  }
-
-  return trimmed;
-}
-
-export function normalizeOptionalString(value: unknown, label: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  if (typeof value !== "string") {
-    throw new TypeError(`${label} must be a string when provided`);
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? undefined : trimmed;
-}
-
-export function normalizeOptionalStringList(value: unknown, label: string): string[] {
-  if (value === undefined || value === null) {
-    return [];
-  }
-
-  if (!Array.isArray(value)) {
-    throw new TypeError(`${label} must be an array of strings when provided`);
-  }
-
-  return value.map((entry, index) =>
-    normalizeRequiredString(entry, `${label}[${index}]`),
+  return parseValue(
+    z.custom<PlainObject>(
+      (candidate): candidate is PlainObject =>
+        Boolean(candidate) &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate),
+      { error: `${label} must be an object` },
+    ),
+    value,
   );
 }
 
+export function normalizeRequiredString(value: unknown, label: string): string {
+  return parseValue(requiredTrimmedStringSchema(label), value);
+}
+
+export function normalizeOptionalString(value: unknown, label: string): string | undefined {
+  return parseValue(optionalTrimmedStringSchema(label), value);
+}
+
+export function normalizeOptionalStringList(value: unknown, label: string): string[] {
+  return parseValue(optionalStringListSchema(label), value);
+}
+
 export function normalizeTimestamp(value: unknown, label: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  const candidate = value instanceof Date ? value : new Date(value as string | number);
-
-  if (Number.isNaN(candidate.valueOf())) {
-    throw new TypeError(`${label} must be a valid timestamp`);
-  }
-
-  return candidate.toISOString();
+  return parseValue(optionalTimestampSchema(label), value);
 }
 
 export function normalizeNumber(value: unknown, label: string): number {

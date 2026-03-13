@@ -27,6 +27,7 @@ import {
   exampleVaultMetadata,
   profileCurrentFrontmatterSchema,
   profileSnapshotSchema,
+  providerFrontmatterSchema,
   regimenFrontmatterSchema,
   safeParseContract,
   sampleRecordSchema,
@@ -119,6 +120,7 @@ assert.deepEqual(Object.keys(schemaCatalog).sort(), [
   "frontmatter-goal",
   "frontmatter-journal-day",
   "frontmatter-profile-current",
+  "frontmatter-provider",
   "frontmatter-regimen",
   "profile-snapshot",
   "sample-record",
@@ -173,6 +175,7 @@ exampleAuditRecords.forEach((record, index) => assertNoErrors(`audit example ${i
 assertNoErrors("core frontmatter object", exampleFrontmatterObjects.core, coreFrontmatterSchema);
 assertNoErrors("journal day frontmatter object", exampleFrontmatterObjects.journalDay, journalDayFrontmatterSchema);
 assertNoErrors("experiment frontmatter object", exampleFrontmatterObjects.experiment, experimentFrontmatterSchema);
+assertNoErrors("provider frontmatter object", exampleFrontmatterObjects.provider, providerFrontmatterSchema);
 assertNoErrors("profile current frontmatter object", exampleHealthFrontmatterObjects.profileCurrent, profileCurrentFrontmatterSchema);
 assertNoErrors("goal frontmatter object", exampleHealthFrontmatterObjects.goal, goalFrontmatterSchema);
 assertNoErrors("condition frontmatter object", exampleHealthFrontmatterObjects.condition, conditionFrontmatterSchema);
@@ -184,6 +187,7 @@ assertNoErrors("genetic-variant frontmatter object", exampleHealthFrontmatterObj
 assert.deepEqual(parseFrontmatterMarkdown(exampleFrontmatterMarkdown.core), exampleFrontmatterObjects.core);
 assert.deepEqual(parseFrontmatterMarkdown(exampleFrontmatterMarkdown.journalDay), exampleFrontmatterObjects.journalDay);
 assert.deepEqual(parseFrontmatterMarkdown(exampleFrontmatterMarkdown.experiment), exampleFrontmatterObjects.experiment);
+assert.deepEqual(parseFrontmatterMarkdown(exampleFrontmatterMarkdown.provider), exampleFrontmatterObjects.provider);
 assert.deepEqual(
   parseFrontmatterMarkdown(`---
 flag: true

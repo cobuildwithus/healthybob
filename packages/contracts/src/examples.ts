@@ -12,6 +12,7 @@ import type {
   JournalDayFrontmatter,
   ProfileCurrentFrontmatter,
   ProfileSnapshotRecord,
+  ProviderFrontmatter,
   RegimenFrontmatter,
   SampleRecord,
   VaultMetadata,
@@ -21,6 +22,7 @@ type FrontmatterExamples = {
   core: CoreFrontmatter;
   journalDay: JournalDayFrontmatter;
   experiment: ExperimentFrontmatter;
+  provider: ProviderFrontmatter;
 };
 
 type HealthFrontmatterExamples = {
@@ -494,6 +496,21 @@ export const exampleFrontmatterObjects: Readonly<FrontmatterExamples> = Object.f
     hypothesis: "Evening magnesium reduces time to fall asleep.",
     tags: ["sleep", "supplement"],
   },
+  provider: {
+    schemaVersion: "hb.frontmatter.provider.v1",
+    docType: "provider",
+    providerId: "prov_01JNV422Y2M5ZBV64ZP4N1DRB1",
+    slug: "primary-care-clinic",
+    title: "Primary Care Clinic",
+    status: "active",
+    specialty: "primary-care",
+    organization: "Healthy Bob Medical Group",
+    location: "New York, NY",
+    website: "https://example.com/providers/primary-care-clinic",
+    phone: "+1-555-0100",
+    note: "Preferred clinic for annual wellness visits.",
+    aliases: ["HBC Primary Care"],
+  },
 });
 
 export const exampleHealthFrontmatterObjects: Readonly<HealthFrontmatterExamples> = Object.freeze({
@@ -640,5 +657,24 @@ tags:
 ---
 
 # Magnesium For Sleep Onset
+`,
+  provider: `---
+schemaVersion: hb.frontmatter.provider.v1
+docType: provider
+providerId: prov_01JNV422Y2M5ZBV64ZP4N1DRB1
+slug: primary-care-clinic
+title: Primary Care Clinic
+status: active
+specialty: primary-care
+organization: Healthy Bob Medical Group
+location: New York, NY
+website: https://example.com/providers/primary-care-clinic
+phone: +1-555-0100
+note: Preferred clinic for annual wellness visits.
+aliases:
+  - HBC Primary Care
+---
+
+# Primary Care Clinic
 `,
 });

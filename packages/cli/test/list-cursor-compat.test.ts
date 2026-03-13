@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -81,6 +81,8 @@ function withMachineOutput(args: string[]): string[] {
 
 test('list help and schemas no longer expose cursor pagination options', async () => {
   const help = await runRawSourceCli(['goal', 'list', '--help'])
+  const profileHelp = await runRawSourceCli(['profile', 'list', '--help'])
+  const historyHelp = await runRawSourceCli(['history', 'list', '--help'])
   const readSchema = JSON.parse(
     await runRawSourceCli(['list', '--schema', '--format', 'json']),
   ) as {
@@ -98,7 +100,16 @@ test('list help and schemas no longer expose cursor pagination options', async (
 
   assert.doesNotMatch(help, /--cursor/u)
   assert.doesNotMatch(help, /next-page token/u)
+  assert.match(profileHelp, /--from/u)
+  assert.match(profileHelp, /--to/u)
+  assert.match(historyHelp, /--kind/u)
+  assert.match(historyHelp, /--from/u)
+  assert.match(historyHelp, /--to/u)
   assert.equal('cursor' in readSchema.options.properties, false)
+  assert.equal('recordType' in readSchema.options.properties, true)
+  assert.equal('status' in readSchema.options.properties, true)
+  assert.equal('stream' in readSchema.options.properties, true)
+  assert.equal('tag' in readSchema.options.properties, true)
   assert.equal('cursor' in intakeSchema.options.properties, false)
 })
 
@@ -156,6 +167,133 @@ test.sequential('list commands still run after cursor removal', async () => {
     assert.equal(goalList.meta?.command, 'goal list')
     assert.equal(requireData(goalList).count, 0)
     assert.deepEqual(requireData(goalList).items, [])
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('generic list exposes record-type, status, stream, and tag filter parity', async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), 'healthybob-cli-list-'))
+  const csvPath = path.join(vaultRoot, 'samples.csv')
+  const experimentPath = path.join(
+    vaultRoot,
+    'bank/experiments/sleep-window.md',
+  )
+  const experimentId = 'exp_01JNY0B2W4VG5C2A0G9S8M7R6Q'
+
+  try {
+    const initResult = await runSourceCli<{ created: boolean }>(['init', '--vault', vaultRoot])
+    assert.equal(initResult.ok, true)
+    assert.equal(requireData(initResult).created, true)
+
+    await writeFile(
+      experimentPath,
+      [
+        '---',
+        'schemaVersion: "1.0"',
+        'docType: experiment',
+        `experimentId: ${experimentId}`,
+        'slug: sleep-window',
+        'status: paused',
+        'title: Sleep Window',
+        'startedOn: 2026-03-12',
+        'tags:',
+        '  - energy',
+        '  - sleep',
+        '---',
+        '',
+        '# Sleep Window',
+        '',
+        'Notes.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    await writeFile(
+      csvPath,
+      [
+        'timestamp,bpm',
+        '2026-03-12T08:00:00Z,61',
+        '2026-03-12T08:01:00Z,63',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const importResult = await runSourceCli<{ importedCount: number }>([
+      'samples',
+      'import-csv',
+      csvPath,
+      '--stream',
+      'heart_rate',
+      '--ts-column',
+      'timestamp',
+      '--value-column',
+      'bpm',
+      '--unit',
+      'bpm',
+      '--vault',
+      vaultRoot,
+    ])
+    assert.equal(importResult.ok, true)
+    assert.equal(requireData(importResult).importedCount, 2)
+
+    const experimentList = await runSourceCli<{
+      filters: {
+        recordType?: string
+        status?: string
+        tag?: string
+      }
+      items: Array<{
+        id: string
+        kind: string
+      }>
+    }>([
+      'list',
+      '--record-type',
+      'experiment',
+      '--status',
+      'paused',
+      '--tag',
+      'energy',
+      '--vault',
+      vaultRoot,
+    ])
+    assert.equal(experimentList.ok, true)
+    assert.equal(requireData(experimentList).filters.recordType, 'experiment')
+    assert.equal(requireData(experimentList).filters.status, 'paused')
+    assert.equal(requireData(experimentList).filters.tag, 'energy')
+    assert.equal(requireData(experimentList).items.length, 1)
+    assert.equal(requireData(experimentList).items[0]?.id, experimentId)
+    assert.equal(requireData(experimentList).items[0]?.kind, 'experiment')
+
+    const sampleList = await runSourceCli<{
+      filters: {
+        recordType?: string
+        stream?: string
+      }
+      items: Array<{
+        id: string
+        kind: string
+      }>
+    }>([
+      'list',
+      '--record-type',
+      'sample',
+      '--stream',
+      'heart_rate',
+      '--vault',
+      vaultRoot,
+    ])
+    assert.equal(sampleList.ok, true)
+    assert.equal(requireData(sampleList).filters.recordType, 'sample')
+    assert.equal(requireData(sampleList).filters.stream, 'heart_rate')
+    assert.equal(requireData(sampleList).items.length, 2)
+    assert.equal(
+      requireData(sampleList).items.every((item) => item.kind === 'sample'),
+      true,
+    )
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }

@@ -11,6 +11,7 @@ import { requireData, type CliEnvelope } from './cli-test-helpers.js'
 
 const builtCoreRuntimeUrl = new URL('../../core/dist/index.js', import.meta.url).href
 const builtInboxRuntimeUrl = new URL('../../inboxd/dist/index.js', import.meta.url).href
+const builtParsersRuntimeUrl = new URL('../../parsers/dist/index.js', import.meta.url).href
 
 async function makeVaultFixture(prefix: string): Promise<{
   homeRoot: string
@@ -63,6 +64,10 @@ async function loadBuiltCoreRuntime() {
 
 async function loadBuiltInboxRuntime() {
   return (await import(builtInboxRuntimeUrl)) as any
+}
+
+async function loadBuiltParsersRuntime() {
+  return (await import(builtParsersRuntimeUrl)) as any
 }
 
 function inboxPaths(vaultRoot: string) {
@@ -972,6 +977,13 @@ test.sequential(
               }
             }
           }
+          doctor: {
+            ok: boolean
+            checks: Array<{
+              name: string
+              status: string
+            }>
+          }
         }>([
           'inbox',
           'bootstrap',
@@ -1004,6 +1016,13 @@ test.sequential(
       )
       assert.equal(bootstrapResult.setup.tools.paddleocr.available, true)
       assert.equal(bootstrapResult.setup.tools.paddleocr.command, 'paddleocr')
+      assert.equal(bootstrapResult.doctor.ok, true)
+      assert.equal(
+        bootstrapResult.doctor.checks.some(
+          (check) => check.name === 'runtime-db' && check.status === 'pass',
+        ),
+        true,
+      )
       assert.equal(writes.length, 1)
       assert.equal(writes[0]?.vaultRoot, fixture.vaultRoot)
       assert.deepEqual(writes[0]?.tools, {
@@ -1021,6 +1040,66 @@ test.sequential(
     }
   },
 )
+
+test.sequential('inbox bootstrap strict mode rejects unavailable configured whisper model paths', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-bootstrap-strict')
+  const toolRoot = await mkdtemp(path.join(tmpdir(), 'healthybob-inbox-bootstrap-strict-tool-'))
+  const whisperCommand = await writeExecutableFile(
+    toolRoot,
+    'fake-whisper-cli',
+    '#!/usr/bin/env node\nprocess.exit(0)\n',
+  )
+  const services = createIntegratedInboxCliServices({
+    loadInboxModule: async () =>
+      createFakeInboxRuntimeModule({
+        rebuiltCaptureCount: 3,
+      }),
+    loadParsersModule: loadBuiltParsersRuntime,
+  })
+
+  try {
+    const nonStrict = await services.bootstrap({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      whisperCommand,
+      whisperModelPath: './models/missing.bin',
+    })
+    assert.equal(nonStrict.doctor.ok, true)
+    assert.equal(nonStrict.doctor.parserToolchain?.tools.whisper.available, false)
+    assert.equal(
+      nonStrict.doctor.parserToolchain?.tools.whisper.reason,
+      'Whisper model path does not exist.',
+    )
+
+    await expectVaultCliError(
+      services.bootstrap({
+        vault: fixture.vaultRoot,
+        requestId: null,
+        strict: true,
+        whisperCommand,
+        whisperModelPath: './models/missing.bin',
+      }),
+      'INBOX_BOOTSTRAP_STRICT_FAILED',
+    )
+
+    const modelsRoot = path.join(fixture.vaultRoot, 'models')
+    await mkdir(modelsRoot, { recursive: true })
+    await writeFile(path.join(modelsRoot, 'missing.bin'), 'model', 'utf8')
+
+    const strictReady = await services.bootstrap({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      strict: true,
+      whisperCommand,
+      whisperModelPath: './models/missing.bin',
+    })
+    assert.equal(strictReady.doctor.parserToolchain?.tools.whisper.available, true)
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+    await rm(toolRoot, { recursive: true, force: true })
+  }
+})
 
 test.sequential(
   'vault-cli inbox list/show/search emit contract-shaped envelopes from runtime data',
@@ -1893,6 +1972,105 @@ test.sequential('backfill dedupes repeats, honors limits, and stores cursor unde
       assert.equal(runtime.getCursor('imessage', 'other'), null)
     } finally {
       runtime.close()
+    }
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('backfill can opt into parser drains while remaining queue-first by default', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-backfill-parse')
+  const drainCalls: Array<{
+    attachmentId?: string
+    captureId?: string
+    maxJobs?: number
+    vaultRoot: string
+  }> = []
+  const fakeParsers = createFakeParsersRuntimeModule({
+    drainResults: [
+      {
+        attachmentId: 'att-1',
+        captureId: 'cap-parser',
+        providerId: 'text-file',
+        status: 'succeeded',
+      },
+    ],
+    onDrain(payload) {
+      drainCalls.push(payload)
+    },
+  })
+  const services = createIntegratedInboxCliServices({
+    getHomeDirectory: () => fixture.homeRoot,
+    getPlatform: () => 'darwin',
+    loadCoreModule: loadBuiltCoreRuntime,
+    loadInboxModule: loadBuiltInboxRuntime,
+    loadImessageDriver: async () =>
+      createFakeImessageDriver({ photoPath: fixture.photoPath }),
+    loadParsersModule: async () => fakeParsers,
+  })
+
+  try {
+    await initializeImessageSource({
+      services,
+      vaultRoot: fixture.vaultRoot,
+    })
+
+    const queueOnly = await services.backfill({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      sourceId: 'imessage:self',
+    })
+    assert.equal(queueOnly.importedCount, 1)
+    assert.equal(queueOnly.parse, undefined)
+    assert.deepEqual(drainCalls, [])
+
+    const reparsed = await services.backfill({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      sourceId: 'imessage:self',
+      parse: true,
+    })
+    assert.equal(reparsed.importedCount, 0)
+    assert.equal(reparsed.dedupedCount, 1)
+    assert.equal(reparsed.parse?.attempted, 0)
+    assert.deepEqual(drainCalls, [])
+
+    const freshFixture = await makeVaultFixture('healthybob-inbox-backfill-parse-fresh')
+    const freshServices = createIntegratedInboxCliServices({
+      getHomeDirectory: () => freshFixture.homeRoot,
+      getPlatform: () => 'darwin',
+      loadCoreModule: loadBuiltCoreRuntime,
+      loadInboxModule: loadBuiltInboxRuntime,
+      loadImessageDriver: async () =>
+        createFakeImessageDriver({ photoPath: freshFixture.photoPath }),
+      loadParsersModule: async () => fakeParsers,
+    })
+
+    try {
+      await initializeImessageSource({
+        services: freshServices,
+        vaultRoot: freshFixture.vaultRoot,
+      })
+      const parsed = await freshServices.backfill({
+        vault: freshFixture.vaultRoot,
+        requestId: null,
+        sourceId: 'imessage:self',
+        parse: true,
+      })
+      assert.equal(parsed.importedCount, 1)
+      assert.equal(parsed.parse?.attempted, 1)
+      assert.equal(parsed.parse?.succeeded, 1)
+      assert.equal(parsed.parse?.results[0]?.providerId, 'text-file')
+      assert.equal(
+        drainCalls.some(
+          (call) => call.captureId?.startsWith('cap_') && call.vaultRoot === freshFixture.vaultRoot,
+        ),
+        true,
+      )
+    } finally {
+      await rm(freshFixture.vaultRoot, { recursive: true, force: true })
+      await rm(freshFixture.homeRoot, { recursive: true, force: true })
     }
   } finally {
     await rm(fixture.vaultRoot, { recursive: true, force: true })

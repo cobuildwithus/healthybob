@@ -553,6 +553,28 @@ export const experimentFrontmatterSchema = withContractMetadata(
   "Healthy Bob Experiment Frontmatter",
 );
 
+export const providerFrontmatterSchema = withContractMetadata(
+  z
+    .object({
+      schemaVersion: z.literal(CONTRACT_SCHEMA_VERSION.providerFrontmatter),
+      docType: z.literal(FRONTMATTER_DOC_TYPES.provider),
+      providerId: idSchema(ID_PREFIXES.provider),
+      slug: patternedString(SLUG_PATTERN),
+      title: boundedString(1, 160),
+      status: boundedString(1, 64).optional(),
+      specialty: boundedString(1, 160).optional(),
+      organization: boundedString(1, 160).optional(),
+      location: boundedString(1, 160).optional(),
+      website: boundedString(1, 240).optional(),
+      phone: boundedString(1, 64).optional(),
+      note: boundedString(1, 4000).optional(),
+      aliases: uniqueArray(boundedString(1, 160), { uniqueItems: true }).optional(),
+    })
+    .strict(),
+  "@healthybob/contracts/frontmatter-provider.schema.json",
+  "Healthy Bob Provider Frontmatter",
+);
+
 export const assessmentResponseSchema = withContractMetadata(
   z
     .object({
@@ -767,6 +789,7 @@ export type AuditRecord = z.infer<typeof auditRecordSchema>;
 export type CoreFrontmatter = z.infer<typeof coreFrontmatterSchema>;
 export type JournalDayFrontmatter = z.infer<typeof journalDayFrontmatterSchema>;
 export type ExperimentFrontmatter = z.infer<typeof experimentFrontmatterSchema>;
+export type ProviderFrontmatter = z.infer<typeof providerFrontmatterSchema>;
 export type AssessmentResponseRecord = z.infer<typeof assessmentResponseSchema>;
 export type ProfileSnapshotRecord = z.infer<typeof profileSnapshotSchema>;
 export type ProfileCurrentFrontmatter = z.infer<typeof profileCurrentFrontmatterSchema>;

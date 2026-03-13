@@ -1,10 +1,13 @@
+import { z } from "zod";
+
 import { assertCanonicalWritePort } from "./core-port.js";
 import type { MealImportPayload } from "./core-port.js";
 import {
-  assertPlainObject,
   inspectFileAsset,
-  normalizeOptionalString,
-  normalizeTimestamp,
+  optionalTimestampSchema,
+  optionalTrimmedStringSchema,
+  parseInputObject,
+  requiredTrimmedStringSchema,
   stripUndefined,
 } from "./shared.js";
 
@@ -22,25 +25,36 @@ export interface ImporterExecutionOptions {
   corePort?: unknown;
 }
 
+const mealImportInputSchema = z
+  .object({
+    photoPath: requiredTrimmedStringSchema("photoPath"),
+    audioPath: optionalTrimmedStringSchema("audioPath"),
+    vaultRoot: optionalTrimmedStringSchema("vaultRoot"),
+    vault: optionalTrimmedStringSchema("vault"),
+    occurredAt: optionalTimestampSchema("occurredAt"),
+    note: optionalTrimmedStringSchema("note"),
+    source: optionalTrimmedStringSchema("source"),
+  })
+  .passthrough();
+
 export async function prepareMealImport(input: unknown): Promise<MealImportPayload> {
-  const request = assertPlainObject(input, "meal import input");
+  const request = parseInputObject(
+    input,
+    "meal import input",
+    mealImportInputSchema,
+  );
   const photo = await inspectFileAsset(request.photoPath, "photo");
-
-  if (!photo.sourcePath) {
-    throw new TypeError("photoPath must point to a file");
-  }
-
   const audio = request.audioPath
     ? await inspectFileAsset(request.audioPath, "audio")
     : undefined;
 
   return stripUndefined({
-    vaultRoot: normalizeOptionalString(request.vaultRoot ?? request.vault, "vaultRoot"),
+    vaultRoot: request.vaultRoot ?? request.vault,
     photoPath: photo.sourcePath,
     audioPath: audio?.sourcePath,
-    occurredAt: normalizeTimestamp(request.occurredAt, "occurredAt"),
-    note: normalizeOptionalString(request.note, "note"),
-    source: normalizeOptionalString(request.source, "source"),
+    occurredAt: request.occurredAt,
+    note: request.note,
+    source: request.source,
   });
 }
 

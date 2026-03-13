@@ -126,10 +126,14 @@ export const showResultSchema = z.object({
 })
 
 export const listFilterSchema = z.object({
+  recordType: z.string().min(1).optional(),
   kind: z.string().min(1).optional(),
+  status: z.string().min(1).optional(),
+  stream: z.string().min(1).optional(),
   experiment: slugSchema.optional(),
   dateFrom: localDateSchema.optional(),
   dateTo: localDateSchema.optional(),
+  tag: z.string().min(1).optional(),
   limit: z.number().int().positive().max(200).default(50),
 })
 

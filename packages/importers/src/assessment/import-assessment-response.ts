@@ -1,10 +1,12 @@
 import { basename } from "node:path";
+import { z } from "zod";
 
 import {
-  assertPlainObject,
   inspectFileAsset,
-  normalizeOptionalString,
-  normalizeTimestamp,
+  optionalTimestampSchema,
+  optionalTrimmedStringSchema,
+  parseInputObject,
+  requiredTrimmedStringSchema,
   stripUndefined,
 } from "../shared.js";
 
@@ -26,19 +28,35 @@ export interface AssessmentResponseImportInput {
   source?: string;
 }
 
+const assessmentResponseImportInputSchema = z
+  .object({
+    filePath: requiredTrimmedStringSchema("filePath"),
+    vaultRoot: optionalTrimmedStringSchema("vaultRoot"),
+    vault: optionalTrimmedStringSchema("vault"),
+    title: optionalTrimmedStringSchema("title"),
+    occurredAt: optionalTimestampSchema("occurredAt"),
+    importedAt: optionalTimestampSchema("importedAt"),
+    source: optionalTrimmedStringSchema("source"),
+  })
+  .passthrough();
+
 export async function prepareAssessmentResponseImport(
   input: unknown,
 ): Promise<AssessmentResponseImportPayload> {
-  const request = assertPlainObject(input, "assessment response import input");
+  const request = parseInputObject(
+    input,
+    "assessment response import input",
+    assessmentResponseImportInputSchema,
+  );
   const rawArtifact = await inspectFileAsset(request.filePath, "assessment");
 
   return stripUndefined({
-    vaultRoot: normalizeOptionalString(request.vaultRoot ?? request.vault, "vaultRoot"),
+    vaultRoot: request.vaultRoot ?? request.vault,
     sourcePath: rawArtifact.sourcePath,
-    title: normalizeOptionalString(request.title, "title") ?? basename(rawArtifact.sourcePath),
-    occurredAt: normalizeTimestamp(request.occurredAt, "occurredAt"),
-    importedAt: normalizeTimestamp(request.importedAt, "importedAt"),
-    source: normalizeOptionalString(request.source, "source"),
+    title: request.title ?? basename(rawArtifact.sourcePath),
+    occurredAt: request.occurredAt,
+    importedAt: request.importedAt,
+    source: request.source,
   });
 }
 

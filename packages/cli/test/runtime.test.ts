@@ -6,6 +6,10 @@ import { test } from 'vitest'
 import { repoRoot, requireData, runCli } from './cli-test-helpers.js'
 import './cli-expansion-document-meal.test.js'
 import './cli-expansion-experiment-journal-vault.test.js'
+import './cli-expansion-experiment-journal-vault-phase2.test.js'
+import './cli-expansion-export-intake.test.js'
+import './cli-expansion-inbox-attachments.test.js'
+import './cli-expansion-provider-event-samples.test.js'
 import './cli-expansion-samples-audit.test.js'
 
 interface FixtureVault {

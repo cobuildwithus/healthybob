@@ -1,8 +1,11 @@
+import { z } from "zod";
+
 import {
-  assertPlainObject,
-  normalizeOptionalString,
-  normalizeOptionalStringList,
   normalizeRequiredString,
+  optionalStringListSchema,
+  optionalTrimmedStringSchema,
+  parseInputObject,
+  requiredTrimmedStringSchema,
   stripUndefined,
 } from "./shared.js";
 
@@ -36,25 +39,62 @@ export interface SamplePresetRegistry {
   list(): ReadonlyArray<Readonly<SampleImportPreset>>;
 }
 
-export function defineSampleImportPreset(input: unknown): Readonly<SampleImportPreset> {
-  const preset = assertPlainObject(input, "sample import preset");
-
-  return Object.freeze(
-    stripUndefined({
-      id: normalizeRequiredString(preset.id, "preset.id"),
-      label: normalizeOptionalString(preset.label, "preset.label"),
-      source: normalizeOptionalString(preset.source, "preset.source"),
-      stream: normalizeRequiredString(preset.stream, "preset.stream"),
-      tsColumn: normalizeRequiredString(preset.tsColumn, "preset.tsColumn"),
-      valueColumn: normalizeRequiredString(preset.valueColumn, "preset.valueColumn"),
-      unit: normalizeRequiredString(preset.unit, "preset.unit"),
-      delimiter: normalizeOptionalString(preset.delimiter, "preset.delimiter") ?? ",",
-      metadataColumns: normalizeOptionalStringList(
-        preset.metadataColumns,
-        "preset.metadataColumns",
-      ),
-    }),
+const sampleImportPresetSchema = z
+  .object({
+    id: requiredTrimmedStringSchema("preset.id"),
+    label: optionalTrimmedStringSchema("preset.label"),
+    source: optionalTrimmedStringSchema("preset.source"),
+    stream: requiredTrimmedStringSchema("preset.stream"),
+    tsColumn: requiredTrimmedStringSchema("preset.tsColumn"),
+    valueColumn: requiredTrimmedStringSchema("preset.valueColumn"),
+    unit: requiredTrimmedStringSchema("preset.unit"),
+    delimiter: optionalTrimmedStringSchema("preset.delimiter"),
+    metadataColumns: optionalStringListSchema("preset.metadataColumns"),
+  })
+  .passthrough()
+  .transform((preset) =>
+    Object.freeze(
+      stripUndefined({
+        ...preset,
+        delimiter: preset.delimiter ?? ",",
+      }),
+    ),
   );
+
+const optionalMetadataColumnsInputSchema = z
+  .custom<readonly string[] | undefined | null>(
+    (value): value is readonly string[] | undefined | null =>
+      value === undefined ||
+      value === null ||
+      (Array.isArray(value) &&
+        value.every(
+          (entry) => typeof entry === "string" && entry.trim().length > 0,
+        )),
+    { error: "metadataColumns must be an array of strings when provided" },
+  )
+  .transform((value) =>
+    value === undefined
+      ? undefined
+      : value === null
+        ? []
+        : value.map((entry) => entry.trim()),
+  );
+
+const sampleImportRequestSchema = z
+  .object({
+    presetId: optionalTrimmedStringSchema("presetId"),
+    source: optionalTrimmedStringSchema("source"),
+    stream: optionalTrimmedStringSchema("stream"),
+    tsColumn: optionalTrimmedStringSchema("tsColumn"),
+    valueColumn: optionalTrimmedStringSchema("valueColumn"),
+    unit: optionalTrimmedStringSchema("unit"),
+    delimiter: optionalTrimmedStringSchema("delimiter"),
+    metadataColumns: optionalMetadataColumnsInputSchema,
+  })
+  .passthrough();
+
+export function defineSampleImportPreset(input: unknown): Readonly<SampleImportPreset> {
+  return parseInputObject(input, "sample import preset", sampleImportPresetSchema);
 }
 
 export function createSamplePresetRegistry(initialPresets: readonly unknown[] = []): SamplePresetRegistry {
@@ -102,8 +142,12 @@ export function resolveSampleImportConfig(
   input: unknown,
   registry?: Pick<SamplePresetRegistry, "get">,
 ): ResolvedSampleImportConfig {
-  const request = assertPlainObject(input, "sample import input");
-  const presetId = normalizeOptionalString(request.presetId, "presetId");
+  const request = parseInputObject(
+    input,
+    "sample import input",
+    sampleImportRequestSchema,
+  );
+  const presetId = request.presetId;
   const preset = presetId ? registry?.get?.(presetId) : undefined;
 
   if (presetId && !preset) {
@@ -112,28 +156,15 @@ export function resolveSampleImportConfig(
 
   return stripUndefined({
     presetId,
-    source:
-      normalizeOptionalString(request.source, "source") ??
-      normalizeOptionalString(preset?.source, "preset.source"),
-    stream:
-      normalizeOptionalString(request.stream, "stream") ??
-      normalizeOptionalString(preset?.stream, "preset.stream"),
-    tsColumn:
-      normalizeOptionalString(request.tsColumn, "tsColumn") ??
-      normalizeOptionalString(preset?.tsColumn, "preset.tsColumn"),
-    valueColumn:
-      normalizeOptionalString(request.valueColumn, "valueColumn") ??
-      normalizeOptionalString(preset?.valueColumn, "preset.valueColumn"),
-    unit:
-      normalizeOptionalString(request.unit, "unit") ??
-      normalizeOptionalString(preset?.unit, "preset.unit"),
-    delimiter:
-      normalizeOptionalString(request.delimiter, "delimiter") ??
-      normalizeOptionalString(preset?.delimiter, "preset.delimiter") ??
-      ",",
+    source: request.source ?? preset?.source,
+    stream: request.stream ?? preset?.stream,
+    tsColumn: request.tsColumn ?? preset?.tsColumn,
+    valueColumn: request.valueColumn ?? preset?.valueColumn,
+    unit: request.unit ?? preset?.unit,
+    delimiter: request.delimiter ?? preset?.delimiter ?? ",",
     metadataColumns:
       request.metadataColumns === undefined
         ? preset?.metadataColumns ?? []
-        : normalizeOptionalStringList(request.metadataColumns, "metadataColumns"),
+        : request.metadataColumns,
   });
 }

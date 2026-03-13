@@ -274,13 +274,31 @@ function createIntegratedQueryServices(): QueryServices {
       }
     },
     async list(input: CommandContext & ListFilters) {
-      const { vault, kind, experiment, dateFrom, dateTo, limit } = input
+      const {
+        vault,
+        recordType,
+        kind,
+        status,
+        stream,
+        experiment,
+        dateFrom,
+        dateTo,
+        tag,
+        limit,
+      } = input
       const { query } = await loadIntegratedRuntime()
       const readModel = await query.readVault(vault)
+      const recordTypes = parseCsvOption(recordType)
+      const streams = parseCsvOption(stream)
+      const tags = parseCsvOption(tag)
       const items = query
         .listEntities(readModel, {
+          families: recordTypes.length > 0 ? recordTypes : undefined,
+          statuses: status ? [status] : undefined,
+          streams: streams.length > 0 ? streams : undefined,
           experimentSlug: experiment,
           from: dateFrom,
+          tags: tags.length > 0 ? tags : undefined,
           to: dateTo,
         })
         .filter((entity) => matchesGenericKindFilter(entity, kind))
@@ -290,10 +308,14 @@ function createIntegratedQueryServices(): QueryServices {
       return {
         vault,
         filters: {
+          recordType,
           kind,
+          status,
+          stream,
           experiment,
           dateFrom,
           dateTo,
+          tag,
           limit,
         },
         items,
@@ -330,6 +352,21 @@ function createIntegratedQueryServices(): QueryServices {
       }
     },
   } satisfies QueryServices
+}
+
+function parseCsvOption(value: string | undefined): string[] {
+  if (typeof value !== 'string') {
+    return []
+  }
+
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  ]
 }
 
 export function createIntegratedVaultCliServices(): VaultCliServices {

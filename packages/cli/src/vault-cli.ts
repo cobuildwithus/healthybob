@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { Cli } from 'incur'
 import { registerHealthEntityCrudGroup } from './commands/health-entity-command-registry.js'
 import { registerDocumentCommands } from './commands/document.js'
+import { registerEventCommands } from './commands/event.js'
 import { registerExperimentCommands } from './commands/experiment.js'
 import { registerExportCommands } from './commands/export.js'
 import { registerIntakeCommands } from './commands/intake.js'
@@ -9,6 +10,7 @@ import { registerInboxCommands } from './commands/inbox.js'
 import { registerJournalCommands } from './commands/journal.js'
 import { registerMealCommands } from './commands/meal.js'
 import { registerProfileCommands } from './commands/profile.js'
+import { registerProviderCommands } from './commands/provider.js'
 import { registerReadCommands } from './commands/read.js'
 import { registerSearchCommands } from './commands/search.js'
 import { registerAuditCommands } from './commands/audit.js'
@@ -43,6 +45,8 @@ export function createVaultCli(
   registerAuditCommands(cli, services)
   registerDocumentCommands(cli, services)
   registerMealCommands(cli, services)
+  registerProviderCommands(cli, services)
+  registerEventCommands(cli, services)
   registerSamplesCommands(cli, services)
   registerExperimentCommands(cli, services)
   registerJournalCommands(cli, services)

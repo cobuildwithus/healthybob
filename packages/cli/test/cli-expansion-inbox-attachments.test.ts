@@ -39,6 +39,20 @@ async function makeVaultFixture(prefix: string): Promise<{
 
 async function loadBuiltCoreRuntime() {
   return (await import(builtCoreRuntimeUrl)) as {
+    createExperiment(input: {
+      vaultRoot: string
+      slug: string
+      title?: string
+      startedOn?: string
+      hypothesis?: string
+      status?: string
+    }): Promise<{
+      experiment: {
+        id: string
+        relativePath: string
+        slug: string
+      }
+    }>
     initializeVault(input: {
       vaultRoot: string
       createdAt: string
@@ -129,6 +143,68 @@ function createFakeImessageDriver(input: {
   }
 }
 
+function createFakeParsersModule() {
+  return {
+    async createConfiguredParserRegistry() {
+      return {
+        doctor: {} as never,
+        registry: {},
+      }
+    },
+    createInboxParserService(input: { runtime: unknown }) {
+      return {
+        async drain(filters?: { attachmentId?: string; captureId?: string }) {
+          const runtime = input.runtime as {
+            claimNextAttachmentParseJob(filters?: {
+              attachmentId?: string
+              captureId?: string
+            }): {
+              jobId: string
+              attachmentId: string
+              captureId: string
+            } | null
+            completeAttachmentParseJob(input: {
+              jobId: string
+              providerId: string
+              resultPath: string
+              extractedText?: string | null
+            }): unknown
+          }
+          const job = runtime.claimNextAttachmentParseJob(filters)
+          if (!job) {
+            return []
+          }
+
+          runtime.completeAttachmentParseJob({
+            jobId: job.jobId,
+            providerId: 'fake-parser',
+            resultPath: 'derived/inbox/parse-result.json',
+            extractedText: 'Parsed attachment text',
+          })
+
+          return [
+            {
+              status: 'succeeded' as const,
+              job: {
+                captureId: job.captureId,
+                attachmentId: job.attachmentId,
+              },
+              providerId: 'fake-parser',
+              manifestPath: 'derived/inbox/parse-result.json',
+            },
+          ]
+        },
+      }
+    },
+    async discoverParserToolchain() {
+      throw new Error('not used in this test')
+    },
+    async writeParserToolchainConfig() {
+      throw new Error('not used in this test')
+    },
+  }
+}
+
 async function initializeImessageSource(input: {
   services: ReturnType<typeof createIntegratedInboxCliServices>
   vaultRoot: string
@@ -176,6 +252,7 @@ test.sequential(
       getPlatform: () => 'darwin',
       loadCoreModule: loadBuiltCoreRuntime as never,
       loadInboxModule: loadBuiltInboxRuntime as never,
+      loadParsersModule: async () => createFakeParsersModule() as never,
       loadImessageDriver: async () =>
         createFakeImessageDriver({ photoPath: fixture.photoPath }),
     })
@@ -271,6 +348,32 @@ test.sequential(
       assert.equal(status.jobs[0]?.state, 'succeeded')
       assert.equal(status.jobs[0]?.resultPath, 'derived/inbox/manifest.json')
 
+      const parsed = requireData(
+        await runInProcessInboxCli<{
+          attachmentId: string
+          attempted: number
+          succeeded: number
+          failed: number
+          currentState: string | null
+          jobs: Array<{
+            state: string
+          }>
+          results: Array<{
+            attachmentId: string
+          }>
+        }>(
+          ['inbox', 'attachment', 'parse', attachmentId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(parsed.attachmentId, attachmentId)
+      assert.equal(parsed.attempted, 0)
+      assert.equal(parsed.succeeded, 0)
+      assert.equal(parsed.failed, 0)
+      assert.equal(parsed.currentState, 'succeeded')
+      assert.equal(parsed.jobs[0]?.state, 'succeeded')
+      assert.equal(parsed.results.length, 0)
+
       const reparsed = requireData(
         await runInProcessInboxCli<{
           attachmentId: string
@@ -288,6 +391,33 @@ test.sequential(
       assert.equal(reparsed.requeuedJobs, 1)
       assert.equal(reparsed.currentState, 'pending')
       assert.equal(reparsed.jobs[0]?.state, 'pending')
+
+      const parsedAfterRequeue = requireData(
+        await runInProcessInboxCli<{
+          attachmentId: string
+          attempted: number
+          succeeded: number
+          failed: number
+          currentState: string | null
+          results: Array<{
+            providerId: string | null
+            manifestPath: string | null
+          }>
+        }>(
+          ['inbox', 'attachment', 'parse', attachmentId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(parsedAfterRequeue.attachmentId, attachmentId)
+      assert.equal(parsedAfterRequeue.attempted, 1)
+      assert.equal(parsedAfterRequeue.succeeded, 1)
+      assert.equal(parsedAfterRequeue.failed, 0)
+      assert.equal(parsedAfterRequeue.currentState, 'succeeded')
+      assert.equal(parsedAfterRequeue.results[0]?.providerId, 'fake-parser')
+      assert.equal(
+        parsedAfterRequeue.results[0]?.manifestPath,
+        'derived/inbox/parse-result.json',
+      )
     } finally {
       await rm(fixture.vaultRoot, { recursive: true, force: true })
       await rm(fixture.homeRoot, { recursive: true, force: true })
@@ -296,7 +426,7 @@ test.sequential(
 )
 
 test.sequential(
-  'inbox journal promotion is idempotent and experiment-note remains unsupported',
+  'inbox journal and experiment-note promotions are idempotent',
   async () => {
     const fixture = await makeVaultFixture('healthybob-inbox-journal-promotion')
     const services = createIntegratedInboxCliServices({
@@ -313,6 +443,14 @@ test.sequential(
     })
 
     try {
+      const coreRuntime = await loadBuiltCoreRuntime()
+      const experiment = await coreRuntime.createExperiment({
+        vaultRoot: fixture.vaultRoot,
+        slug: 'Focus Sprint',
+        title: 'Focus Sprint',
+        startedOn: '2026-03-13',
+      })
+
       await initializeImessageSource({
         services,
         vaultRoot: fixture.vaultRoot,
@@ -376,21 +514,72 @@ test.sequential(
         1,
       )
 
-      const experimentNote = await runInProcessInboxCli(
-        [
-          'inbox',
-          'promote',
-          'experiment-note',
-          capture.captureId,
-          '--vault',
-          fixture.vaultRoot,
-        ],
-        services,
+      const firstExperimentNote = requireData(
+        await runInProcessInboxCli<{
+          target: string
+          lookupId: string
+          relatedId: string
+          experimentPath: string
+          experimentSlug: string
+          appended: boolean
+        }>(
+          [
+            'inbox',
+            'promote',
+            'experiment-note',
+            capture.captureId,
+            '--vault',
+            fixture.vaultRoot,
+          ],
+          services,
+        ),
       )
-      assert.equal(experimentNote.ok, false)
-      if (!experimentNote.ok) {
-        assert.equal(experimentNote.error.code, 'INBOX_PROMOTION_UNSUPPORTED')
-      }
+      assert.equal(firstExperimentNote.target, 'experiment-note')
+      assert.equal(firstExperimentNote.lookupId, experiment.experiment.id)
+      assert.equal(firstExperimentNote.relatedId, capture.eventId)
+      assert.equal(
+        firstExperimentNote.experimentPath,
+        experiment.experiment.relativePath,
+      )
+      assert.equal(firstExperimentNote.experimentSlug, 'focus-sprint')
+      assert.equal(firstExperimentNote.appended, true)
+
+      const experimentMarkdown = await readFile(
+        path.join(fixture.vaultRoot, experiment.experiment.relativePath),
+        'utf8',
+      )
+      assert.match(experimentMarkdown, /## Inbox Experiment Notes/u)
+      assert.match(experimentMarkdown, /<!-- inbox-experiment-notes:start -->/u)
+      assert.match(experimentMarkdown, /<!-- inbox-capture:cap_/u)
+      assert.match(experimentMarkdown, /Breakfast note from inbox/u)
+
+      const secondExperimentNote = requireData(
+        await runInProcessInboxCli<{
+          appended: boolean
+          lookupId: string
+        }>(
+          [
+            'inbox',
+            'promote',
+            'experiment-note',
+            capture.captureId,
+            '--vault',
+            fixture.vaultRoot,
+          ],
+          services,
+        ),
+      )
+      assert.equal(secondExperimentNote.lookupId, experiment.experiment.id)
+      assert.equal(secondExperimentNote.appended, false)
+
+      const secondExperimentMarkdown = await readFile(
+        path.join(fixture.vaultRoot, experiment.experiment.relativePath),
+        'utf8',
+      )
+      assert.equal(
+        secondExperimentMarkdown.split(`<!-- inbox-capture:${capture.captureId} -->`).length - 1,
+        1,
+      )
     } finally {
       await rm(fixture.vaultRoot, { recursive: true, force: true })
       await rm(fixture.homeRoot, { recursive: true, force: true })

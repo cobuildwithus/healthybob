@@ -1,11 +1,11 @@
 {
   "id": "list",
-  "command": "vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]",
+  "command": "vault-cli list --vault <path> [--record-type <type>] [--kind <kind>] [--status <status>] [--stream <stream>] [--tag <tag>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--limit <n>] [--format json|md] [--request-id <id>]",
   "vaultFixture": "fixtures/minimal-vault",
   "inputs": [
     "fixtures/minimal-vault/CORE.md",
     "fixtures/minimal-vault/journal/2026/2026-03-10.md"
   ],
   "goldenOutput": "fixtures/golden-outputs/list",
-  "purpose": "Covers read-model listing semantics, including stable filters and ids that may need conversion to a queryable lookup before show."
+  "purpose": "Covers read-model listing semantics, including recordType, status, stream, tag, experiment, and date filters plus surfaced ids that may need conversion to a queryable lookup before show."
 }

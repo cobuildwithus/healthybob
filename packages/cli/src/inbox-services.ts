@@ -697,6 +697,15 @@ export function createIntegratedInboxCliServices(
   ): Promise<InboxBootstrapResult> => {
     const initResult = await initInboxRuntime(input)
     const setupResult = await setupInboxToolchain(input)
+    const doctorResult = await buildDoctorResult({
+      vault: input.vault,
+      requestId: input.requestId,
+      sourceId: null,
+    })
+
+    if (input.strict) {
+      assertBootstrapStrictReady(doctorResult)
+    }
 
     return {
       vault: initResult.vault,
@@ -712,6 +721,291 @@ export function createIntegratedInboxCliServices(
         updatedAt: setupResult.updatedAt,
         tools: setupResult.tools,
       },
+      doctor: {
+        configPath: doctorResult.configPath,
+        databasePath: doctorResult.databasePath,
+        target: doctorResult.target,
+        ok: doctorResult.ok,
+        checks: doctorResult.checks,
+        connectors: doctorResult.connectors,
+        parserToolchain: doctorResult.parserToolchain,
+      },
+    }
+  }
+
+  const buildDoctorResult = async (
+    input: DoctorInput,
+  ): Promise<InboxDoctorResult> => {
+    const paths = resolveRuntimePaths(input.vault)
+    const inboxd = await loadInbox()
+    const checks: InboxDoctorCheck[] = []
+    let config: InboxRuntimeConfig | null = null
+    let databaseAvailable = false
+    let parserToolchain: InboxParserToolchainStatus | null = null
+
+    try {
+      await inboxd.ensureInboxVault(paths.absoluteVaultRoot)
+      checks.push(passCheck('vault', 'Vault metadata is readable.'))
+    } catch (error) {
+      checks.push(
+        failCheck('vault', 'Vault metadata could not be read.', {
+          error: errorMessage(error),
+        }),
+      )
+      return {
+        vault: paths.absoluteVaultRoot,
+        configPath: null,
+        databasePath: null,
+        target: input.sourceId ?? null,
+        ok: false,
+        checks,
+        connectors: [],
+        parserToolchain: null,
+      }
+    }
+
+    try {
+      config = await readConfig(paths)
+      checks.push(passCheck('config', 'Inbox runtime config parsed successfully.'))
+    } catch (error) {
+      checks.push(
+        failCheck('config', 'Inbox runtime config is missing or invalid.', {
+          error: errorMessage(error),
+        }),
+      )
+    }
+
+    try {
+      const runtime = await inboxd.openInboxRuntime({
+        vaultRoot: paths.absoluteVaultRoot,
+      })
+      runtime.close()
+      databaseAvailable = true
+      checks.push(passCheck('runtime-db', 'Inbox runtime SQLite opened successfully.'))
+    } catch (error) {
+      checks.push(
+        failCheck('runtime-db', 'Inbox runtime SQLite could not be opened.', {
+          error: errorMessage(error),
+        }),
+      )
+    }
+
+    try {
+      const parsers = await loadParsers()
+      const doctor = await parsers.discoverParserToolchain({
+        vaultRoot: paths.absoluteVaultRoot,
+      })
+      parserToolchain = toCliParserToolchain(paths.absoluteVaultRoot, doctor)
+      checks.push(...toParserToolChecks(doctor.tools))
+    } catch (error) {
+      checks.push(
+        warnCheck(
+          'parser-runtime',
+          'Parser toolchain discovery is unavailable in this workspace.',
+          {
+            error: errorMessage(error),
+          },
+        ),
+      )
+    }
+
+    if (!config) {
+      return {
+        vault: paths.absoluteVaultRoot,
+        configPath: (await fileExists(paths.inboxConfigPath))
+          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath)
+          : null,
+        databasePath: databaseAvailable
+          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
+          : null,
+        target: input.sourceId ?? null,
+        ok: checks.every((check) => check.status !== 'fail'),
+        checks,
+        connectors: [],
+        parserToolchain,
+      }
+    }
+
+    if (!input.sourceId) {
+      checks.push(
+        config.connectors.length > 0
+          ? passCheck(
+              'connectors',
+              `Configured ${config.connectors.length} inbox source${config.connectors.length === 1 ? '' : 's'}.`,
+            )
+          : warnCheck(
+              'connectors',
+              'No inbox sources are configured yet.',
+            ),
+      )
+
+      return {
+        vault: paths.absoluteVaultRoot,
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+        databasePath: databaseAvailable
+          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
+          : null,
+        target: null,
+        ok: checks.every((check) => check.status !== 'fail'),
+        checks,
+        connectors: config.connectors,
+        parserToolchain,
+      }
+    }
+
+    const connector = findConnector(config, input.sourceId)
+    if (!connector) {
+      checks.push(
+        failCheck(
+          'connector',
+          `Inbox source "${input.sourceId}" is not configured.`,
+        ),
+      )
+      return {
+        vault: paths.absoluteVaultRoot,
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+        databasePath: databaseAvailable
+          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
+          : null,
+        target: input.sourceId,
+        ok: false,
+        checks,
+        connectors: config.connectors,
+        parserToolchain,
+      }
+    }
+
+    checks.push(
+      passCheck(
+        'connector',
+        `Connector "${connector.id}" is configured and ${connector.enabled ? 'enabled' : 'disabled'}.`,
+        {
+          source: connector.source,
+          accountId: connector.accountId ?? null,
+        },
+      ),
+    )
+
+    if (connector.source === 'imessage') {
+      if (getPlatform() !== 'darwin') {
+        checks.push(
+          failCheck(
+            'platform',
+            'The iMessage connector requires macOS.',
+            { platform: getPlatform() },
+          ),
+        )
+      } else {
+        checks.push(passCheck('platform', 'Running on macOS.'))
+      }
+
+      let driver: ImessageDriver | null = null
+      try {
+        driver = await loadConfiguredImessageDriver(connector)
+        checks.push(passCheck('driver-import', 'The iMessage driver imported successfully.'))
+      } catch (error) {
+        checks.push(
+          failCheck(
+            'driver-import',
+            'The iMessage driver could not be imported.',
+            { error: errorMessage(error) },
+          ),
+        )
+      }
+
+      try {
+        await access(path.join(getHomeDirectory(), IMESSAGE_MESSAGES_DB_RELATIVE_PATH))
+        checks.push(
+          passCheck(
+            'messages-db',
+            'The local Messages database is readable.',
+            {
+              path: IMESSAGE_MESSAGES_DB_RELATIVE_PATH.replace(/\\/g, '/'),
+            },
+          ),
+        )
+      } catch (error) {
+        checks.push(
+          failCheck(
+            'messages-db',
+            'The local Messages database could not be accessed.',
+            { error: errorMessage(error) },
+          ),
+        )
+      }
+
+      if (databaseAvailable) {
+        try {
+          await rebuildRuntime(paths, inboxd)
+          checks.push(
+            passCheck(
+              'rebuild',
+              'Runtime rebuild from vault envelopes completed successfully.',
+            ),
+          )
+        } catch (error) {
+          checks.push(
+            failCheck(
+              'rebuild',
+              'Runtime rebuild from vault envelopes failed.',
+              { error: errorMessage(error) },
+            ),
+          )
+        }
+      }
+
+      if (driver) {
+        try {
+          const chats = (await driver.listChats?.()) ?? []
+          const messages = await driver.getMessages({
+            limit: 1,
+            cursor: null,
+            includeOwnMessages:
+              connector.options.includeOwnMessages ?? true,
+          })
+
+          if (chats.length > 0 || messages.length > 0) {
+            checks.push(
+              passCheck(
+                'probe',
+                'The connector can list chats or fetch messages.',
+                {
+                  chats: chats.length,
+                  messages: messages.length,
+                },
+              ),
+            )
+          } else {
+            checks.push(
+              warnCheck(
+                'probe',
+                'The connector responded but returned no chats or messages.',
+              ),
+            )
+          }
+        } catch (error) {
+          checks.push(
+            failCheck(
+              'probe',
+              'The connector could not fetch chats or messages.',
+              { error: errorMessage(error) },
+            ),
+          )
+        }
+      }
+    }
+
+    return {
+      vault: paths.absoluteVaultRoot,
+      configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+      databasePath: databaseAvailable
+        ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
+        : null,
+      target: connector.id,
+      ok: checks.every((check) => check.status !== 'fail'),
+      checks,
+      connectors: config.connectors,
+      parserToolchain,
     }
   }
 
@@ -797,277 +1091,7 @@ export function createIntegratedInboxCliServices(
     },
 
     async doctor(input) {
-      const paths = resolveRuntimePaths(input.vault)
-      const inboxd = await loadInbox()
-      const checks: InboxDoctorCheck[] = []
-      let config: InboxRuntimeConfig | null = null
-      let databaseAvailable = false
-      let parserToolchain: InboxParserToolchainStatus | null = null
-
-      try {
-        await inboxd.ensureInboxVault(paths.absoluteVaultRoot)
-        checks.push(passCheck('vault', 'Vault metadata is readable.'))
-      } catch (error) {
-        checks.push(
-          failCheck('vault', 'Vault metadata could not be read.', {
-            error: errorMessage(error),
-          }),
-        )
-        return {
-          vault: paths.absoluteVaultRoot,
-          configPath: null,
-          databasePath: null,
-          target: input.sourceId ?? null,
-          ok: false,
-          checks,
-          connectors: [],
-          parserToolchain: null,
-        }
-      }
-
-      try {
-        config = await readConfig(paths)
-        checks.push(passCheck('config', 'Inbox runtime config parsed successfully.'))
-      } catch (error) {
-        checks.push(
-          failCheck('config', 'Inbox runtime config is missing or invalid.', {
-            error: errorMessage(error),
-          }),
-        )
-      }
-
-      try {
-        const runtime = await inboxd.openInboxRuntime({
-          vaultRoot: paths.absoluteVaultRoot,
-        })
-        runtime.close()
-        databaseAvailable = true
-        checks.push(passCheck('runtime-db', 'Inbox runtime SQLite opened successfully.'))
-      } catch (error) {
-        checks.push(
-          failCheck('runtime-db', 'Inbox runtime SQLite could not be opened.', {
-            error: errorMessage(error),
-          }),
-        )
-      }
-
-      try {
-        const parsers = await loadParsers()
-        const doctor = await parsers.discoverParserToolchain({
-          vaultRoot: paths.absoluteVaultRoot,
-        })
-        parserToolchain = toCliParserToolchain(paths.absoluteVaultRoot, doctor)
-        checks.push(...toParserToolChecks(doctor.tools))
-      } catch (error) {
-        checks.push(
-          warnCheck(
-            'parser-runtime',
-            'Parser toolchain discovery is unavailable in this workspace.',
-            {
-              error: errorMessage(error),
-            },
-          ),
-        )
-      }
-
-      if (!config) {
-        return {
-          vault: paths.absoluteVaultRoot,
-          configPath: (await fileExists(paths.inboxConfigPath))
-            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath)
-            : null,
-          databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
-            : null,
-          target: input.sourceId ?? null,
-          ok: checks.every((check) => check.status !== 'fail'),
-          checks,
-          connectors: [],
-          parserToolchain,
-        }
-      }
-
-      if (!input.sourceId) {
-        checks.push(
-          config.connectors.length > 0
-            ? passCheck(
-                'connectors',
-                `Configured ${config.connectors.length} inbox source${config.connectors.length === 1 ? '' : 's'}.`,
-              )
-            : warnCheck(
-                'connectors',
-                'No inbox sources are configured yet.',
-              ),
-        )
-
-        return {
-          vault: paths.absoluteVaultRoot,
-          configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
-          databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
-            : null,
-          target: null,
-          ok: checks.every((check) => check.status !== 'fail'),
-          checks,
-          connectors: config.connectors,
-          parserToolchain,
-        }
-      }
-
-      const connector = findConnector(config, input.sourceId)
-      if (!connector) {
-        checks.push(
-          failCheck(
-            'connector',
-            `Inbox source "${input.sourceId}" is not configured.`,
-          ),
-        )
-        return {
-          vault: paths.absoluteVaultRoot,
-          configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
-          databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
-            : null,
-          target: input.sourceId,
-          ok: false,
-          checks,
-          connectors: config.connectors,
-          parserToolchain,
-        }
-      }
-
-      checks.push(
-        passCheck(
-          'connector',
-          `Connector "${connector.id}" is configured and ${connector.enabled ? 'enabled' : 'disabled'}.`,
-          {
-            source: connector.source,
-            accountId: connector.accountId ?? null,
-          },
-        ),
-      )
-
-      if (connector.source === 'imessage') {
-        if (getPlatform() !== 'darwin') {
-          checks.push(
-            failCheck(
-              'platform',
-              'The iMessage connector requires macOS.',
-              { platform: getPlatform() },
-            ),
-          )
-        } else {
-          checks.push(passCheck('platform', 'Running on macOS.'))
-        }
-
-        let driver: ImessageDriver | null = null
-        try {
-          driver = await loadConfiguredImessageDriver(connector)
-          checks.push(passCheck('driver-import', 'The iMessage driver imported successfully.'))
-        } catch (error) {
-          checks.push(
-            failCheck(
-              'driver-import',
-              'The iMessage driver could not be imported.',
-              { error: errorMessage(error) },
-            ),
-          )
-        }
-
-        try {
-          await access(path.join(getHomeDirectory(), IMESSAGE_MESSAGES_DB_RELATIVE_PATH))
-          checks.push(
-            passCheck(
-              'messages-db',
-              'The local Messages database is readable.',
-              {
-                path: IMESSAGE_MESSAGES_DB_RELATIVE_PATH.replace(/\\/g, '/'),
-              },
-            ),
-          )
-        } catch (error) {
-          checks.push(
-            failCheck(
-              'messages-db',
-              'The local Messages database could not be accessed.',
-              { error: errorMessage(error) },
-            ),
-          )
-        }
-
-        if (databaseAvailable) {
-          try {
-            await rebuildRuntime(paths, inboxd)
-            checks.push(
-              passCheck(
-                'rebuild',
-                'Runtime rebuild from vault envelopes completed successfully.',
-              ),
-            )
-          } catch (error) {
-            checks.push(
-              failCheck(
-                'rebuild',
-                'Runtime rebuild from vault envelopes failed.',
-                { error: errorMessage(error) },
-              ),
-            )
-          }
-        }
-
-        if (driver) {
-          try {
-            const chats = (await driver.listChats?.()) ?? []
-            const messages = await driver.getMessages({
-              limit: 1,
-              cursor: null,
-              includeOwnMessages:
-                connector.options.includeOwnMessages ?? true,
-            })
-
-            if (chats.length > 0 || messages.length > 0) {
-              checks.push(
-                passCheck(
-                  'probe',
-                  'The connector can list chats or fetch messages.',
-                  {
-                    chats: chats.length,
-                    messages: messages.length,
-                  },
-                ),
-              )
-            } else {
-              checks.push(
-                warnCheck(
-                  'probe',
-                  'The connector responded but returned no chats or messages.',
-                ),
-              )
-            }
-          } catch (error) {
-            checks.push(
-              failCheck(
-                'probe',
-                'The connector could not fetch chats or messages.',
-                { error: errorMessage(error) },
-              ),
-            )
-          }
-        }
-      }
-
-      return {
-        vault: paths.absoluteVaultRoot,
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
-        databasePath: databaseAvailable
-          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
-          : null,
-        target: connector.id,
-        ok: checks.every((check) => check.status !== 'fail'),
-        checks,
-        connectors: config.connectors,
-        parserToolchain,
-      }
+      return buildDoctorResult(input)
     },
 
     async setup(input) {
@@ -1160,6 +1184,13 @@ export function createIntegratedInboxCliServices(
         vaultRoot: paths.absoluteVaultRoot,
         runtime,
       })
+      const parserService = input.parse
+        ? await createParserServiceContext(
+            paths.absoluteVaultRoot,
+            runtime,
+            await requireParsers('historical inbox backfill parsing'),
+          )
+        : null
 
       try {
         const connector = await instantiateConnector({
@@ -1170,6 +1201,7 @@ export function createIntegratedInboxCliServices(
         })
         let importedCount = 0
         let dedupedCount = 0
+        let parseResults: ParserRuntimeDrainResult[] = []
         const cursorAccountId = runtimeNamespaceAccountId(connectorConfig)
         let cursor = runtime.getCursor(connector.source, cursorAccountId)
 
@@ -1179,6 +1211,13 @@ export function createIntegratedInboxCliServices(
             dedupedCount += 1
           } else {
             importedCount += 1
+            if (parserService && persisted.captureId) {
+              parseResults = parseResults.concat(
+                await parserService.drain({
+                  captureId: persisted.captureId,
+                }),
+              )
+            }
           }
           cursor = buildCaptureCursor(capture)
           runtime.setCursor(
@@ -1202,6 +1241,9 @@ export function createIntegratedInboxCliServices(
           importedCount,
           dedupedCount,
           cursor: runtime.getCursor(connector.source, cursorAccountId) ?? null,
+          parse: parserService
+            ? summarizeParserDrain(paths.absoluteVaultRoot, parseResults)
+            : undefined,
         }
       } finally {
         pipeline.close()
@@ -2700,6 +2742,79 @@ function normalizeOptionalCommandLimit(
   }
 
   return value
+}
+
+async function createParserServiceContext(
+  vaultRoot: string,
+  runtime: RuntimeStore,
+  parsers: ParsersRuntimeModule,
+): Promise<InboxParserServiceRuntime> {
+  const configured = await parsers.createConfiguredParserRegistry({
+    vaultRoot,
+  })
+
+  return parsers.createInboxParserService({
+    vaultRoot,
+    runtime,
+    registry: configured.registry,
+    ffmpeg: configured.ffmpeg,
+  })
+}
+
+function summarizeParserDrain(
+  vaultRoot: string,
+  results: ParserRuntimeDrainResult[],
+): NonNullable<InboxBackfillResult['parse']> {
+  return {
+    attempted: results.length,
+    succeeded: results.filter((result) => result.status === 'succeeded').length,
+    failed: results.filter((result) => result.status === 'failed').length,
+    results: results.map((result) => ({
+      captureId: result.job.captureId,
+      attachmentId: result.job.attachmentId,
+      status: result.status,
+      providerId: result.providerId ?? null,
+      manifestPath: result.manifestPath
+        ? normalizeVaultPathOutput(vaultRoot, result.manifestPath)
+        : null,
+      errorCode: result.errorCode ?? null,
+      errorMessage: result.errorMessage ?? null,
+    })),
+  }
+}
+
+function assertBootstrapStrictReady(doctor: InboxDoctorResult): void {
+  const blockingChecks = doctor.checks.filter((check) => {
+    if (check.status === 'fail') {
+      return true
+    }
+
+    return check.name === 'parser-runtime'
+  })
+  const unavailableConfiguredTools = doctor.parserToolchain
+    ? Object.entries(doctor.parserToolchain.tools).flatMap(([name, tool]) =>
+        tool.source === 'config' && !tool.available
+          ? [`${name}: ${tool.reason}`]
+          : [],
+      )
+    : ['parser toolchain discovery did not return structured tool status']
+
+  if (blockingChecks.length === 0 && unavailableConfiguredTools.length === 0) {
+    return
+  }
+
+  throw new VaultCliError(
+    'INBOX_BOOTSTRAP_STRICT_FAILED',
+    'Inbox bootstrap strict readiness checks failed.',
+    {
+      blockingChecks: blockingChecks.map((check) => ({
+        name: check.name,
+        status: check.status,
+        message: check.message,
+      })),
+      unavailableConfiguredTools,
+    },
+  )
 }
 
 function toCliParserToolchain(

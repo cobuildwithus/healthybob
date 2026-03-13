@@ -1,14 +1,22 @@
 import { Cli, z } from 'incur'
 import { requestIdFromOptions, withBaseOptions } from '../command-helpers.js'
 import {
+  isoTimestampSchema,
   listResultSchema,
   localDateSchema,
   pathSchema,
   showResultSchema,
 } from '../vault-cli-contracts.js'
+import { loadRuntimeModule } from '../runtime-import.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
+import {
+  rawImportManifestSchema,
+  showAssessmentManifest,
+  showAssessmentRaw,
+} from './export-intake-read-helpers.js'
 
 const payloadSchema = z.record(z.string(), z.unknown())
+const intakeSourceSchema = z.enum(['import', 'manual', 'derived'])
 
 const intakeImportResultSchema = z.object({
   vault: pathSchema,
@@ -26,14 +34,49 @@ const intakeProjectResultSchema = z.object({
   proposal: payloadSchema,
 })
 
-interface IntakeServices extends VaultCliServices {
-  importers: VaultCliServices['importers'] & {
+const intakeManifestResultSchema = z.object({
+  vault: pathSchema,
+  entityId: z.string().min(1),
+  lookupId: z.string().min(1),
+  kind: z.literal('assessment'),
+  manifestFile: pathSchema,
+  manifest: rawImportManifestSchema,
+})
+
+const intakeRawResultSchema = z.object({
+  vault: pathSchema,
+  entityId: z.string().min(1),
+  lookupId: z.string().min(1),
+  kind: z.literal('assessment'),
+  rawFile: pathSchema,
+  mediaType: z.literal('application/json'),
+  raw: z.unknown(),
+})
+
+interface ImportersRuntimeModule {
+  createImporters(): {
     importAssessmentResponse(input: {
-      file: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof intakeImportResultSchema>>
+      filePath: string
+      vaultRoot: string
+      title?: string
+      occurredAt?: string
+      importedAt?: string
+      source?: string
+      requestId?: string | null
+    }): Promise<{
+      assessment: {
+        id: string
+      }
+      manifestPath: string
+      raw: {
+        relativePath: string
+      }
+      ledgerPath: string
+    }>
   }
+}
+
+interface IntakeServices extends VaultCliServices {
   core: VaultCliServices['core'] & {
     projectAssessment(input: {
       assessmentId: string
@@ -41,6 +84,10 @@ interface IntakeServices extends VaultCliServices {
       requestId: string | null
     }): Promise<z.infer<typeof intakeProjectResultSchema>>
   }
+}
+
+async function loadImportersRuntime() {
+  return loadRuntimeModule<ImportersRuntimeModule>('@healthybob/importers')
 }
 
 export function registerIntakeCommands(cli: Cli.Cli, services: VaultCliServices) {
@@ -56,14 +103,44 @@ export function registerIntakeCommands(cli: Cli.Cli, services: VaultCliServices)
       args: z.object({
         file: pathSchema.describe('Path to the assessment response JSON file.'),
       }),
-      options: withBaseOptions(),
+      options: withBaseOptions({
+        title: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Optional assessment title stored on the imported record.'),
+        occurredAt: isoTimestampSchema
+          .optional()
+          .describe('Optional occurrence timestamp in ISO 8601 form.'),
+        importedAt: isoTimestampSchema
+          .optional()
+          .describe('Optional import timestamp in ISO 8601 form.'),
+        source: intakeSourceSchema
+          .optional()
+          .describe('Optional source label (`import`, `manual`, or `derived`).'),
+      }),
       output: intakeImportResultSchema,
       async run({ args, options }) {
-        return healthServices.importers.importAssessmentResponse({
-          file: args.file,
-          vault: options.vault,
+        const importers = (await loadImportersRuntime()).createImporters()
+        const result = await importers.importAssessmentResponse({
+          filePath: args.file,
+          vaultRoot: options.vault,
+          title: options.title,
+          occurredAt: options.occurredAt,
+          importedAt: options.importedAt,
+          source: options.source,
           requestId: requestIdFromOptions(options),
         })
+
+        return {
+          vault: options.vault,
+          sourceFile: args.file,
+          rawFile: result.raw.relativePath,
+          manifestFile: result.manifestPath,
+          assessmentId: result.assessment.id,
+          lookupId: result.assessment.id,
+          ledgerFile: result.ledgerPath,
+        }
       },
     },
   )
@@ -113,6 +190,36 @@ export function registerIntakeCommands(cli: Cli.Cli, services: VaultCliServices)
       },
     },
   )
+
+  intake.command('manifest', {
+    description: 'Show the immutable raw import manifest for one assessment.',
+    args: z.object({
+      assessmentId: z
+        .string()
+        .min(1)
+        .describe('Assessment response id to inspect.'),
+    }),
+    options: withBaseOptions(),
+    output: intakeManifestResultSchema,
+    async run({ args, options }) {
+      return showAssessmentManifest(options.vault, args.assessmentId)
+    },
+  })
+
+  intake.command('raw', {
+    description: 'Show the immutable raw assessment payload captured during intake import.',
+    args: z.object({
+      assessmentId: z
+        .string()
+        .min(1)
+        .describe('Assessment response id to inspect.'),
+    }),
+    options: withBaseOptions(),
+    output: intakeRawResultSchema,
+    async run({ args, options }) {
+      return showAssessmentRaw(options.vault, args.assessmentId)
+    },
+  })
 
   intake.command(
     'project',

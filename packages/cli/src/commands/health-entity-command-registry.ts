@@ -84,6 +84,7 @@ function buildCrudGroupConfig(
     descriptions: descriptor.command.descriptions,
     examples: descriptor.command.examples,
     hints: descriptor.command.hints,
+    listMode: descriptor.query.genericListMode,
     listStatusDescription: descriptor.command.listStatusDescription,
     noun: descriptor.command.noun,
     outputs: {

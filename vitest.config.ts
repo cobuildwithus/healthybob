@@ -21,6 +21,7 @@ export default defineConfig({
       "packages/core/test/profile.test.ts",
       "packages/core/test/health-history-family.test.ts",
       "packages/importers/test/importers.test.ts",
+      "packages/importers/test/input-validation.test.ts",
       "packages/inboxd/test/connectors-daemon.test.ts",
       "packages/inboxd/test/idempotency-rebuild.test.ts",
       "packages/inboxd/test/inboxd.test.ts",

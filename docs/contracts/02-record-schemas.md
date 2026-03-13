@@ -44,7 +44,7 @@ Derived export-pack directories use a path-safe pack name and are not canonical 
 - Profile snapshot records:
   `schemaVersion`, `id`, `recordedAt`, `sourceAssessmentIds`, `sourceEventIds`, `profile`
 - Markdown frontmatter:
-  `CORE.md`, journal day pages, and experiment pages each use a closed frontmatter schema
+  `CORE.md`, journal day pages, experiment pages, provider pages, and health registry pages each use a closed frontmatter schema
 
 Baseline does not define a standalone transform record family. `xfm_*` ids are batch identifiers surfaced by import flows and raw-path layout only.
 
@@ -90,6 +90,8 @@ Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `r
   `schemaVersion`, `docType`, `dayKey`, `eventIds`, `sampleStreams`
 - Experiment frontmatter:
   `schemaVersion`, `docType`, `experimentId`, `slug`, `status`, `title`, `startedOn`
+- Provider frontmatter:
+  `schemaVersion`, `docType`, `providerId`, `slug`, `title`, `status`, `specialty`, `organization`
 - Profile current frontmatter:
   `schemaVersion`, `docType`, `snapshotId`, `updatedAt`
 - Goal frontmatter:
@@ -116,6 +118,7 @@ Health artifact filenames are reserved here. They do not become valid generated 
 - `frontmatter-core.schema.json`
 - `frontmatter-journal-day.schema.json`
 - `frontmatter-experiment.schema.json`
+- `frontmatter-provider.schema.json`
 - `assessment-response.schema.json`
 - `profile-snapshot.schema.json`
 - `frontmatter-profile-current.schema.json`

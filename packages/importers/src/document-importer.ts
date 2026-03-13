@@ -1,10 +1,13 @@
+import { z } from "zod";
+
 import { assertCanonicalWritePort } from "./core-port.js";
 import type { DocumentImportPayload } from "./core-port.js";
 import {
-  assertPlainObject,
   inspectFileAsset,
-  normalizeOptionalString,
-  normalizeTimestamp,
+  optionalTimestampSchema,
+  optionalTrimmedStringSchema,
+  parseInputObject,
+  requiredTrimmedStringSchema,
   stripUndefined,
 } from "./shared.js";
 
@@ -22,17 +25,33 @@ export interface ImporterExecutionOptions {
   corePort?: unknown;
 }
 
+const documentImportInputSchema = z
+  .object({
+    filePath: requiredTrimmedStringSchema("filePath"),
+    vaultRoot: optionalTrimmedStringSchema("vaultRoot"),
+    vault: optionalTrimmedStringSchema("vault"),
+    title: optionalTrimmedStringSchema("title"),
+    occurredAt: optionalTimestampSchema("occurredAt"),
+    note: optionalTrimmedStringSchema("note"),
+    source: optionalTrimmedStringSchema("source"),
+  })
+  .passthrough();
+
 export async function prepareDocumentImport(input: unknown): Promise<DocumentImportPayload> {
-  const request = assertPlainObject(input, "document import input");
+  const request = parseInputObject(
+    input,
+    "document import input",
+    documentImportInputSchema,
+  );
   const rawArtifact = await inspectFileAsset(request.filePath);
 
   return stripUndefined({
-    vaultRoot: normalizeOptionalString(request.vaultRoot ?? request.vault, "vaultRoot"),
+    vaultRoot: request.vaultRoot ?? request.vault,
     sourcePath: rawArtifact.sourcePath,
-    title: normalizeOptionalString(request.title, "title") ?? rawArtifact.fileName,
-    occurredAt: normalizeTimestamp(request.occurredAt, "occurredAt"),
-    note: normalizeOptionalString(request.note, "note"),
-    source: normalizeOptionalString(request.source, "source"),
+    title: request.title ?? rawArtifact.fileName,
+    occurredAt: request.occurredAt,
+    note: request.note,
+    source: request.source,
   });
 }
 
