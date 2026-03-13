@@ -118,10 +118,27 @@ const DEFAULT_LIST_RECORD_TYPES: VaultRecordType[] = [
 ];
 
 export async function readVault(vaultRoot: string): Promise<VaultReadModel> {
+  return readVaultWithHealthMode(vaultRoot, "strict-async");
+}
+
+export async function readVaultTolerant(
+  vaultRoot: string,
+): Promise<VaultReadModel> {
+  return readVaultWithHealthMode(vaultRoot, "tolerant-async");
+}
+
+async function readVaultWithHealthMode(
+  vaultRoot: string,
+  healthMode: "strict-async" | "tolerant-async",
+): Promise<VaultReadModel> {
   const metadata = await readOptionalJson(path.join(vaultRoot, "vault.json"));
+  const healthEntitiesPromise =
+    healthMode === "strict-async"
+      ? collectCanonicalEntities(vaultRoot, { mode: "strict-async" })
+      : collectCanonicalEntities(vaultRoot, { mode: "tolerant-async" });
   const [baseEntities, healthEntities] = await Promise.all([
     readBaseEntities(vaultRoot, metadata),
-    collectCanonicalEntities(vaultRoot, { mode: "tolerant-async" }),
+    healthEntitiesPromise,
   ]);
   const entities = [...baseEntities, ...healthEntities.entities]
     .sort(compareCanonicalEntities);

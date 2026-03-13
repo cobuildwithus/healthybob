@@ -334,6 +334,7 @@ interface QueryEntity {
 
 interface QueryRuntimeModule extends HealthQueryRuntimeMethods {
   readVault(vaultRoot: string): Promise<unknown>
+  readVaultTolerant(vaultRoot: string): Promise<unknown>
   lookupEntityById(readModel: unknown, entityId: string): QueryEntity | null
   listEntities(
     readModel: unknown,
@@ -1266,7 +1267,7 @@ function createIntegratedQueryServices(): QueryServices {
     }) {
       const { vault, from, to, experiment, out } = input
       const { query } = await loadIntegratedRuntime()
-      const readModel = await query.readVault(vault)
+      const readModel = await query.readVaultTolerant(vault)
       const pack = query.buildExportPack(readModel, {
         from,
         to,

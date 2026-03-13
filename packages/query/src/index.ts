@@ -9,6 +9,7 @@ export {
   lookupEntityById,
   lookupRecordById,
   readVault,
+  readVaultTolerant,
 } from "./model.js";
 export type { CanonicalEntity, CanonicalEntityFamily } from "./canonical-entities.js";
 export {
