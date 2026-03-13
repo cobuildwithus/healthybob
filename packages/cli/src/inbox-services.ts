@@ -169,6 +169,7 @@ interface RuntimeStore {
 }
 
 interface PersistedCapture {
+  captureId?: string
   deduped: boolean
 }
 
@@ -423,6 +424,7 @@ interface SetupInput extends CommandContext {
 
 interface BootstrapInput extends SetupInput {
   rebuild?: boolean
+  strict?: boolean
 }
 
 interface ParseInput extends CommandContext {
@@ -439,6 +441,7 @@ interface RequeueInput extends CommandContext {
 interface BackfillInput extends CommandContext {
   sourceId: string
   limit?: number
+  parse?: boolean
 }
 
 interface ListInput extends CommandContext {
