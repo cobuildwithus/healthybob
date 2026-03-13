@@ -21,12 +21,27 @@ export interface SampleImportRecord {
   value: number;
 }
 
+export interface SampleImportRowProvenance {
+  rowNumber: number;
+  recordedAt: string;
+  value: number;
+  rawRecordedAt: string;
+  rawValue: string;
+  metadata?: Record<string, string>;
+}
+
 export interface SampleImportConfig {
   presetId?: string;
   delimiter: string;
   tsColumn: string;
   valueColumn: string;
   metadataColumns?: string[];
+}
+
+export interface SampleImportBatchProvenance {
+  sourceFileName?: string;
+  importConfig?: SampleImportConfig;
+  rows?: SampleImportRowProvenance[];
 }
 
 export interface SampleImportPayload {
@@ -37,6 +52,7 @@ export interface SampleImportPayload {
   sourcePath: string;
   importConfig: SampleImportConfig;
   samples: SampleImportRecord[];
+  batchProvenance?: SampleImportBatchProvenance;
 }
 
 export interface CanonicalWritePort {

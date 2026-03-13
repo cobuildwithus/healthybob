@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
+import * as coreRuntime from "../../core/src/index.js";
 import type {
   DocumentImportPayload,
   MealImportPayload,
@@ -160,6 +161,14 @@ test("importCsvSamples parses rows and emits recordedAt values for core", async 
   assert.equal(samplePayload.sourcePath, filePath);
   assert.equal(samplePayload.samples.length, 2);
   assert.equal(samplePayload.samples[1]?.recordedAt, "2026-03-11T08:05:00.000Z");
+  assert.equal(samplePayload.batchProvenance?.sourceFileName, "heart-rate.csv");
+  assert.equal(samplePayload.batchProvenance?.importConfig?.metadataColumns?.length, 2);
+  assert.deepEqual(samplePayload.batchProvenance?.rows?.[0]?.metadata, {
+    device: "watch",
+    context: "resting",
+  });
+  assert.equal(samplePayload.batchProvenance?.rows?.[1]?.rowNumber, 3);
+  assert.equal(samplePayload.batchProvenance?.rows?.[1]?.rawValue, "75");
 });
 
 test("createSamplePresetRegistry rejects duplicate preset ids", () => {
@@ -372,6 +381,11 @@ test("prepareCsvSampleImport skips blank rows and omits empty metadata columns",
   assert.equal(payload.vaultRoot, "/tmp/example-vault");
   assert.equal(payload.importConfig.metadataColumns, undefined);
   assert.equal(payload.samples.length, 2);
+  assert.equal(payload.batchProvenance?.sourceFileName, "glucose.csv");
+  assert.equal(payload.batchProvenance?.importConfig?.valueColumn, "value");
+  assert.equal(payload.batchProvenance?.rows?.length, 2);
+  assert.equal(payload.batchProvenance?.rows?.[0]?.rowNumber, 3);
+  assert.equal(payload.batchProvenance?.rows?.[0]?.metadata, undefined);
   assert.equal(payload.samples[0]?.recordedAt, "2026-03-11T08:00:00.000Z");
   assert.equal(payload.samples[1]?.value, 95);
 });
@@ -402,4 +416,108 @@ test("parseDelimitedRows rejects malformed delimiters and unterminated quoted fi
     () => parseDelimitedRows('a,b\n1,"two\n', ","),
     /unterminated quoted field/,
   );
+});
+
+test("importDocument with the real core runtime writes an immutable raw manifest sidecar", async () => {
+  const vaultRoot = await mkdtemp(join(tmpdir(), "healthybob-vault-"));
+  const filePath = await createTempFile("labs.pdf", "pdf-placeholder");
+
+  await coreRuntime.initializeVault({ vaultRoot });
+
+  const result = await importDocument<{
+    documentId: string;
+    raw: {
+      relativePath: string;
+    };
+    manifestPath: string;
+  }>(
+    {
+      filePath,
+      vaultRoot,
+      note: "baseline import",
+    },
+    { corePort: coreRuntime },
+  );
+
+  assert.match(result.manifestPath, /^raw\/documents\/.+\/manifest\.json$/u);
+
+  const manifest = JSON.parse(
+    await readFile(join(vaultRoot, result.manifestPath), "utf8"),
+  ) as {
+    importKind: string;
+    importId: string;
+    artifacts: Array<{
+      relativePath: string;
+      sha256: string;
+    }>;
+  };
+
+  assert.equal(manifest.importKind, "document");
+  assert.equal(manifest.importId, result.documentId);
+  assert.equal(manifest.artifacts[0]?.relativePath, result.raw.relativePath);
+  assert.match(String(manifest.artifacts[0]?.sha256), /^[a-f0-9]{64}$/u);
+});
+
+test("importCsvSamples with the real core runtime writes a batch manifest with row provenance", async () => {
+  const vaultRoot = await mkdtemp(join(tmpdir(), "healthybob-vault-"));
+  const filePath = await createTempFile(
+    "heart-rate.csv",
+    [
+      "timestamp,bpm,device,context",
+      "2026-03-11T08:00:00Z,72,watch,resting",
+      "2026-03-11T08:05:00Z,75,watch,walk",
+    ].join("\n"),
+  );
+
+  await coreRuntime.initializeVault({ vaultRoot });
+
+  const result = await importCsvSamples<{
+    count: number;
+    manifestPath: string;
+  }>(
+    {
+      filePath,
+      vaultRoot,
+      stream: "heart_rate",
+      tsColumn: "timestamp",
+      valueColumn: "bpm",
+      unit: "bpm",
+      delimiter: ",",
+      metadataColumns: ["device", "context"],
+    },
+    { corePort: coreRuntime },
+  );
+
+  assert.equal(result.count, 2);
+  assert.match(result.manifestPath, /^raw\/samples\/heart-rate\/.+\/manifest\.json$/u);
+
+  const manifest = JSON.parse(
+    await readFile(join(vaultRoot, result.manifestPath), "utf8"),
+  ) as {
+    importKind: string;
+    provenance: {
+      importedCount: number;
+      rowCount: number;
+      importConfig: {
+        metadataColumns?: string[];
+      };
+      rows: Array<{
+        rowNumber: number;
+        metadata?: Record<string, string>;
+      }>;
+    };
+  };
+
+  assert.equal(manifest.importKind, "sample_batch");
+  assert.equal(manifest.provenance.importedCount, 2);
+  assert.equal(manifest.provenance.rowCount, 2);
+  assert.deepEqual(manifest.provenance.importConfig.metadataColumns, [
+    "device",
+    "context",
+  ]);
+  assert.equal(manifest.provenance.rows[0]?.rowNumber, 2);
+  assert.deepEqual(manifest.provenance.rows[0]?.metadata, {
+    device: "watch",
+    context: "resting",
+  });
 });

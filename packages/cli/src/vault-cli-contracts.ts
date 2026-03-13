@@ -59,6 +59,7 @@ export const documentImportResultSchema = z.object({
   vault: pathSchema,
   sourceFile: pathSchema,
   rawFile: pathSchema,
+  manifestFile: pathSchema,
   documentId: z.string().min(1),
   eventId: z.string().min(1),
   lookupId: z.string().min(1),
@@ -72,6 +73,7 @@ export const mealAddResultSchema = z.object({
   occurredAt: isoTimestampSchema.nullable(),
   photoPath: pathSchema,
   audioPath: pathSchema.nullable(),
+  manifestFile: pathSchema,
   note: z.string().nullable(),
 })
 
@@ -81,6 +83,7 @@ export const samplesImportCsvResultSchema = z.object({
   stream: z.string().min(1),
   importedCount: z.number().int().nonnegative(),
   transformId: z.string().min(1),
+  manifestFile: pathSchema,
   lookupIds: z.array(z.string().min(1)).min(1),
   ledgerFiles: z.array(pathSchema).min(1),
 })

@@ -152,6 +152,7 @@ test.sequential(
         documentId: string
         lookupId: string
         rawFile: string
+        manifestFile: string
       }>([
         'document',
         'import',
@@ -164,10 +165,30 @@ test.sequential(
       assert.match(requireData(document).documentId, /^doc_/u)
       assert.match(requireData(document).lookupId, /^evt_/u)
       assert.equal(requireData(document).rawFile.length > 0, true)
+      assert.equal(requireData(document).manifestFile.length > 0, true)
+      await access(path.join(fixture.vaultRoot, requireData(document).manifestFile))
+
+      const meal = await runCli<{
+        mealId: string
+        manifestFile: string
+      }>([
+        'meal',
+        'add',
+        '--photo',
+        sampleDocumentPath,
+        '--vault',
+        fixture.vaultRoot,
+      ])
+      assert.equal(meal.ok, true)
+      assert.equal(meal.meta?.command, 'meal add')
+      assert.match(requireData(meal).mealId, /^meal_/u)
+      assert.equal(requireData(meal).manifestFile.length > 0, true)
+      await access(path.join(fixture.vaultRoot, requireData(meal).manifestFile))
 
       const samples = await runCli<{
         lookupIds: string[]
         ledgerFiles: string[]
+        manifestFile: string
       }>([
         'samples',
         'import-csv',
@@ -187,6 +208,8 @@ test.sequential(
       assert.equal(samples.meta?.command, 'samples import-csv')
       assert.equal(requireData(samples).lookupIds.length, 2)
       assert.equal(requireData(samples).ledgerFiles.length > 0, true)
+      assert.equal(requireData(samples).manifestFile.length > 0, true)
+      await access(path.join(fixture.vaultRoot, requireData(samples).manifestFile))
     } finally {
       await rm(fixture.vaultRoot, { recursive: true, force: true })
     }

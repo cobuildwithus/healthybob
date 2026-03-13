@@ -1,5 +1,9 @@
 import { assertCanonicalWritePort } from "./core-port.js";
-import type { SampleImportPayload, SampleImportRecord } from "./core-port.js";
+import type {
+  SampleImportPayload,
+  SampleImportRecord,
+  SampleImportRowProvenance,
+} from "./core-port.js";
 import type { SamplePresetRegistry } from "./preset-registry.js";
 import { resolveSampleImportConfig } from "./preset-registry.js";
 import {
@@ -10,6 +14,7 @@ import {
   normalizeRequiredString,
   normalizeTimestamp,
   readUtf8File,
+  stripEmptyObject,
   stripUndefined,
 } from "./shared.js";
 
@@ -62,12 +67,14 @@ export async function prepareCsvSampleImport(
   const metadataColumns = config.metadataColumns;
   const tsIndex = requireColumn(columnIndex, tsColumn);
   const valueIndex = requireColumn(columnIndex, valueColumn);
+  const metadataColumnIndexes = new Map<string, number>();
 
   for (const column of metadataColumns) {
-    requireColumn(columnIndex, column);
+    metadataColumnIndexes.set(column, requireColumn(columnIndex, column));
   }
 
   const samples: SampleImportRecord[] = [];
+  const batchRows: SampleImportRowProvenance[] = [];
 
   for (let index = 1; index < rows.length; index += 1) {
     const row = rows[index];
@@ -77,10 +84,28 @@ export async function prepareCsvSampleImport(
     }
 
     const sourceRow = index + 1;
+    const recordedAt = normalizeTimestamp(row[tsIndex], `row ${sourceRow} ${tsColumn}`)!;
+    const value = normalizeNumber(row[valueIndex], `row ${sourceRow} ${valueColumn}`);
+    const metadata = Object.fromEntries(
+      metadataColumns
+        .map((column) => [column, row[metadataColumnIndexes.get(column) ?? -1]?.trim() ?? ""] as const)
+        .filter(([, entry]) => entry.length > 0),
+    );
+
     samples.push({
-      recordedAt: normalizeTimestamp(row[tsIndex], `row ${sourceRow} ${tsColumn}`)!,
-      value: normalizeNumber(row[valueIndex], `row ${sourceRow} ${valueColumn}`),
+      recordedAt,
+      value,
     });
+    batchRows.push(
+      stripUndefined({
+        rowNumber: sourceRow,
+        recordedAt,
+        value,
+        rawRecordedAt: String(row[tsIndex] ?? ""),
+        rawValue: String(row[valueIndex] ?? ""),
+        metadata: stripEmptyObject(metadata),
+      }),
+    );
   }
 
   if (samples.length === 0) {
@@ -101,6 +126,17 @@ export async function prepareCsvSampleImport(
       metadataColumns: metadataColumns.length === 0 ? undefined : metadataColumns,
     },
     samples,
+    batchProvenance: {
+      sourceFileName: rawArtifact.fileName,
+      importConfig: {
+        presetId: config.presetId,
+        delimiter,
+        tsColumn,
+        valueColumn,
+        metadataColumns: metadataColumns.length === 0 ? undefined : metadataColumns,
+      },
+      rows: batchRows,
+    },
   });
 }
 

@@ -14,11 +14,13 @@ export {
   assertCanonicalWritePort,
   type CanonicalWriteMethod,
   type CanonicalWritePort,
+  type SampleImportBatchProvenance,
   type DocumentImportPayload,
   type MealImportPayload,
   type SampleImportConfig,
   type SampleImportPayload,
   type SampleImportRecord,
+  type SampleImportRowProvenance,
 } from "./core-port.js";
 export { createImporters } from "./create-importers.js";
 export { importDocument, prepareDocumentImport } from "./document-importer.js";

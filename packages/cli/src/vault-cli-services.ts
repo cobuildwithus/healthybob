@@ -84,6 +84,7 @@ interface AssessmentImportResult {
   vault: string
   sourceFile: string
   rawFile: string
+  manifestFile: string
   assessmentId: string
   lookupId: string
   ledgerFile?: string
@@ -290,7 +291,9 @@ interface CoreRuntimeModule {
     event: {
       id: string
       occurredAt?: string | null
+      note?: string | null
     }
+    manifestPath: string
     photo: {
       relativePath: string
     }
@@ -404,6 +407,7 @@ interface ImportersRuntimeModule {
       raw: {
         relativePath: string
       }
+      manifestPath: string
       documentId: string
       event: {
         id: string
@@ -422,6 +426,7 @@ interface ImportersRuntimeModule {
         id: string
       }>
       transformId: string
+      manifestPath: string
       shardPaths: string[]
     }>
     importAssessmentResponse(input: {
@@ -431,6 +436,7 @@ interface ImportersRuntimeModule {
       assessment: {
         id: string
       }
+      manifestPath: string
       raw: {
         relativePath: string
       }
@@ -1054,7 +1060,8 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           occurredAt: result.event.occurredAt ?? null,
           photoPath: result.photo.relativePath,
           audioPath: result.audio?.relativePath ?? null,
-          note: note ?? null,
+          manifestFile: result.manifestPath,
+          note: result.event.note ?? note ?? null,
         }
       },
       async createExperiment(input) {
@@ -1367,6 +1374,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           vault,
           sourceFile: file,
           rawFile: result.raw.relativePath,
+          manifestFile: result.manifestPath,
           documentId: result.documentId,
           eventId: result.event.id,
           lookupId: result.event.id,
@@ -1390,6 +1398,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           stream,
           importedCount: result.count,
           transformId: result.transformId,
+          manifestFile: result.manifestPath,
           lookupIds: result.records.map((record) => record.id),
           ledgerFiles: result.shardPaths,
         }
@@ -1406,6 +1415,7 @@ export function createIntegratedVaultCliServices(): VaultCliServices {
           vault,
           sourceFile: file,
           rawFile: result.raw.relativePath,
+          manifestFile: result.manifestPath,
           assessmentId: result.assessment.id,
           lookupId: result.assessment.id,
           ledgerFile: result.ledgerPath,

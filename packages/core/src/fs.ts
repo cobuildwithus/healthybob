@@ -199,6 +199,39 @@ export async function copyImmutableFileIntoVaultRaw(
   return resolved.relativePath;
 }
 
+export async function writeImmutableJsonFileIntoVaultRaw(
+  vaultRoot: string,
+  relativePath: string,
+  value: unknown,
+): Promise<string> {
+  const resolved = resolveVaultPath(vaultRoot, relativePath);
+
+  if (!isRawRelativePath(resolved.relativePath)) {
+    throw new VaultError("VAULT_RAW_PATH_REQUIRED", "Raw writes must target the raw/ tree.", {
+      relativePath: resolved.relativePath,
+    });
+  }
+
+  await ensureDirectory(path.dirname(resolved.absolutePath));
+
+  try {
+    await fs.writeFile(resolved.absolutePath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "EEXIST") {
+      throw new VaultError("VAULT_RAW_IMMUTABLE", "Raw target already exists and may not be overwritten.", {
+        relativePath: resolved.relativePath,
+      });
+    }
+
+    throw error;
+  }
+
+  return resolved.relativePath;
+}
+
 export async function walkVaultFiles(
   vaultRoot: string,
   relativeDirectory: string,

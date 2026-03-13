@@ -14,6 +14,7 @@ const intakeImportResultSchema = z.object({
   vault: pathSchema,
   sourceFile: pathSchema,
   rawFile: pathSchema,
+  manifestFile: pathSchema,
   assessmentId: z.string().min(1),
   lookupId: z.string().min(1),
   ledgerFile: pathSchema.optional(),

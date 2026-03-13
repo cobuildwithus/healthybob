@@ -54,7 +54,7 @@ Every CLI command follows the same shape:
 2. Root middleware normalizes `vault`, `format`, and optional `requestId`.
 3. The handler delegates exactly one boundary call into `core`, `importers`, or `query`.
 4. Write commands copy any raw artifacts first, then create or update canonical Markdown/JSONL state through `core`.
-5. Results are returned in a stable success or failure envelope.
+5. For `--format json`, successful commands return the command-specific payload directly and failures return a direct error object.
 
 Shared options:
 
@@ -62,30 +62,22 @@ Shared options:
 - `--format json|md` controls whether the response includes a human-oriented markdown rendering. JSON is the canonical machine format.
 - `--request-id <id>` is optional and reserved for correlation/audit flows.
 
-Success envelope shape:
+Success payload shape:
 
 ```json
 {
-  "command": "show",
-  "ok": true,
-  "format": "json",
-  "requestId": null,
-  "data": {}
+  "vault": "<path>",
+  "entity": {}
 }
 ```
 
-Failure envelope shape:
+Failure payload shape:
 
 ```json
 {
-  "command": "document import",
-  "ok": false,
-  "format": "json",
-  "requestId": null,
-  "error": {
-    "code": "command_failed",
-    "message": "Document import failed."
-  }
+  "code": "command_failed",
+  "message": "Document import failed.",
+  "retryable": false
 }
 ```
 
@@ -108,9 +100,13 @@ vault/
   bank/family/<slug>.md
   bank/genetics/<slug>.md
   raw/documents/YYYY/MM/<documentId>/<filename>
+  raw/documents/YYYY/MM/<documentId>/manifest.json
   raw/assessments/YYYY/MM/<assessmentId>/source.json
+  raw/assessments/YYYY/MM/<assessmentId>/manifest.json
   raw/meals/YYYY/MM/<mealId>/<slot>-<filename>
+  raw/meals/YYYY/MM/<mealId>/manifest.json
   raw/samples/<stream>/YYYY/MM/<transformId>/<filename>.csv
+  raw/samples/<stream>/YYYY/MM/<transformId>/manifest.json
   ledger/assessments/YYYY/YYYY-MM.jsonl
   ledger/events/YYYY/YYYY-MM.jsonl
   ledger/profile-snapshots/YYYY/YYYY-MM.jsonl
@@ -123,9 +119,17 @@ Important storage rules:
 
 - stored paths are always relative to the vault root
 - raw imports are immutable once written
+- each raw import directory gets an immutable `manifest.json` sidecar with checksums and import provenance
 - JSONL ledgers are append-only
 - `bank/profile/current.md` is derived from profile snapshots
 - export packs are derived outputs, not canonical records
+
+Schema version policy:
+
+- every canonical record family and raw-manifest sidecar carries an explicit `schemaVersion`
+- existing version strings are immutable once published
+- new versions must be additive at the vault level: introduce a new version string, keep old data readable, and document the compatibility rule before emitting the new version in writes
+- migration logic belongs in `packages/core`; query and CLI code may validate or branch on versions but must not silently rewrite stored records during reads
 
 Canonical ids use one policy: `<prefix>_<ULID>`. Examples include `vault_*`, `evt_*`, `smp_*`, `aud_*`, `asmt_*`, `psnap_*`, `goal_*`, `cond_*`, `alg_*`, `reg_*`, `fam_*`, and `var_*`.
 
@@ -147,9 +151,9 @@ Canonical ids use one policy: `<prefix>_<ULID>`. Examples include `vault_*`, `ev
 | --- | --- |
 | `vault-cli init` | Bootstraps a new vault with `vault.json`, `CORE.md`, directory structure, and an audit entry. |
 | `vault-cli validate` | Validates vault metadata, frontmatter, and contract-shaped records. |
-| `vault-cli document import <file>` | Copies a source document into `raw/documents/...` and appends a document event. |
-| `vault-cli meal add` | Copies meal attachments into `raw/meals/...` and appends a meal event. |
-| `vault-cli samples import-csv <file>` | Copies a CSV into `raw/samples/...` and appends sample records into sharded sample ledgers. |
+| `vault-cli document import <file>` | Copies a source document into `raw/documents/...`, writes an immutable raw manifest, and appends a document event. |
+| `vault-cli meal add` | Copies meal attachments into `raw/meals/...`, writes an immutable raw manifest, and appends a meal event. |
+| `vault-cli samples import-csv <file>` | Copies a CSV into `raw/samples/...`, writes an immutable batch manifest, and appends sample records into sharded sample ledgers. |
 | `vault-cli experiment create <slug>` | Creates or reuses an experiment page under `bank/experiments`. |
 | `vault-cli journal ensure <date>` | Creates a journal page for a date if missing. |
 | `vault-cli show <id>` | Resolves one queryable record or document view. |
@@ -201,17 +205,17 @@ The main write flows map cleanly onto the vault:
 - `init`
   creates `vault.json`, `CORE.md`, required directories, and a `vault_init` audit record
 - `document import`
-  copies a source file into `raw/documents/...`, appends an `event` record with `kind: "document"`, and appends an audit record
+  copies a source file into `raw/documents/...`, writes an immutable raw manifest with checksum/provenance, appends an `event` record with `kind: "document"`, and appends an audit record
 - `meal add`
-  copies photo/audio attachments into `raw/meals/...`, appends a `kind: "meal"` event, and appends an audit record
+  copies photo/audio attachments into `raw/meals/...`, writes an immutable raw manifest with checksums/provenance, appends a `kind: "meal"` event, and appends an audit record
 - `samples import-csv`
-  copies the CSV into `raw/samples/...`, returns an `xfm_*` batch id, and appends `smp_*` records to stream-specific sample ledgers
+  copies the CSV into `raw/samples/...`, writes an immutable batch manifest with checksum/import config/row provenance, returns an `xfm_*` batch id, and appends `smp_*` records to stream-specific sample ledgers
 - `experiment create`
   creates `bank/experiments/<slug>.md` and is idempotent when the page already exists with the same baseline attributes
 - `journal ensure`
   creates `journal/YYYY/YYYY-MM-DD.md` if missing and returns a stable `journal:<date>` lookup id
 - `intake import`
-  copies an assessment payload into `raw/assessments/...`, appends an `asmt_*` assessment record, and returns a queryable lookup id
+  copies an assessment payload into `raw/assessments/...`, writes an immutable raw manifest with checksum/provenance, appends an `asmt_*` assessment record, and returns a queryable lookup id
 - `profile upsert`
   appends a `psnap_*` profile snapshot and can feed `profile current rebuild`
 

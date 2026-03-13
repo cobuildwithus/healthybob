@@ -161,6 +161,7 @@ The examples below are the full successful `--format json` response bodies.
   "vault": "<path>",
   "sourceFile": "<path>",
   "rawFile": "<path>",
+  "manifestFile": "<path>",
   "documentId": "doc_123",
   "eventId": "evt_123",
   "lookupId": "evt_123"
@@ -178,6 +179,7 @@ The examples below are the full successful `--format json` response bodies.
   "occurredAt": "2026-03-12T09:30:00-05:00",
   "photoPath": "<path>",
   "audioPath": null,
+  "manifestFile": "<path>",
   "note": "optional note"
 }
 ```
@@ -191,12 +193,13 @@ The examples below are the full successful `--format json` response bodies.
   "stream": "glucose",
   "importedCount": 42,
   "transformId": "xfm_123",
+  "manifestFile": "<path>",
   "lookupIds": ["smp_123", "smp_124"],
   "ledgerFiles": ["<path>"]
 }
 ```
 
-`transformId` identifies the raw import batch only. Use the returned `lookupIds` or `list --kind sample` for follow-on reads.
+`transformId` identifies the raw import batch only. `manifestFile` points at the immutable batch sidecar with checksum, import-config, and row provenance. Use the returned `lookupIds` or `list --kind sample` for follow-on reads.
 
 ### `experiment create`
 

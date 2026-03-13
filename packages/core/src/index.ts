@@ -12,15 +12,35 @@ export { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from 
 export { parseFrontmatterDocument, stringifyFrontmatterDocument } from "./frontmatter.js";
 export { copyRawArtifact } from "./raw.js";
 export { initializeVault, loadVault, validateVault } from "./vault.js";
+export { createExperiment, ensureJournalDay } from "./mutations.js";
 export {
   addMeal,
-  addMeal as importMeal,
-  createExperiment,
-  ensureJournalDay,
+  importAssessmentResponse,
   importDocument,
+  importMeal,
   importSamples,
-} from "./mutations.js";
-export * from "./assessment/index.js";
+} from "./storage-spine.js";
+export {
+  listAssessmentResponses,
+  projectAssessmentResponse,
+  readAssessmentResponse,
+  ASSESSMENT_LEDGER_DIRECTORY,
+  ASSESSMENT_RESPONSE_SCHEMA_VERSION,
+} from "./assessment/index.js";
+export type {
+  AllergyProposal,
+  AssessmentProposalSource,
+  AssessmentResponseProposal,
+  AssessmentResponseRecord,
+  ConditionProposal,
+  FamilyMemberProposal,
+  GeneticVariantProposal,
+  GoalProposal,
+  HistoryEventProposal,
+  ImportAssessmentResponseInput,
+  ProfileSnapshotProposal,
+  RegimenProposal,
+} from "./assessment/index.js";
 export * from "./bank/index.js";
 export * from "./profile/index.js";
 export * from "./history/index.js";

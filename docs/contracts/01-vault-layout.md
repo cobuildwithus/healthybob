@@ -19,9 +19,13 @@ vault/
   bank/family/<slug>.md
   bank/genetics/<slug>.md
   raw/documents/YYYY/MM/<documentId>/<filename>
+  raw/documents/YYYY/MM/<documentId>/manifest.json
   raw/assessments/YYYY/MM/<assessmentId>/source.json
+  raw/assessments/YYYY/MM/<assessmentId>/manifest.json
   raw/meals/YYYY/MM/<mealId>/<slot>-<filename>
+  raw/meals/YYYY/MM/<mealId>/manifest.json
   raw/samples/<stream>/YYYY/MM/<transformId>/<filename>.csv
+  raw/samples/<stream>/YYYY/MM/<transformId>/manifest.json
   ledger/assessments/YYYY/YYYY-MM.jsonl
   ledger/events/YYYY/YYYY-MM.jsonl
   ledger/profile-snapshots/YYYY/YYYY-MM.jsonl
@@ -52,6 +56,7 @@ Generated artifact: `packages/contracts/generated/vault-metadata.schema.json`
 - Stored paths may not start with `/` or contain `..`.
 - Markdown docs remain human-readable and reviewable in place.
 - Raw imports are copied under stable type-specific folders in `raw/` and remain immutable in place.
+- Each raw import directory also stores an immutable `manifest.json` sidecar with artifact checksums and import provenance.
 - Assessment source payloads are copied to `raw/assessments/YYYY/MM/<assessmentId>/source.json` and remain immutable in place.
 - `raw/samples/<stream>/YYYY/MM/<transformId>/` uses an import-batch identifier returned from `samples import-csv`; baseline does not write a standalone transform record.
 - Assessment shards use `recordedAt`: `ledger/assessments/YYYY/YYYY-MM.jsonl`.
@@ -70,4 +75,12 @@ Generated artifact: `packages/contracts/generated/vault-metadata.schema.json`
 - Assessment imports use `raw/assessments/YYYY/MM/<assessmentId>/source.json`.
 - Meal attachments use `raw/meals/YYYY/MM/<mealId>/<slot>-<filename>`.
 - Sample CSV imports use `raw/samples/<stream>/YYYY/MM/<transformId>/<filename>.csv`, where `transformId` is the returned import-batch id.
+- Each raw import directory also reserves `manifest.json` for the immutable sidecar describing imported artifacts, checksums, and provenance.
 - File names are slug-safe ASCII and preserve the original extension.
+
+## Schema Version Policy
+
+- Stored documents and ledgers use explicit `schemaVersion` fields; raw import sidecars also carry a versioned manifest shape.
+- Published version strings are immutable.
+- Any incompatible change must mint a new version string and preserve read compatibility for older stored data until a documented core migration exists.
+- `packages/core` owns migrations and versioned write behavior. Query/CLI paths may validate or branch on versions but must not rewrite stored records during reads.
