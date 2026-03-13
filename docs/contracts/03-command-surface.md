@@ -21,7 +21,9 @@ vault-cli experiment create <slug> --vault <path> [--format json|md] [--request-
 vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
-vault-cli search --vault <path> --text <query> [--record-type <csv>] [--kind <csv>] [--stream <csv>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli search --vault <path> --text <query> [--backend auto|scan|sqlite] [--record-type <csv>] [--kind <csv>] [--stream <csv>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli search index-status --vault <path> [--format json|md] [--request-id <id>]
+vault-cli search index-rebuild --vault <path> [--format json|md] [--request-id <id>]
 vault-cli timeline --vault <path> [--from <date>] [--to <date>] [--experiment <slug>] [--kind <csv>] [--stream <csv>] [--entry-type <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli export pack --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]
 ```
@@ -296,6 +298,7 @@ The examples below are the full successful `--format json` response bodies.
   "query": "ferritin labcorp",
   "filters": {
     "text": "ferritin labcorp",
+    "backend": "auto",
     "recordTypes": ["event"],
     "kinds": ["document"],
     "streams": [],
@@ -329,6 +332,35 @@ The examples below are the full successful `--format json` response bodies.
       }
     }
   ]
+}
+```
+
+### `search index-status`
+
+```json
+{
+  "vault": "<path>",
+  "backend": "sqlite",
+  "dbPath": ".runtime/inboxd.sqlite",
+  "exists": true,
+  "schemaVersion": "hb.search.v1",
+  "indexedAt": "2026-03-13T03:55:00.000Z",
+  "documentCount": 42
+}
+```
+
+### `search index-rebuild`
+
+```json
+{
+  "vault": "<path>",
+  "backend": "sqlite",
+  "dbPath": ".runtime/inboxd.sqlite",
+  "exists": true,
+  "schemaVersion": "hb.search.v1",
+  "indexedAt": "2026-03-13T03:55:00.000Z",
+  "documentCount": 42,
+  "rebuilt": true
 }
 ```
 

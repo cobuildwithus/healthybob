@@ -2,8 +2,8 @@ import { loadRuntimeModule } from './runtime-import.js'
 
 export interface QueryRuntimeModule {
   readVault(vaultRoot: string): Promise<unknown>
-  searchVault(
-    vault: unknown,
+  searchVaultRuntime(
+    vaultRoot: string,
     query: string,
     filters: {
       recordTypes?: string[]
@@ -15,11 +15,31 @@ export interface QueryRuntimeModule {
       tags?: string[]
       limit?: number
     },
-  ): {
+    options?: {
+      backend?: 'auto' | 'scan' | 'sqlite'
+    },
+  ): Promise<{
     query: string
     total: number
     hits: unknown[]
+  }>
+  getSqliteSearchStatus(vaultRoot: string): {
+    backend: 'sqlite'
+    dbPath: string
+    exists: boolean
+    schemaVersion: string | null
+    indexedAt: string | null
+    documentCount: number
   }
+  rebuildSqliteSearchIndex(vaultRoot: string): Promise<{
+    backend: 'sqlite'
+    dbPath: string
+    exists: boolean
+    schemaVersion: string | null
+    indexedAt: string | null
+    documentCount: number
+    rebuilt: true
+  }>
   buildTimeline(
     vault: unknown,
     filters: {

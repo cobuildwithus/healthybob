@@ -14,6 +14,15 @@ export {
   isQueryableLookupId,
 } from "./id-families.js";
 export { searchVault } from "./search.js";
+export {
+  getSqliteSearchStatus,
+  rebuildSqliteSearchIndex,
+  searchVaultRuntime,
+  searchVaultSqlite,
+  type RebuildSqliteSearchIndexResult,
+  type SearchBackend,
+  type SqliteSearchStatus,
+} from "./search-sqlite.js";
 export { summarizeDailySamples } from "./summaries.js";
 export { buildTimeline } from "./timeline.js";
 export { buildExportPack } from "./export-pack.js";

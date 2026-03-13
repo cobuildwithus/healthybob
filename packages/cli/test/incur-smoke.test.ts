@@ -33,6 +33,7 @@ test('search schema exposes retrieval-specific filters', async () => {
   }
 
   assert.equal('text' in schema.options.properties, true)
+  assert.equal('backend' in schema.options.properties, true)
   assert.equal('recordType' in schema.options.properties, true)
   assert.equal('entryType' in schema.options.properties, false)
   assert.deepEqual(schema.options.required, ['vault', 'text', 'limit'])

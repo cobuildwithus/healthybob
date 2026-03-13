@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "vitest";
 
 import {
@@ -9,6 +11,7 @@ import {
   buildTimeline,
   getExperiment,
   getJournalEntry,
+  getSqliteSearchStatus,
   listFamilyMembers,
   listGeneticVariants,
   listExperiments,
@@ -16,7 +19,9 @@ import {
   listRecords,
   lookupRecordById,
   readVault,
+  rebuildSqliteSearchIndex,
   searchVault,
+  searchVaultRuntime,
   summarizeDailySamples,
 } from "../src/index.js";
 import { parseFrontmatterDocument as parseHealthFrontmatterDocument } from "../src/health/shared.js";
@@ -1720,3 +1725,206 @@ function createRecord(
     frontmatter: overrides.frontmatter ?? null,
   };
 }
+
+test("rebuildSqliteSearchIndex only materializes non-sample documents and index-status stays read-only when absent", async () => {
+  const vaultRoot = await createFixtureVault();
+  const runtimeDatabasePath = path.join(vaultRoot, ".runtime/inboxd.sqlite");
+
+  try {
+    assert.equal(existsSync(runtimeDatabasePath), false);
+
+    const statusBefore = getSqliteSearchStatus(vaultRoot);
+    assert.equal(statusBefore.exists, false);
+    assert.equal(statusBefore.dbPath, ".runtime/inboxd.sqlite");
+    assert.equal(existsSync(runtimeDatabasePath), false);
+
+    const vault = await readVault(vaultRoot);
+    const expectedDocumentCount = vault.records.filter(
+      (record) => record.recordType !== "sample",
+    ).length;
+
+    const rebuilt = await rebuildSqliteSearchIndex(vaultRoot);
+    assert.equal(rebuilt.backend, "sqlite");
+    assert.equal(rebuilt.exists, true);
+    assert.equal(rebuilt.schemaVersion, "hb.search.v1");
+    assert.equal(rebuilt.documentCount, expectedDocumentCount);
+    assert.equal(existsSync(runtimeDatabasePath), true);
+
+    const statusAfter = getSqliteSearchStatus(vaultRoot);
+    assert.equal(statusAfter.exists, true);
+    assert.equal(statusAfter.documentCount, expectedDocumentCount);
+    assert.equal(statusAfter.schemaVersion, rebuilt.schemaVersion);
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test("searchVaultRuntime auto falls back to scan and sqlite merges sample rows only when explicitly requested", async () => {
+  const vaultRoot = await createFixtureVault();
+
+  try {
+    const scanFallback = await searchVaultRuntime(vaultRoot, "lab report", {
+      recordTypes: ["event"],
+      kinds: ["document"],
+    });
+
+    assert.equal(scanFallback.total, 1);
+    assert.equal(scanFallback.hits[0]?.recordId, "doc_01JNV4DOC0000000000000001");
+
+    await rebuildSqliteSearchIndex(vaultRoot);
+
+    const sqliteResult = await searchVaultRuntime(
+      vaultRoot,
+      "lab report",
+      {
+        recordTypes: ["event"],
+        kinds: ["document"],
+      },
+      { backend: "sqlite" },
+    );
+
+    assert.equal(sqliteResult.total, 1);
+    assert.equal(sqliteResult.hits[0]?.recordId, "doc_01JNV4DOC0000000000000001");
+    assert.match(sqliteResult.hits[0]?.snippet ?? "", /lab report/i);
+
+    const sqliteSampleResult = await searchVaultRuntime(
+      vaultRoot,
+      "heart_rate",
+      {
+        streams: ["heart_rate"],
+      },
+      { backend: "sqlite" },
+    );
+
+    assert.equal(
+      sqliteSampleResult.hits.some(
+        (hit) => hit.recordType === "sample" && hit.stream === "heart_rate",
+      ),
+      true,
+    );
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test("getSqliteSearchStatus stays false against a pre-existing shared runtime db and sqlite backend errors with rebuild guidance", async () => {
+  const vaultRoot = await createFixtureVault();
+  const runtimeRoot = path.join(vaultRoot, ".runtime");
+  const runtimeDatabasePath = path.join(runtimeRoot, "inboxd.sqlite");
+
+  await mkdir(runtimeRoot, { recursive: true });
+  const database = new DatabaseSync(runtimeDatabasePath);
+  database.exec("CREATE TABLE inbox_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);");
+  database.close();
+
+  try {
+    const status = getSqliteSearchStatus(vaultRoot);
+    assert.equal(status.exists, false);
+
+    const schemaDatabase = new DatabaseSync(runtimeDatabasePath, { readOnly: true });
+    const tableNames = schemaDatabase
+      .prepare(`
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name LIKE 'hb_search_%'
+        ORDER BY name ASC
+      `)
+      .all() as Array<{ name: string }>;
+    schemaDatabase.close();
+
+    assert.deepEqual(tableNames, []);
+
+    await assert.rejects(
+      () =>
+        searchVaultRuntime(
+          vaultRoot,
+          "labcorp",
+          { recordTypes: ["event"] },
+          { backend: "sqlite" },
+        ),
+      /index-rebuild|--backend scan/u,
+    );
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test("searchVaultRuntime auto switches from scan results to stale sqlite state after rebuild", async () => {
+  const vaultRoot = await createFixtureVault();
+  const journalPath = path.join(vaultRoot, "journal/2026/2026-03-10.md");
+
+  try {
+    await writeFile(
+      journalPath,
+      `---
+schemaVersion: hb.frontmatter.journal-day.v1
+docType: journal_day
+day_key: 2026-03-10
+title: March 10
+tags:
+  - focus
+  - hydration
+experiment_slug: low-carb
+event_ids:
+  - evt_01JNV4MEAL000000000000001
+  - evt_01JNV4DOC000000000000001
+sample_streams:
+  - glucose
+  - heart_rate
+---
+Steady energy after electrolyte drink.
+`,
+    );
+
+    const autoBeforeRebuild = await searchVaultRuntime(
+      vaultRoot,
+      "electrolyte",
+      { recordTypes: ["journal"] },
+      { backend: "auto" },
+    );
+    assert.equal(autoBeforeRebuild.hits[0]?.recordId, "journal:2026-03-10");
+
+    await rebuildSqliteSearchIndex(vaultRoot);
+
+    await writeFile(
+      journalPath,
+      `---
+schemaVersion: hb.frontmatter.journal-day.v1
+docType: journal_day
+day_key: 2026-03-10
+title: March 10
+tags:
+  - focus
+  - hydration
+experiment_slug: low-carb
+event_ids:
+  - evt_01JNV4MEAL000000000000001
+  - evt_01JNV4DOC000000000000001
+sample_streams:
+  - glucose
+  - heart_rate
+---
+Steady energy after saffron tea.
+`,
+    );
+
+    const autoAfterRebuild = await searchVaultRuntime(
+      vaultRoot,
+      "saffron",
+      { recordTypes: ["journal"] },
+      { backend: "auto" },
+    );
+    const scanAfterRebuild = await searchVaultRuntime(
+      vaultRoot,
+      "saffron",
+      { recordTypes: ["journal"] },
+      { backend: "scan" },
+    );
+
+    assert.equal(autoAfterRebuild.total, 0);
+    assert.equal(scanAfterRebuild.hits[0]?.recordId, "journal:2026-03-10");
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});

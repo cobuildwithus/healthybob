@@ -1,9 +1,7 @@
 import { Cli, z } from 'incur'
+import { emptyArgsSchema, withBaseOptions } from '../command-helpers.js'
 import {
-  emptyArgsSchema,
-  withBaseOptions,
-} from '../command-helpers.js'
-import {
+  isoTimestampSchema,
   localDateSchema,
   pathSchema,
   slugSchema,
@@ -25,6 +23,7 @@ const timelineEntryTypeValues = [
   'event',
   'sample_summary',
 ] as const
+const searchBackendValues = ['auto', 'scan', 'sqlite'] as const
 
 const searchHitSchema = z.object({
   recordId: z.string().min(1),
@@ -53,6 +52,7 @@ const searchResultSchema = z.object({
   query: z.string().min(1),
   filters: z.object({
     text: z.string().min(1),
+    backend: z.enum(searchBackendValues),
     recordTypes: z.array(z.enum(recordTypeValues)),
     kinds: z.array(z.string().min(1)),
     streams: z.array(z.string().min(1)),
@@ -95,62 +95,108 @@ const timelineResultSchema = z.object({
   items: z.array(timelineEntrySchema),
 })
 
+const searchIndexStatusSchema = z.object({
+  vault: pathSchema,
+  backend: z.literal('sqlite'),
+  dbPath: pathSchema,
+  exists: z.boolean(),
+  schemaVersion: z.string().min(1).nullable(),
+  indexedAt: isoTimestampSchema.nullable(),
+  documentCount: z.number().int().nonnegative(),
+})
+
+const searchIndexRebuildSchema = searchIndexStatusSchema.extend({
+  rebuilt: z.literal(true),
+})
+
+const searchActionValues = ['index-status', 'index-rebuild'] as const
+const searchCommandOutputSchema = z.union([
+  searchResultSchema,
+  searchIndexStatusSchema,
+  searchIndexRebuildSchema,
+])
+
 export function registerSearchCommands(
   cli: Cli.Cli,
   _services: VaultCliServices,
 ) {
-  cli.command(
-    'search',
-    {
-      description: 'Search the local read model with lexical scoring and structured filters.',
-      args: emptyArgsSchema,
-      options: withBaseOptions({
-        text: z
-          .string()
-          .min(1)
-          .describe('Search text to run across titles, notes, tags, ids, and record payloads.'),
-        recordType: z
-          .string()
-          .optional()
-          .describe('Optional comma-separated record types: core, experiment, journal, event, sample, audit.'),
-        kind: z
-          .string()
-          .optional()
-          .describe('Optional comma-separated record kinds such as meal, note, document, or journal_day.'),
-        stream: z
-          .string()
-          .optional()
-          .describe('Optional comma-separated sample streams; setting this also opts sample rows into search.'),
-        experiment: slugSchema
-          .optional()
-          .describe('Optional experiment slug filter.'),
-        dateFrom: localDateSchema
-          .optional()
-          .describe('Inclusive lower date bound.'),
-        dateTo: localDateSchema
-          .optional()
-          .describe('Inclusive upper date bound.'),
-        tag: z
-          .string()
-          .optional()
-          .describe('Optional comma-separated tags that matching records must contain.'),
-        limit: z
-          .number()
-          .int()
-          .positive()
-          .max(200)
-          .default(20)
-          .describe('Maximum number of hits to return.'),
-      }),
-      output: searchResultSchema,
-      async run({ options }) {
-        const recordTypes = parseRecordTypes(options.recordType)
-        const kinds = parseCsvOption(options.kind)
-        const streams = parseCsvOption(options.stream)
-        const tags = parseCsvOption(options.tag)
-        const query = await loadQueryRuntime()
-        const vault = await query.readVault(options.vault)
-        const result = query.searchVault(vault, options.text, {
+  cli.command('search', {
+    description:
+      'Search the local read model with lexical scoring and optional SQLite-backed candidate retrieval.',
+    args: z.object({
+      action: z.enum(searchActionValues).optional(),
+    }),
+    options: withBaseOptions({
+      text: z
+        .string()
+        .min(1)
+        .describe('Search text to run across titles, notes, tags, ids, and record payloads.'),
+      backend: z
+        .enum(searchBackendValues)
+        .optional()
+        .describe('Retrieval backend. Defaults to `auto`, which prefers SQLite when an index exists and otherwise falls back to the scan backend.'),
+      recordType: z
+        .string()
+        .optional()
+        .describe('Optional comma-separated record types: core, experiment, journal, event, sample, audit.'),
+      kind: z
+        .string()
+        .optional()
+        .describe('Optional comma-separated record kinds such as meal, note, document, or journal_day.'),
+      stream: z
+        .string()
+        .optional()
+        .describe('Optional comma-separated sample streams; setting this also opts sample rows into search.'),
+      experiment: slugSchema
+        .optional()
+        .describe('Optional experiment slug filter.'),
+      dateFrom: localDateSchema
+        .optional()
+        .describe('Inclusive lower date bound.'),
+      dateTo: localDateSchema
+        .optional()
+        .describe('Inclusive upper date bound.'),
+      tag: z
+        .string()
+        .optional()
+        .describe('Optional comma-separated tags that matching records must contain.'),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .max(200)
+        .default(20)
+        .describe('Maximum number of hits to return.'),
+    }),
+    output: searchCommandOutputSchema,
+    async run({ args, options }) {
+      const query = await loadQueryRuntime()
+
+      if (args.action === 'index-status') {
+        const status = query.getSqliteSearchStatus(options.vault)
+        return {
+          vault: options.vault,
+          ...status,
+        }
+      }
+
+      if (args.action === 'index-rebuild') {
+        const rebuilt = await query.rebuildSqliteSearchIndex(options.vault)
+        return {
+          vault: options.vault,
+          ...rebuilt,
+        }
+      }
+
+      const recordTypes = parseRecordTypes(options.recordType)
+      const kinds = parseCsvOption(options.kind)
+      const streams = parseCsvOption(options.stream)
+      const tags = parseCsvOption(options.tag)
+      const backend = options.backend ?? 'auto'
+      const result = await query.searchVaultRuntime(
+        options.vault,
+        options.text,
+        {
           recordTypes: recordTypes.length > 0 ? recordTypes : undefined,
           kinds: kinds.length > 0 ? kinds : undefined,
           streams: streams.length > 0 ? streams : undefined,
@@ -159,28 +205,30 @@ export function registerSearchCommands(
           to: options.dateTo,
           tags: tags.length > 0 ? tags : undefined,
           limit: options.limit,
-        })
+        },
+        { backend },
+      )
 
-        return {
-          vault: options.vault,
-          query: result.query,
-          filters: {
-            text: options.text,
-            recordTypes,
-            kinds,
-            streams,
-            experiment: options.experiment ?? null,
-            dateFrom: options.dateFrom ?? null,
-            dateTo: options.dateTo ?? null,
-            tags,
-            limit: options.limit,
-          },
-          total: result.total,
-          hits: result.hits as z.infer<typeof searchResultSchema>['hits'],
-        }
-      },
+      return {
+        vault: options.vault,
+        query: result.query,
+        filters: {
+          text: options.text,
+          backend,
+          recordTypes,
+          kinds,
+          streams,
+          experiment: options.experiment ?? null,
+          dateFrom: options.dateFrom ?? null,
+          dateTo: options.dateTo ?? null,
+          tags,
+          limit: options.limit,
+        },
+        total: result.total,
+        hits: result.hits as z.infer<typeof searchResultSchema>['hits'],
+      }
     },
-  )
+  })
 
   cli.command(
     'timeline',
@@ -262,12 +310,14 @@ function parseCsvOption(value: string | undefined): string[] {
     return []
   }
 
-  return [...new Set(
-    value
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
-  )]
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  ]
 }
 
 function parseRecordTypes(
@@ -277,7 +327,8 @@ function parseRecordTypes(
   const recordTypeSet = new Set(recordTypeValues)
 
   return requestedValues.filter(
-    (entry): entry is (typeof recordTypeValues)[number] => recordTypeSet.has(entry as (typeof recordTypeValues)[number]),
+    (entry): entry is (typeof recordTypeValues)[number] =>
+      recordTypeSet.has(entry as (typeof recordTypeValues)[number]),
   )
 }
 
