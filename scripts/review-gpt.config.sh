@@ -21,16 +21,6 @@ review_gpt_register_dir_preset "bad-code" "bad-code-quality.md" \
   "anti-patterns-and-bad-practices" \
   "code-quality" \
   "bad-code-quality"
-review_gpt_register_dir_preset "grief-vectors" "grief-vectors.md" \
-  "Liveness, operator pain, and denial-of-service vectors." \
-  "grief" \
-  "dos" \
-  "liveness"
-review_gpt_register_dir_preset "incentives" "incentives.md" \
-  "Operator-facing incentives and unsafe-default review." \
-  "economic-security" \
-  "economics" \
-  "economic-security-and-incentives"
 review_gpt_register_preset "test-coverage-audit" "agent-docs/prompts/test-coverage-audit.md" \
   "Post-simplify test-coverage audit that adds the highest-impact missing tests." \
   "coverage" \
