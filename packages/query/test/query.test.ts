@@ -6,6 +6,7 @@ import { test } from "vitest";
 
 import {
   buildExportPack,
+  buildTimeline,
   getExperiment,
   getJournalEntry,
   listFamilyMembers,
@@ -15,6 +16,7 @@ import {
   listRecords,
   lookupRecordById,
   readVault,
+  searchVault,
   summarizeDailySamples,
 } from "../src/index.js";
 
@@ -587,6 +589,551 @@ test("model helpers return null or empty results for unmatched ids and filters",
   assert.deepEqual(listRecords(vault, { from: "2026-03-10" }).map((record) => record.id), [
     "journal:2026-03-12",
   ]);
+});
+
+test("searchVault ranks body and structured matches while excluding raw samples by default", () => {
+  const vault = createEmptyReadModel();
+  const journal = createRecord({
+    id: "journal:2026-03-12",
+    lookupIds: ["journal:2026-03-12", "2026-03-12"],
+    recordType: "journal",
+    sourcePath: "journal/2026/2026-03-12.md",
+    date: "2026-03-12",
+    kind: "journal_day",
+    title: "March 12",
+    tags: ["focus"],
+    body: "Steady energy. Afternoon crash after pasta lunch and coffee.",
+    frontmatter: {
+      dayKey: "2026-03-12",
+    },
+  });
+  const meal = createRecord({
+    id: "meal_01",
+    lookupIds: ["meal_01", "evt_meal_01"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-12T12:15:00Z",
+    date: "2026-03-12",
+    kind: "meal",
+    title: "Lunch",
+    tags: ["meal", "lunch"],
+    data: {
+      mealId: "meal_01",
+      note: "Afternoon crash after pasta and coffee.",
+    },
+    body: "Pasta with coffee at lunch.",
+  });
+  const sample = createSampleRecord({
+    id: "smp_01",
+    occurredAt: "2026-03-12T18:00:00Z",
+    stream: "heart_rate",
+    sourcePath: "ledger/samples/heart_rate/2026/2026-03.jsonl",
+    data: {
+      value: 72,
+      unit: "bpm",
+      note: "brief spike",
+    },
+  });
+
+  vault.journalEntries = [journal];
+  vault.events = [meal];
+  vault.samples = [sample];
+  vault.records = [journal, meal, sample];
+
+  const result = searchVault(vault, "afternoon crash pasta", {
+    limit: 10,
+  });
+
+  assert.equal(result.format, "healthybob.search.v1");
+  assert.equal(result.total, 2);
+  assert.deepEqual(
+    result.hits.map((hit) => hit.recordId),
+    ["journal:2026-03-12", "meal_01"],
+  );
+  assert.match(result.hits[0]?.snippet ?? "", /afternoon crash/i);
+  assert.deepEqual(result.hits[0]?.matchedTerms, ["afternoon", "crash", "pasta"]);
+});
+
+test("searchVault includes sample rows when the caller scopes by sample record type or stream", () => {
+  const vault = createEmptyReadModel();
+  const sample = createSampleRecord({
+    id: "smp_glucose_01",
+    occurredAt: "2026-03-12T08:00:00Z",
+    stream: "glucose",
+    sourcePath: "ledger/samples/glucose/2026/2026-03.jsonl",
+    data: {
+      value: 104,
+      unit: "mg_dL",
+      note: "post meal spike",
+    },
+  });
+
+  vault.samples = [sample];
+  vault.records = [sample];
+
+  const result = searchVault(vault, "glucose spike", {
+    streams: ["glucose"],
+  });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.hits[0]?.recordId, "smp_glucose_01");
+  assert.equal(result.hits[0]?.recordType, "sample");
+  assert.equal(result.hits[0]?.stream, "glucose");
+});
+
+test("buildTimeline merges journals, events, and daily sample summaries into a descending feed", () => {
+  const vault = createEmptyReadModel();
+  const journal = createRecord({
+    id: "journal:2026-03-12",
+    lookupIds: ["journal:2026-03-12", "2026-03-12"],
+    recordType: "journal",
+    sourcePath: "journal/2026/2026-03-12.md",
+    date: "2026-03-12",
+    kind: "journal_day",
+    title: "March 12",
+    body: "Good day.",
+    frontmatter: {
+      dayKey: "2026-03-12",
+    },
+  });
+  const event = createRecord({
+    id: "evt_walk_01",
+    lookupIds: ["evt_walk_01"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-12T18:00:00Z",
+    date: "2026-03-12",
+    kind: "activity_session",
+    title: "Walk",
+    tags: ["exercise"],
+    data: {
+      durationMinutes: 30,
+    },
+  });
+  const sampleA = createSampleRecord({
+    id: "smp_hr_01",
+    occurredAt: "2026-03-12T07:00:00Z",
+    stream: "heart_rate",
+    sourcePath: "ledger/samples/heart_rate/2026/2026-03.jsonl",
+    data: {
+      value: 60,
+      unit: "bpm",
+    },
+  });
+  const sampleB = createSampleRecord({
+    id: "smp_hr_02",
+    occurredAt: "2026-03-12T20:00:00Z",
+    stream: "heart_rate",
+    sourcePath: "ledger/samples/heart_rate/2026/2026-03.jsonl",
+    data: {
+      value: 78,
+      unit: "bpm",
+    },
+  });
+
+  vault.journalEntries = [journal];
+  vault.events = [event];
+  vault.samples = [sampleA, sampleB];
+  vault.records = [journal, sampleA, event, sampleB];
+
+  const timeline = buildTimeline(vault, {
+    from: "2026-03-12",
+    to: "2026-03-12",
+  });
+
+  assert.deepEqual(
+    timeline.map((entry) => [entry.entryType, entry.id]),
+    [
+      ["sample_summary", "sample-summary:2026-03-12:heart_rate"],
+      ["event", "evt_walk_01"],
+      ["journal", "journal:2026-03-12"],
+    ],
+  );
+  assert.equal(timeline[0]?.kind, "sample_summary");
+  assert.equal(timeline[0]?.stream, "heart_rate");
+  assert.equal(timeline[0]?.data.averageValue, 69);
+});
+
+test("searchVault supports blank queries, structured-only matches, and filter normalization", () => {
+  const blank = searchVault(createEmptyReadModel(), "   ");
+  assert.equal(blank.total, 0);
+  assert.deepEqual(blank.hits, []);
+
+  const vault = createEmptyReadModel();
+  const structuredOnly = createRecord({
+    id: "evt_structured",
+    lookupIds: ["evt_structured", "doc_structured"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-11T10:00:00Z",
+    date: "2026-03-11",
+    kind: "document",
+    experimentSlug: "iron-study",
+    title: "External report",
+    tags: ["labs"],
+    data: {
+      provider: "Labcorp",
+      ferritin: 12,
+    },
+  });
+  const wrongExperiment = createRecord({
+    id: "evt_wrong_experiment",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-11T09:00:00Z",
+    date: "2026-03-11",
+    kind: "document",
+    experimentSlug: "other-study",
+    title: "Mismatch",
+    tags: ["labs"],
+    body: "Labcorp ferritin",
+  });
+  const missingKind = createRecord({
+    id: "evt_missing_kind",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-11T08:00:00Z",
+    date: "2026-03-11",
+    kind: null,
+    experimentSlug: "iron-study",
+    title: "Untyped report",
+    tags: ["labs"],
+    body: "Labcorp ferritin",
+  });
+  const wrongDate = createRecord({
+    id: "evt_wrong_date",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-10T08:00:00Z",
+    date: "2026-03-10",
+    kind: "document",
+    experimentSlug: "iron-study",
+    title: "Old report",
+    tags: ["labs"],
+    body: "Labcorp ferritin",
+  });
+  const missingTag = createRecord({
+    id: "evt_missing_tag",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-11T11:00:00Z",
+    date: "2026-03-11",
+    kind: "document",
+    experimentSlug: "iron-study",
+    title: "Tagless report",
+    tags: [],
+    body: "Labcorp ferritin",
+  });
+
+  vault.events = [
+    structuredOnly,
+    wrongExperiment,
+    missingKind,
+    wrongDate,
+    missingTag,
+  ];
+  vault.records = vault.events;
+
+  const result = searchVault(vault, "labcorp ferritin", {
+    recordTypes: ["event"],
+    kinds: ["document"],
+    experimentSlug: "iron-study",
+    from: "2026-03-11",
+    to: "2026-03-11",
+    tags: ["labs"],
+    limit: 0,
+  });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.hits.length, 1);
+  assert.equal(result.hits[0]?.recordId, "evt_structured");
+  assert.equal(
+    result.hits[0]?.snippet,
+    "External report · document · iron-study",
+  );
+});
+
+test("searchVault orders equal scores by recency and trims long snippets around matches", () => {
+  const vault = createEmptyReadModel();
+  const longBody = `${"before ".repeat(20)}caffeine${" after".repeat(25)}`;
+  const older = createRecord({
+    id: "evt_caffeine_old",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-11T09:00:00Z",
+    date: "2026-03-11",
+    kind: "note",
+    title: "Caffeine log",
+    body: longBody,
+  });
+  const newer = createRecord({
+    id: "evt_caffeine_new",
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-12T09:00:00Z",
+    date: "2026-03-12",
+    kind: "note",
+    title: "Caffeine log",
+    body: longBody,
+  });
+
+  vault.events = [older, newer];
+  vault.records = [older, newer];
+
+  const result = searchVault(vault, "caffeine");
+
+  assert.deepEqual(
+    result.hits.map((hit) => hit.recordId),
+    ["evt_caffeine_new", "evt_caffeine_old"],
+  );
+  assert.match(result.hits[0]?.snippet ?? "", /^\.\.\..+\.\.\.$/);
+});
+
+test("buildTimeline applies toggles, fallback timestamps, and filter caps", () => {
+  const vault = createEmptyReadModel();
+  const journalFallback = createRecord({
+    id: "journal:2026-03-13",
+    lookupIds: ["journal:2026-03-13", "2026-03-13"],
+    recordType: "journal",
+    sourcePath: "journal/2026/2026-03-13.md",
+    occurredAt: "2026-03-13T09:00:00Z",
+    date: null,
+    kind: null,
+    experimentSlug: "focus",
+    title: null,
+    data: {},
+    frontmatter: {},
+  });
+  const journalMissingDate = createRecord({
+    id: "journal:missing",
+    lookupIds: ["journal:missing"],
+    recordType: "journal",
+    sourcePath: "journal/2026/missing.md",
+    occurredAt: null,
+    date: null,
+    kind: null,
+    title: "Skip me",
+    data: {},
+    frontmatter: {},
+  });
+  const eventFallback = createRecord({
+    id: "evt_focus",
+    lookupIds: ["evt_focus"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: null,
+    date: "2026-03-13",
+    kind: null,
+    stream: "glucose",
+    experimentSlug: "focus",
+    title: null,
+    data: {},
+  });
+  const eventWrongStream = createRecord({
+    id: "evt_wrong_stream",
+    lookupIds: ["evt_wrong_stream"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-13T10:00:00Z",
+    date: "2026-03-13",
+    kind: "note",
+    stream: "heart_rate",
+    experimentSlug: "focus",
+    title: "Wrong stream",
+    data: {},
+  });
+  const eventMissingDate = createRecord({
+    id: "evt_missing_date",
+    lookupIds: ["evt_missing_date"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: null,
+    date: null,
+    kind: null,
+    stream: "glucose",
+    experimentSlug: "focus",
+    title: "Skip me too",
+    data: {},
+  });
+  const sampleFallback = createSampleRecord({
+    id: "smp_focus_01",
+    occurredAt: null,
+    date: "2026-03-13",
+    stream: "glucose",
+    experimentSlug: "focus",
+    sourcePath: "ledger/samples/glucose/2026/2026-03.jsonl",
+    data: {
+      value: 91,
+      unit: "mg_dL",
+    },
+  });
+  const sampleOtherExperiment = createSampleRecord({
+    id: "smp_other_01",
+    occurredAt: "2026-03-13T18:00:00Z",
+    date: "2026-03-13",
+    stream: "glucose",
+    experimentSlug: "other",
+    sourcePath: "ledger/samples/glucose/2026/2026-03.jsonl",
+    data: {
+      value: 99,
+      unit: "mg_dL",
+    },
+  });
+
+  journalFallback.kind = null;
+  journalMissingDate.kind = null;
+  eventFallback.kind = null;
+  eventMissingDate.kind = null;
+  sampleFallback.occurredAt = null;
+
+  vault.journalEntries = [journalFallback, journalMissingDate];
+  vault.events = [eventFallback, eventWrongStream, eventMissingDate];
+  vault.samples = [sampleFallback, sampleOtherExperiment];
+  vault.records = [
+    journalFallback,
+    journalMissingDate,
+    eventFallback,
+    eventWrongStream,
+    eventMissingDate,
+    sampleFallback,
+    sampleOtherExperiment,
+  ];
+
+  const timeline = buildTimeline(vault, {
+    from: "2026-03-13",
+    to: "2026-03-13",
+    experimentSlug: "focus",
+    kinds: ["journal_day", "event", "sample_summary"],
+    streams: ["glucose"],
+    limit: 999,
+  });
+
+  assert.deepEqual(
+    timeline.map((entry) => [entry.entryType, entry.id]),
+    [
+      ["sample_summary", "sample-summary:2026-03-13:glucose"],
+      ["journal", "journal:2026-03-13"],
+      ["event", "evt_focus"],
+    ],
+  );
+  assert.equal(timeline[0]?.occurredAt, "2026-03-13T23:59:59");
+  assert.equal(timeline[1]?.kind, "journal_day");
+  assert.equal(timeline[2]?.occurredAt, "2026-03-13T00:00:00");
+
+  const summariesOnly = buildTimeline(vault, {
+    experimentSlug: "focus",
+    kinds: ["sample_summary"],
+    streams: ["glucose"],
+    includeJournal: false,
+    includeEvents: false,
+    limit: 0,
+  });
+
+  assert.equal(summariesOnly.length, 1);
+  assert.equal(summariesOnly[0]?.entryType, "sample_summary");
+});
+
+test("buildTimeline breaks sort ties by date then id when timestamps match", () => {
+  const vault = createEmptyReadModel();
+  const olderDate = createRecord({
+    id: "evt_tie_a",
+    lookupIds: ["evt_tie_a"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-14T08:00:00Z",
+    date: "2026-03-13",
+    kind: "note",
+    title: "Tie A",
+    data: {},
+  });
+  const laterId = createRecord({
+    id: "evt_tie_c",
+    lookupIds: ["evt_tie_c"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-14T08:00:00Z",
+    date: "2026-03-14",
+    kind: "note",
+    title: "Tie C",
+    data: {},
+  });
+  const earlierId = createRecord({
+    id: "evt_tie_b",
+    lookupIds: ["evt_tie_b"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-14T08:00:00Z",
+    date: "2026-03-14",
+    kind: "note",
+    title: "Tie B",
+    data: {},
+  });
+
+  vault.events = [olderDate, laterId, earlierId];
+  vault.records = [olderDate, laterId, earlierId];
+
+  const timeline = buildTimeline(vault, {
+    includeJournal: false,
+    includeDailySampleSummaries: false,
+  });
+
+  assert.deepEqual(
+    timeline.map((entry) => entry.id),
+    ["evt_tie_b", "evt_tie_c", "evt_tie_a"],
+  );
+});
+
+test("buildTimeline excludes records outside the requested date and experiment window", () => {
+  const vault = createEmptyReadModel();
+  const journal = createRecord({
+    id: "journal:2026-03-14",
+    lookupIds: ["journal:2026-03-14", "2026-03-14"],
+    recordType: "journal",
+    sourcePath: "journal/2026/2026-03-14.md",
+    date: "2026-03-14",
+    kind: "journal_day",
+    experimentSlug: "other",
+    title: "March 14",
+    data: {},
+    frontmatter: {},
+  });
+  const event = createRecord({
+    id: "evt_outside_window",
+    lookupIds: ["evt_outside_window"],
+    recordType: "event",
+    sourcePath: "ledger/events/2026/2026-03.jsonl",
+    occurredAt: "2026-03-14T08:00:00Z",
+    date: "2026-03-14",
+    kind: "note",
+    experimentSlug: "focus",
+    title: "Outside window",
+    data: {},
+  });
+  const sample = createSampleRecord({
+    id: "smp_outside_window",
+    occurredAt: "2026-03-14T09:00:00Z",
+    date: "2026-03-14",
+    stream: "glucose",
+    experimentSlug: "other",
+    sourcePath: "ledger/samples/glucose/2026/2026-03.jsonl",
+    data: {
+      value: 101,
+      unit: "mg_dL",
+    },
+  });
+
+  vault.journalEntries = [journal];
+  vault.events = [event];
+  vault.samples = [sample];
+  vault.records = [journal, event, sample];
+
+  const timeline = buildTimeline(vault, {
+    from: "2026-03-15",
+    to: "2026-03-15",
+    experimentSlug: "focus",
+  });
+
+  assert.deepEqual(timeline, []);
 });
 
 async function createFixtureVault(): Promise<string> {

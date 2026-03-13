@@ -14,6 +14,7 @@ export default defineConfig({
       "packages/cli/test/health-tail.test.ts",
       "packages/cli/test/incur-smoke.test.ts",
       "packages/cli/test/runtime.test.ts",
+      "packages/cli/test/search-runtime.test.ts",
       "packages/cli/test/release-script-coverage-audit.test.ts",
       "packages/cli/test/release-workflow-guards.test.ts",
     ],
@@ -34,7 +35,9 @@ export default defineConfig({
         "packages/importers/src/meal-importer.ts",
         "packages/query/src/export-pack.ts",
         "packages/query/src/model.ts",
+        "packages/query/src/search.ts",
         "packages/query/src/summaries.ts",
+        "packages/query/src/timeline.ts",
       ],
       exclude: [
         "coverage/**",

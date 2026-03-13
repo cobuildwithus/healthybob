@@ -12,6 +12,7 @@ import { registerJournalCommands } from './commands/journal.js'
 import { registerMealCommands } from './commands/meal.js'
 import { registerProfileCommands } from './commands/profile.js'
 import { registerReadCommands } from './commands/read.js'
+import { registerSearchCommands } from './commands/search.js'
 import { registerAllergyCommands } from './commands/allergy.js'
 import { registerConditionCommands } from './commands/condition.js'
 import { registerRegimenCommands } from './commands/regimen.js'
@@ -43,6 +44,7 @@ export function createVaultCli(
   registerExperimentCommands(cli, services)
   registerJournalCommands(cli, services)
   registerReadCommands(cli, services)
+  registerSearchCommands(cli, services)
   registerExportCommands(cli, services)
   registerIntakeCommands(cli, services)
   registerProfileCommands(cli, services)

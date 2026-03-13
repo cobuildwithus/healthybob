@@ -83,6 +83,14 @@
       "path": "fixtures/golden-outputs/list"
     },
     {
+      "id": "search",
+      "path": "fixtures/golden-outputs/search"
+    },
+    {
+      "id": "timeline",
+      "path": "fixtures/golden-outputs/timeline"
+    },
+    {
       "id": "export-pack",
       "path": "fixtures/golden-outputs/export-pack"
     }

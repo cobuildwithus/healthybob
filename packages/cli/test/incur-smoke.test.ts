@@ -14,10 +14,28 @@ test('root help exposes the Incur built-ins', async () => {
 
   assert.match(help, new RegExp(`vault-cli@${packageJson.version ?? '0.0.0'}`, 'u'))
   assert.match(help, /Built-in Commands:/u)
+  assert.match(help, /search\s+Search the local read model/u)
+  assert.match(help, /timeline\s+Build a descending timeline/u)
   assert.match(help, /completions\s+Generate shell completion script/u)
   assert.match(help, /--schema\s+Show JSON Schema for a command/u)
   assert.match(help, /--verbose\s+Show full output envelope/u)
   assert.match(help, /--llms, --llms-full\s+Print LLM-readable manifest/u)
+})
+
+test('search schema exposes retrieval-specific filters', async () => {
+  const schema = JSON.parse(
+    await runRawCli(['search', '--schema', '--format', 'json']),
+  ) as {
+    options: {
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+  }
+
+  assert.equal('text' in schema.options.properties, true)
+  assert.equal('recordType' in schema.options.properties, true)
+  assert.equal('entryType' in schema.options.properties, false)
+  assert.deepEqual(schema.options.required, ['vault', 'text', 'limit'])
 })
 
 test('profile show help exposes only the global format flag', async () => {

@@ -21,6 +21,8 @@ vault-cli experiment create <slug> --vault <path> [--format json|md] [--request-
 vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli search --vault <path> --text <query> [--record-type <csv>] [--kind <csv>] [--stream <csv>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli timeline --vault <path> [--from <date>] [--to <date>] [--experiment <slug>] [--kind <csv>] [--stream <csv>] [--entry-type <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli export pack --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]
 ```
 
@@ -72,6 +74,7 @@ Every command now uses native `incur` command definitions directly:
 - `--request-id` is optional, forwarded to package service calls, and reserved for audit correlation.
 - `json` is the canonical machine format.
 - `md` is a human-oriented rendering mode handled by `incur`; it is not a second machine-stable envelope.
+- Retrieval filters that accept multiple values use comma-separated strings such as `--kind meal,note` or `--entry-type event,sample_summary`.
 - Canonical ids emitted by core/import flows follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
 - Commands that create or read canonical records align to the generated schemas in `packages/contracts/generated/`.
 - Write/import commands return `lookupId` or `lookupIds` when the follow-on read path should use a queryable id rather than a related or batch id.
@@ -84,6 +87,7 @@ Every command now uses native `incur` command definitions directly:
 - `meal_*` and `doc_*` ids are stable related ids carried in event payloads, but the CLI read path expects the returned `lookupId`/`eventId` instead.
 - `xfm_*` identifies an import batch, not a query-layer record.
 - Export pack ids identify derived files under `exports/packs/`; they are not valid `show` targets.
+- `sample-summary:<date>:<stream>` ids emitted by `timeline` are derived context handles, not valid `show` targets.
 - A successful `show` response may surface a stable related id such as `meal_*` or `doc_*` in `entity.id` even when the lookup key was a queryable event id.
 
 ## Success Output
@@ -275,6 +279,87 @@ The examples below are the full successful `--format json` response bodies.
     }
   ],
   "nextCursor": null
+}
+```
+
+### `search`
+
+```json
+{
+  "vault": "<path>",
+  "query": "ferritin labcorp",
+  "filters": {
+    "text": "ferritin labcorp",
+    "recordTypes": ["event"],
+    "kinds": ["document"],
+    "streams": [],
+    "experiment": null,
+    "dateFrom": null,
+    "dateTo": null,
+    "tags": ["labs"],
+    "limit": 20
+  },
+  "total": 2,
+  "hits": [
+    {
+      "recordId": "doc_123",
+      "aliasIds": ["doc_123", "evt_123"],
+      "recordType": "event",
+      "kind": "document",
+      "stream": null,
+      "title": "Lab Report",
+      "occurredAt": "2026-03-12T08:00:00Z",
+      "date": "2026-03-12",
+      "experimentSlug": null,
+      "tags": ["labs"],
+      "path": "ledger/events/2026/2026-03.jsonl",
+      "snippet": "...ferritin from Labcorp...",
+      "score": 21.5,
+      "matchedTerms": ["ferritin", "labcorp"],
+      "citation": {
+        "path": "ledger/events/2026/2026-03.jsonl",
+        "recordId": "doc_123",
+        "aliasIds": ["doc_123", "evt_123"]
+      }
+    }
+  ]
+}
+```
+
+### `timeline`
+
+```json
+{
+  "vault": "<path>",
+  "filters": {
+    "from": "2026-03-12",
+    "to": "2026-03-12",
+    "experiment": null,
+    "kinds": [],
+    "streams": [],
+    "entryTypes": [],
+    "limit": 200
+  },
+  "items": [
+    {
+      "id": "sample-summary:2026-03-12:heart_rate",
+      "entryType": "sample_summary",
+      "occurredAt": "2026-03-12T20:00:00Z",
+      "date": "2026-03-12",
+      "title": "heart_rate daily summary",
+      "kind": "sample_summary",
+      "stream": "heart_rate",
+      "experimentSlug": null,
+      "path": "ledger/samples/heart_rate/2026/2026-03.jsonl",
+      "relatedIds": ["smp_123", "smp_124"],
+      "tags": ["sample_summary", "heart_rate"],
+      "data": {
+        "stream": "heart_rate",
+        "sampleCount": 2,
+        "averageValue": 69
+      }
+    }
+  ]
 }
 ```
 

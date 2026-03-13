@@ -1,0 +1,12 @@
+{
+  "id": "search",
+  "command": "vault-cli search --vault <path> --text <query> [--record-type <csv>] [--kind <csv>] [--stream <csv>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <csv>] [--limit <n>] [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/CORE.md",
+    "fixtures/minimal-vault/journal/2026/2026-03-10.md",
+    "fixtures/minimal-vault/bank/experiments/baseline-observation.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/search",
+  "purpose": "Covers lexical retrieval over the read model, including structured filters and record-level citations without requiring a derived search index."
+}
