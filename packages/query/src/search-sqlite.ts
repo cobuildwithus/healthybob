@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import {
-  INBOX_DB_RELATIVE_PATH,
   SEARCH_DB_RELATIVE_PATH,
   openSqliteRuntimeDatabase,
   resolveRuntimePaths,
@@ -348,10 +347,7 @@ function emptySearchStatus(): SqliteSearchStatus {
 }
 
 function resolveReadableSearchStatus(vaultRoot: string): ResolvedSqliteSearchStatus | null {
-  return (
-    readSearchStatus(currentSearchDatabaseLocation(vaultRoot)) ??
-    readSearchStatus(legacySearchDatabaseLocation(vaultRoot))
-  );
+  return readSearchStatus(currentSearchDatabaseLocation(vaultRoot));
 }
 
 function readSearchStatus(location: SearchDatabaseLocation): ResolvedSqliteSearchStatus | null {
@@ -391,15 +387,6 @@ function currentSearchDatabaseLocation(vaultRoot: string): SearchDatabaseLocatio
   return {
     absolutePath: runtimePaths.searchDbPath,
     dbPath: SEARCH_DB_RELATIVE_PATH,
-  };
-}
-
-function legacySearchDatabaseLocation(vaultRoot: string): SearchDatabaseLocation {
-  const runtimePaths = resolveRuntimePaths(vaultRoot);
-
-  return {
-    absolutePath: runtimePaths.inboxDbPath,
-    dbPath: INBOX_DB_RELATIVE_PATH,
   };
 }
 

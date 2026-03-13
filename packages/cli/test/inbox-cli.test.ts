@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
+import { resolveRuntimePaths } from '@healthybob/runtime-state'
 import { createIntegratedInboxCliServices } from '../src/inbox-services.js'
 import { createVaultCli } from '../src/vault-cli.js'
 import { createUnwiredVaultCliServices } from '../src/vault-cli-services.js'
@@ -65,11 +66,7 @@ async function loadBuiltInboxRuntime() {
 }
 
 function inboxPaths(vaultRoot: string) {
-  return {
-    configPath: path.join(vaultRoot, '.runtime', 'inboxd', 'config.json'),
-    promotionsPath: path.join(vaultRoot, '.runtime', 'inboxd', 'promotions.json'),
-    statePath: path.join(vaultRoot, '.runtime', 'inboxd', 'state.json'),
-  }
+  return resolveRuntimePaths(vaultRoot)
 }
 
 async function listMealManifestPaths(vaultRoot: string): Promise<string[]> {
@@ -628,7 +625,7 @@ test.sequential(
       const config = await readJsonFile<{
         version: number
         connectors: unknown[]
-      }>(inboxPaths(fixture.vaultRoot).configPath)
+      }>(inboxPaths(fixture.vaultRoot).inboxConfigPath)
       assert.equal(config.version, 1)
       assert.deepEqual(config.connectors, [])
     } finally {
@@ -1107,7 +1104,7 @@ test.sequential(
       })
 
       await writeFile(
-        paths.statePath,
+        paths.inboxStatePath,
         `${JSON.stringify(
           {
             running: true,
@@ -1148,7 +1145,7 @@ test.sequential(
         stale: boolean
         status: string
         message: string | null
-      }>(paths.statePath)
+      }>(paths.inboxStatePath)
       assert.equal(persistedStaleState.stale, true)
       assert.equal(persistedStaleState.status, 'stale')
       assert.match(
@@ -1157,7 +1154,7 @@ test.sequential(
       )
 
       await writeFile(
-        paths.statePath,
+        paths.inboxStatePath,
         `${JSON.stringify(
           {
             ...persistedStaleState,
@@ -1237,7 +1234,7 @@ test.sequential('stop reports not-running and timeout edge cases', async () => {
     )
 
     await writeFile(
-      paths.statePath,
+      paths.inboxStatePath,
       `${JSON.stringify(
         {
           running: true,
@@ -1290,7 +1287,7 @@ test.sequential('doctor reports invalid config, missing source, and connector di
       requestId: null,
     })
 
-    await writeFile(paths.configPath, '{"version":1,"connectors":"bad"}\n', 'utf8')
+    await writeFile(paths.inboxConfigPath, '{"version":1,"connectors":"bad"}\n', 'utf8')
     const invalidConfig = await baselineServices.doctor({
       vault: fixture.vaultRoot,
       requestId: null,
@@ -1305,7 +1302,7 @@ test.sequential('doctor reports invalid config, missing source, and connector di
     )
 
     await writeFile(
-      paths.configPath,
+      paths.inboxConfigPath,
       `${JSON.stringify(
         {
           version: 1,
@@ -1517,7 +1514,7 @@ test.sequential('status and stop reject corrupted daemon state, and inbox operat
       vaultRoot: fixture.vaultRoot,
     })
 
-    await writeFile(paths.statePath, '{"running":"nope"}\n', 'utf8')
+    await writeFile(paths.inboxStatePath, '{"running":"nope"}\n', 'utf8')
     await expectVaultCliError(
       services.status({
         vault: fixture.vaultRoot,
@@ -1533,7 +1530,7 @@ test.sequential('status and stop reject corrupted daemon state, and inbox operat
       'INBOX_STATE_INVALID',
     )
 
-    await rm(paths.statePath, { force: true })
+    await rm(paths.inboxStatePath, { force: true })
     await services.backfill({
       vault: fixture.vaultRoot,
       requestId: null,
@@ -1544,7 +1541,7 @@ test.sequential('status and stop reject corrupted daemon state, and inbox operat
       vaultRoot: fixture.vaultRoot,
     })
 
-    await writeFile(paths.promotionsPath, '{"version":1,"entries":"bad"}\n', 'utf8')
+    await writeFile(paths.inboxPromotionsPath, '{"version":1,"entries":"bad"}\n', 'utf8')
     await expectVaultCliError(
       services.list({
         vault: fixture.vaultRoot,
@@ -1618,7 +1615,7 @@ test.sequential('meal promotion remains idempotent after local promotion state i
     assert.equal(firstPromotion.created, true)
     assert.equal((await listMealManifestPaths(fixture.vaultRoot)).length, 1)
 
-    await rm(paths.promotionsPath, { force: true })
+    await rm(paths.inboxPromotionsPath, { force: true })
 
     const retriedPromotion = await services.promoteMeal({
       vault: fixture.vaultRoot,
@@ -1638,7 +1635,7 @@ test.sequential('meal promotion remains idempotent after local promotion state i
 test.sequential('meal promotion retries do not duplicate canonical meals after a local promotion-store write failure', async () => {
   const fixture = await makeVaultFixture('healthybob-inbox-promotion-write-failure')
   const paths = inboxPaths(fixture.vaultRoot)
-  const inboxRuntimeRoot = path.dirname(paths.promotionsPath)
+  const inboxRuntimeRoot = path.dirname(paths.inboxPromotionsPath)
   const services = createIntegratedInboxCliServices({
     getHomeDirectory: () => fixture.homeRoot,
     getPlatform: () => 'darwin',
@@ -1755,7 +1752,7 @@ test.sequential('promotion safeguards cover missing photos, invalid stored ids, 
       })
 
       await writeFile(
-        inboxPaths(photoFixture.vaultRoot).promotionsPath,
+        inboxPaths(photoFixture.vaultRoot).inboxPromotionsPath,
         `${JSON.stringify(
           {
             version: 1,

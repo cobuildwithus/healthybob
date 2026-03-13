@@ -9,9 +9,9 @@ tables, and attachment job state.
 ## Runtime expectations
 
 - Run on Node.js `>=22.16.0`.
-- `@healthybob/inboxd` opens its runtime database through the built-in
-  `node:sqlite` module and stores machine-local state under
-  `<vault>/.runtime/inboxd.sqlite`.
+- `@healthybob/inboxd` resolves runtime paths and opens its SQLite runtime
+  database through `@healthybob/runtime-state`, storing machine-local state
+  under `<vault>/.runtime/inboxd.sqlite`.
 - Query-owned lexical search state lives separately under
   `<vault>/.runtime/search.sqlite`.
 - The package writes runtime state next to the vault and expects normal local

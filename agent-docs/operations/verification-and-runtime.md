@@ -14,7 +14,7 @@ Last verified: 2026-03-13
 
 ## Current Command Meaning
 
-- `pnpm build`: executes the solution-style `tsc -b` build across the workspace package graph, with `packages/contracts` library emit ordered through `packages/contracts/tsconfig.build.json`, `packages/runtime-state` shared-runtime helpers built before query consumers, and downstream runtime packages, including `packages/parsers`, resolved through project references.
+- `pnpm build`: executes the solution-style `tsc -b` build across the workspace package graph, with `packages/contracts` library emit ordered through `packages/contracts/tsconfig.build.json`, `packages/runtime-state` shared-runtime helpers built before query, inboxd, and CLI consumers, and downstream runtime packages, including `packages/parsers`, resolved through project references.
 - `pnpm typecheck`: validates shell syntax, typechecks repo-owned TS tools, runs each package’s local no-emit typecheck script, and verifies the shared `tsc -b` build, including `packages/runtime-state`, `packages/inboxd`, and `packages/parsers`.
 - `pnpm test`: runs docs drift enforcement, package verification for `contracts`/`runtime-state`/`cli`/`core`/`importers`/`inboxd`/`parsers`/`query`, and fixture/scenario integrity verification through `e2e/smoke/verify-fixtures.ts`.
 - `pnpm test:packages`: runs executable runtime package checks plus the built CLI verification path, then executes the root Vitest suite with `--no-coverage`, including parser-layer tests discovered under `packages/parsers/test/**`.
@@ -26,6 +26,7 @@ Last verified: 2026-03-13
 
 - No deployment target is defined yet.
 - Repo-level checks execute canonical write/read paths in `core`, `importers`, `inboxd`, `parsers`, and `query`, build the shared `runtime-state` package, and build the CLI package through the same TypeScript workspace toolchain used for local development.
-- Query-owned lexical search state now lives at `.runtime/search.sqlite`; inbox-owned local state remains at `.runtime/inboxd.sqlite` plus `.runtime/inboxd/*.json`.
+- Shared runtime-state helpers now own `.runtime` path resolution plus SQLite open defaults for query search, inboxd, and the CLI inbox layer.
+- Query-owned lexical search state lives only at `.runtime/search.sqlite`; inbox-owned local state remains at `.runtime/inboxd.sqlite` plus `.runtime/inboxd/*.json`.
 - The built `vault-cli` binary can be exercised locally with `node packages/cli/dist/bin.js ...` when a change requires an end-to-end runtime check beyond the standard repo scripts.
 - Before adding a runtime target, document entrypoints, environment assumptions, and operational guardrails here.

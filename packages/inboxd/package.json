@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@healthybob/contracts": "workspace:*",
-    "@healthybob/core": "workspace:*"
+    "@healthybob/core": "workspace:*",
+    "@healthybob/runtime-state": "workspace:*"
   }
 }

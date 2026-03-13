@@ -1,6 +1,9 @@
-import path from "node:path";
-import { mkdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import {
+  openSqliteRuntimeDatabase,
+  resolveRuntimePaths,
+  withImmediateTransaction as withTransaction,
+} from "@healthybob/runtime-state";
 
 import type {
   AttachmentParseJobFilters,
@@ -67,16 +70,11 @@ export interface OpenInboxRuntimeInput {
 export async function openInboxRuntime({
   vaultRoot,
 }: OpenInboxRuntimeInput): Promise<InboxRuntimeStore> {
-  const runtimeDirectory = path.join(path.resolve(vaultRoot), ".runtime");
-  await mkdir(runtimeDirectory, { recursive: true });
-
-  const databasePath = path.join(runtimeDirectory, "inboxd.sqlite");
-  const database = new DatabaseSync(databasePath);
+  const runtimePaths = resolveRuntimePaths(vaultRoot);
+  const databasePath = runtimePaths.inboxDbPath;
+  const database = openSqliteRuntimeDatabase(databasePath);
 
   database.exec(`
-    pragma journal_mode = WAL;
-    pragma foreign_keys = ON;
-
     create table if not exists source_cursor (
       source text not null,
       account_id text not null default '',
@@ -1145,19 +1143,6 @@ function ensureColumn(
   }
 
   database.exec(`alter table ${table} add column ${column} ${columnDefinition}`);
-}
-
-function withTransaction<T>(database: DatabaseSync, operation: () => T): T {
-  database.exec("begin immediate transaction");
-
-  try {
-    const result = operation();
-    database.exec("commit");
-    return result;
-  } catch (error) {
-    database.exec("rollback");
-    throw error;
-  }
 }
 
 function normalizeNullable<T>(value: T | null | undefined): T | null {

@@ -371,7 +371,7 @@ test.sequential('search index-status and index-rebuild expose the shared sqlite 
   }
 })
 
-test.sequential('search index-status keeps a legacy inbox search db readable until index-rebuild writes the canonical search db', async () => {
+test.sequential('search index-status ignores a copied inbox search db until index-rebuild restores the canonical search db', async () => {
   const fixture = await makeRetrievalFixture()
   const searchDatabasePath = path.join(fixture.vaultRoot, '.runtime/search.sqlite')
   const legacyDatabasePath = path.join(fixture.vaultRoot, '.runtime/inboxd.sqlite')
@@ -407,8 +407,8 @@ test.sequential('search index-status keeps a legacy inbox search db readable unt
 
     assert.equal(legacyStatus.ok, true)
     assert.equal(requireData(legacyStatus).backend, 'sqlite')
-    assert.equal(requireData(legacyStatus).exists, true)
-    assert.equal(requireData(legacyStatus).dbPath, '.runtime/inboxd.sqlite')
+    assert.equal(requireData(legacyStatus).exists, false)
+    assert.equal(requireData(legacyStatus).dbPath, '.runtime/search.sqlite')
 
     const sqliteSearch = await runCli<{
       filters: { backend: string }
@@ -425,11 +425,10 @@ test.sequential('search index-status keeps a legacy inbox search db readable unt
       fixture.vaultRoot,
     ])
 
-    assert.equal(sqliteSearch.ok, true)
-    assert.equal(requireData(sqliteSearch).filters.backend, 'sqlite')
-    assert.equal(
-      requireData(sqliteSearch).hits.some((hit) => hit.recordId.startsWith('smp_')),
-      true,
+    assert.equal(sqliteSearch.ok, false)
+    assert.match(
+      sqliteSearch.error.message ?? '',
+      /index-rebuild|--backend scan/u,
     )
 
     const rebuilt = await runCli<{

@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-13 (runtime-state ownership split documented across architecture/verification/command-surface docs; active execution-plan inventory refreshed for current integration work)
+Last verified: 2026-03-13 (runtime-state cutover docs and the softer coordination-ledger semantics are aligned across process docs and prompt templates)
 
 ## Purpose
 
@@ -32,7 +32,7 @@ This index is the table of contents for durable, repository-local context that a
 | `agent-docs/prompts/task-finish-review.md` | Reusable final completion audit prompt with parallel-agent handoff output. | Completion workflow | Healthy Bob Maintainer | Per process change | High | 2026-03-13 |
 | `agent-docs/generated/README.md` | Generated doc artifacts produced by scripts. | `agent-docs/generated/**` | Healthy Bob Maintainer | Per script change | Medium | 2026-03-12 |
 | `agent-docs/exec-plans/active/` | Active execution plans and in-flight ownership docs. | Plan workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-13 |
-| `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` | Active task ownership ledger for safe concurrent work. | Active coding sessions | Healthy Bob Maintainer | Continuous | High | 2026-03-13 |
+| `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` | Active task coordination ledger for safe concurrent work; rows are notices by default and exclusive only when explicitly marked. | Active coding sessions | Healthy Bob Maintainer | Continuous | High | 2026-03-13 |
 | `agent-docs/exec-plans/completed/` | Immutable completed execution-plan snapshots. | Plan workflow | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
 | `agent-docs/exec-plans/tech-debt-tracker.md` | Rolling debt register with owner/priority/status. | Audits, reviews, bootstrap follow-ups | Healthy Bob Maintainer | Bi-weekly | Medium | 2026-03-12 |
 
@@ -42,4 +42,4 @@ This index is the table of contents for durable, repository-local context that a
 - Update this index whenever docs are added, removed, or moved.
 - Treat `UNCONFIRMED` product/domain assumptions as temporary and replace them with concrete specs before broad implementation work.
 - For multi-file or high-risk work, add a plan in `agent-docs/exec-plans/active/`.
-- Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work.
+- Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work, and mark rows as exclusive only when overlap is genuinely unsafe.

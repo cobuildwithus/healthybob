@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { resolveRuntimePaths, type RuntimePaths } from '@healthybob/runtime-state'
 import { z } from 'incur'
 import { loadRuntimeModule } from './runtime-import.js'
 import { VaultCliError } from './vault-cli-errors.js'
@@ -217,15 +218,7 @@ interface CommandContext {
   requestId: string | null
 }
 
-interface InboxPaths {
-  absoluteVaultRoot: string
-  runtimeRoot: string
-  inboxRuntimeRoot: string
-  databasePath: string
-  configPath: string
-  statePath: string
-  promotionsPath: string
-}
+type InboxPaths = RuntimePaths
 
 interface InboxServicesDependencies {
   clock?: () => Date
@@ -343,7 +336,7 @@ export function createIntegratedInboxCliServices(
 
   return {
     async init(input) {
-      const paths = resolveInboxPaths(input.vault)
+      const paths = resolveRuntimePaths(input.vault)
       const inboxd = await loadInbox()
       await inboxd.ensureInboxVault(paths.absoluteVaultRoot)
 
@@ -356,8 +349,8 @@ export function createIntegratedInboxCliServices(
       )
       await ensureConfigFile(paths, createdPaths)
 
-      if (!(await fileExists(paths.databasePath))) {
-        createdPaths.push(relativeToVault(paths.absoluteVaultRoot, paths.databasePath))
+      if (!(await fileExists(paths.inboxDbPath))) {
+        createdPaths.push(relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath))
       }
 
       const runtime = await inboxd.openInboxRuntime({
@@ -376,8 +369,8 @@ export function createIntegratedInboxCliServices(
           paths.absoluteVaultRoot,
           paths.inboxRuntimeRoot,
         ),
-        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.databasePath),
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
         createdPaths,
         rebuiltCaptures,
       }
@@ -412,7 +405,7 @@ export function createIntegratedInboxCliServices(
 
       return {
         vault: paths.absoluteVaultRoot,
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
         connector,
         connectorCount: config.connectors.length,
       }
@@ -424,7 +417,7 @@ export function createIntegratedInboxCliServices(
 
       return {
         vault: paths.absoluteVaultRoot,
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
         connectors: config.connectors,
       }
     },
@@ -448,7 +441,7 @@ export function createIntegratedInboxCliServices(
 
       return {
         vault: paths.absoluteVaultRoot,
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
         removed: true,
         connectorId: input.connectorId,
         connectorCount: config.connectors.length,
@@ -456,7 +449,7 @@ export function createIntegratedInboxCliServices(
     },
 
     async doctor(input) {
-      const paths = resolveInboxPaths(input.vault)
+      const paths = resolveRuntimePaths(input.vault)
       const inboxd = await loadInbox()
       const checks: InboxDoctorCheck[] = []
       let config: InboxRuntimeConfig | null = null
@@ -511,11 +504,11 @@ export function createIntegratedInboxCliServices(
       if (!config) {
         return {
           vault: paths.absoluteVaultRoot,
-          configPath: (await fileExists(paths.configPath))
-            ? relativeToVault(paths.absoluteVaultRoot, paths.configPath)
+          configPath: (await fileExists(paths.inboxConfigPath))
+            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath)
             : null,
           databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.databasePath)
+            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
             : null,
           target: input.sourceId ?? null,
           ok: checks.every((check) => check.status !== 'fail'),
@@ -539,9 +532,9 @@ export function createIntegratedInboxCliServices(
 
         return {
           vault: paths.absoluteVaultRoot,
-          configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+          configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
           databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.databasePath)
+            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
             : null,
           target: null,
           ok: checks.every((check) => check.status !== 'fail'),
@@ -560,9 +553,9 @@ export function createIntegratedInboxCliServices(
         )
         return {
           vault: paths.absoluteVaultRoot,
-          configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+          configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
           databasePath: databaseAvailable
-            ? relativeToVault(paths.absoluteVaultRoot, paths.databasePath)
+            ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
             : null,
           target: input.sourceId,
           ok: false,
@@ -693,9 +686,9 @@ export function createIntegratedInboxCliServices(
 
       return {
         vault: paths.absoluteVaultRoot,
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
         databasePath: databaseAvailable
-          ? relativeToVault(paths.absoluteVaultRoot, paths.databasePath)
+          ? relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath)
           : null,
         target: connector.id,
         ok: checks.every((check) => check.status !== 'fail'),
@@ -825,9 +818,9 @@ export function createIntegratedInboxCliServices(
         stoppedAt: null,
         status: 'running',
         connectorIds: enabledConnectors.map((connector) => connector.id),
-        statePath: relativeToVault(paths.absoluteVaultRoot, paths.statePath),
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
-        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.databasePath),
+        statePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxStatePath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath),
         message: null,
       })
 
@@ -849,9 +842,9 @@ export function createIntegratedInboxCliServices(
           stoppedAt: clock().toISOString(),
           status: 'failed',
           connectorIds: enabledConnectors.map((connector) => connector.id),
-          statePath: relativeToVault(paths.absoluteVaultRoot, paths.statePath),
-          configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
-          databasePath: relativeToVault(paths.absoluteVaultRoot, paths.databasePath),
+          statePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxStatePath),
+          configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+          databasePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath),
           message: errorMessage(error),
         })
         throw error
@@ -873,9 +866,9 @@ export function createIntegratedInboxCliServices(
         stoppedAt,
         status: 'stopped',
         connectorIds: enabledConnectors.map((connector) => connector.id),
-        statePath: relativeToVault(paths.absoluteVaultRoot, paths.statePath),
-        configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
-        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.databasePath),
+        statePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxStatePath),
+        configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+        databasePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath),
         message:
           reason === 'signal' && shouldReportSignal
             ? 'Inbox daemon stopped by signal.'
@@ -888,7 +881,7 @@ export function createIntegratedInboxCliServices(
         startedAt,
         stoppedAt,
         reason,
-        statePath: relativeToVault(paths.absoluteVaultRoot, paths.statePath),
+        statePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxStatePath),
       }
     },
 
@@ -1165,31 +1158,15 @@ export function createIntegratedInboxCliServices(
   }
 }
 
-function resolveInboxPaths(vaultRoot: string): InboxPaths {
-  const absoluteVaultRoot = path.resolve(vaultRoot)
-  const runtimeRoot = path.join(absoluteVaultRoot, '.runtime')
-  const inboxRuntimeRoot = path.join(runtimeRoot, 'inboxd')
-
-  return {
-    absoluteVaultRoot,
-    runtimeRoot,
-    inboxRuntimeRoot,
-    databasePath: path.join(runtimeRoot, 'inboxd.sqlite'),
-    configPath: path.join(inboxRuntimeRoot, 'config.json'),
-    statePath: path.join(inboxRuntimeRoot, 'state.json'),
-    promotionsPath: path.join(inboxRuntimeRoot, 'promotions.json'),
-  }
-}
-
 async function ensureInitialized(
   loadInbox: () => Promise<InboxRuntimeModule>,
   vaultRoot: string,
 ): Promise<InboxPaths> {
-  const paths = resolveInboxPaths(vaultRoot)
+  const paths = resolveRuntimePaths(vaultRoot)
   const inboxd = await loadInbox()
   await inboxd.ensureInboxVault(paths.absoluteVaultRoot)
 
-  if (!(await fileExists(paths.configPath))) {
+  if (!(await fileExists(paths.inboxConfigPath))) {
     throw new VaultCliError(
       'INBOX_NOT_INITIALIZED',
       'Inbox runtime is not initialized. Run `vault-cli inbox init` first.',
@@ -1215,7 +1192,7 @@ async function ensureConfigFile(
   paths: InboxPaths,
   createdPaths: string[],
 ): Promise<void> {
-  if (await fileExists(paths.configPath)) {
+  if (await fileExists(paths.inboxConfigPath)) {
     return
   }
 
@@ -1223,13 +1200,13 @@ async function ensureConfigFile(
     version: CONFIG_VERSION,
     connectors: [],
   }
-  await writeJsonFile(paths.configPath, emptyConfig)
-  createdPaths.push(relativeToVault(paths.absoluteVaultRoot, paths.configPath))
+  await writeJsonFile(paths.inboxConfigPath, emptyConfig)
+  createdPaths.push(relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath))
 }
 
 async function readConfig(paths: InboxPaths): Promise<InboxRuntimeConfig> {
   return readJsonWithSchema(
-    paths.configPath,
+    paths.inboxConfigPath,
     inboxRuntimeConfigSchema,
     'INBOX_CONFIG_INVALID',
     'Inbox runtime config is invalid.',
@@ -1240,7 +1217,7 @@ async function writeConfig(
   paths: InboxPaths,
   config: InboxRuntimeConfig,
 ): Promise<void> {
-  await writeJsonFile(paths.configPath, inboxRuntimeConfigSchema.parse(config))
+  await writeJsonFile(paths.inboxConfigPath, inboxRuntimeConfigSchema.parse(config))
 }
 
 async function rebuildRuntime(
@@ -1423,7 +1400,7 @@ async function readPromotionsByCapture(
 async function readPromotionStore(
   paths: InboxPaths,
 ): Promise<z.infer<typeof inboxPromotionStoreSchema>> {
-  if (!(await fileExists(paths.promotionsPath))) {
+  if (!(await fileExists(paths.inboxPromotionsPath))) {
     return {
       version: PROMOTION_STORE_VERSION,
       entries: [],
@@ -1431,7 +1408,7 @@ async function readPromotionStore(
   }
 
   return readJsonWithSchema(
-    paths.promotionsPath,
+    paths.inboxPromotionsPath,
     inboxPromotionStoreSchema,
     'INBOX_PROMOTIONS_INVALID',
     'Inbox promotion state is invalid.',
@@ -1443,7 +1420,7 @@ async function writePromotionStore(
   store: z.infer<typeof inboxPromotionStoreSchema>,
 ): Promise<void> {
   await writeJsonFile(
-    paths.promotionsPath,
+    paths.inboxPromotionsPath,
     inboxPromotionStoreSchema.parse(store),
   )
 }
@@ -1600,12 +1577,12 @@ async function normalizeDaemonState(
   clock: () => Date,
   getPid: () => number,
 ): Promise<InboxDaemonState> {
-  if (!(await fileExists(paths.statePath))) {
+  if (!(await fileExists(paths.inboxStatePath))) {
     return idleState(paths)
   }
 
   const state = await readJsonWithSchema(
-    paths.statePath,
+    paths.inboxStatePath,
     inboxDaemonStateSchema,
     'INBOX_STATE_INVALID',
     'Inbox daemon state is invalid.',
@@ -1644,9 +1621,9 @@ function idleState(paths: InboxPaths): InboxDaemonState {
     stoppedAt: null,
     status: 'idle',
     connectorIds: [],
-    statePath: relativeToVault(paths.absoluteVaultRoot, paths.statePath),
-    configPath: relativeToVault(paths.absoluteVaultRoot, paths.configPath),
-    databasePath: relativeToVault(paths.absoluteVaultRoot, paths.databasePath),
+    statePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxStatePath),
+    configPath: relativeToVault(paths.absoluteVaultRoot, paths.inboxConfigPath),
+    databasePath: relativeToVault(paths.absoluteVaultRoot, paths.inboxDbPath),
     message: null,
   }
 }
@@ -1655,7 +1632,7 @@ async function writeDaemonState(
   paths: InboxPaths,
   state: InboxDaemonState,
 ): Promise<void> {
-  await writeJsonFile(paths.statePath, inboxDaemonStateSchema.parse(state))
+  await writeJsonFile(paths.inboxStatePath, inboxDaemonStateSchema.parse(state))
 }
 
 function isProcessAlive(

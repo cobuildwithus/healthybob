@@ -8,6 +8,12 @@
       ],
       "@healthybob/contracts/*": [
         "packages/contracts/dist/*"
+      ],
+      "@healthybob/runtime-state": [
+        "packages/runtime-state/dist/index.d.ts"
+      ],
+      "@healthybob/runtime-state/*": [
+        "packages/runtime-state/dist/*"
       ]
     },
     "rootDir": "src",
@@ -17,6 +23,9 @@
   "references": [
     {
       "path": "../contracts/tsconfig.build.json"
+    },
+    {
+      "path": "../runtime-state"
     },
     {
       "path": "../core/tsconfig.build.json"

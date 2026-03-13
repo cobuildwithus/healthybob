@@ -4,6 +4,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "vitest";
+import { resolveRuntimePaths } from "@healthybob/runtime-state";
 
 import { initializeVault, readJsonlRecords } from "@healthybob/core";
 
@@ -35,6 +36,7 @@ test("processCapture stores redacted raw evidence, note events, audit records, a
   const attachmentPath = await writeExternalFile(sourceRoot, "meal-photo.jpg", "photo");
   const runtime = await openInboxRuntime({ vaultRoot });
   const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+  assert.equal(runtime.databasePath, resolveRuntimePaths(vaultRoot).inboxDbPath);
 
   const first = await pipeline.processCapture({
     source: "imessage",

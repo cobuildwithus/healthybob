@@ -1823,7 +1823,7 @@ test("searchVaultRuntime auto falls back to scan and sqlite merges sample rows o
   }
 });
 
-test("getSqliteSearchStatus keeps legacy inbox search indexes readable until rebuild writes the canonical search db", async () => {
+test("getSqliteSearchStatus ignores a copied inbox search db until rebuild restores the canonical search db", async () => {
   const vaultRoot = await createFixtureVault();
   const searchDatabasePath = path.join(vaultRoot, SEARCH_DB_RELATIVE_PATH);
   const legacyDatabasePath = path.join(vaultRoot, INBOX_DB_RELATIVE_PATH);
@@ -1835,21 +1835,22 @@ test("getSqliteSearchStatus keeps legacy inbox search indexes readable until reb
     await rm(searchDatabasePath, { force: true });
 
     const legacyStatus = getSqliteSearchStatus(vaultRoot);
-    assert.equal(legacyStatus.exists, true);
-    assert.equal(legacyStatus.dbPath, INBOX_DB_RELATIVE_PATH);
+    assert.equal(legacyStatus.exists, false);
+    assert.equal(legacyStatus.dbPath, SEARCH_DB_RELATIVE_PATH);
 
-    const legacyResult = await searchVaultRuntime(
-      vaultRoot,
-      "lab report",
-      {
-        recordTypes: ["event"],
-        kinds: ["document"],
-      },
-      { backend: "sqlite" },
+    await assert.rejects(
+      () =>
+        searchVaultRuntime(
+          vaultRoot,
+          "lab report",
+          {
+            recordTypes: ["event"],
+            kinds: ["document"],
+          },
+          { backend: "sqlite" },
+        ),
+      /index-rebuild|--backend scan/u,
     );
-
-    assert.equal(legacyResult.total, 1);
-    assert.equal(legacyResult.hits[0]?.recordId, "doc_01JNV4DOC0000000000000001");
 
     const rebuilt = await rebuildSqliteSearchIndex(vaultRoot);
     assert.equal(rebuilt.dbPath, SEARCH_DB_RELATIVE_PATH);
@@ -1863,7 +1864,7 @@ test("getSqliteSearchStatus keeps legacy inbox search indexes readable until reb
   }
 });
 
-test("getSqliteSearchStatus prefers the canonical search db when canonical and legacy indexes both exist", async () => {
+test("getSqliteSearchStatus ignores an inbox runtime copy when the canonical search db exists", async () => {
   const vaultRoot = await createFixtureVault();
   const searchDatabasePath = path.join(vaultRoot, SEARCH_DB_RELATIVE_PATH);
   const legacyDatabasePath = path.join(vaultRoot, INBOX_DB_RELATIVE_PATH);
