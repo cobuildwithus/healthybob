@@ -14,6 +14,9 @@
       "path": "./packages/query"
     },
     {
+      "path": "./packages/inboxd"
+    },
+    {
       "path": "./packages/cli"
     }
   ]

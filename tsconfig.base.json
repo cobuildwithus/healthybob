@@ -42,6 +42,12 @@
       "@healthybob/query/*": [
         "packages/query/src/*"
       ],
+      "@healthybob/inboxd": [
+        "packages/inboxd/src/index.ts"
+      ],
+      "@healthybob/inboxd/*": [
+        "packages/inboxd/src/*"
+      ],
       "@healthybob/cli": [
         "packages/cli/src/index.ts"
       ],
