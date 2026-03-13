@@ -10,7 +10,11 @@ import type { ParserArtifactKind } from "../contracts/artifact.js";
 import type { ParserRegistry } from "../registry/registry.js";
 import { resolveInboxAttachmentArtifact } from "../inboxd/bridge.js";
 import { type FfmpegToolOptions } from "../adapters/ffmpeg.js";
-import { redactSensitiveText } from "../shared.js";
+import {
+  redactSensitiveText,
+  removeDirectoryIfExists,
+  resolveVaultRelativePath,
+} from "../shared.js";
 import { parseAttachment } from "./parse-attachment.js";
 import { writeParserArtifacts } from "../publish/writer.js";
 
@@ -31,9 +35,49 @@ export interface RunAttachmentParseWorkerInput {
   ffmpeg?: FfmpegToolOptions;
   maxJobs?: number;
   jobFilters?: AttachmentParseJobClaimFilters;
+  signal?: AbortSignal;
 }
 
 export async function runAttachmentParseJobOnce(input: RunAttachmentParseWorkerInput): Promise<RunAttachmentParseJobResult | null> {
+  const result = await runAttachmentParseJobAttempt(input);
+  if (result === STALE_PARSE_ATTEMPT) {
+    return null;
+  }
+
+  return result;
+}
+
+export async function runAttachmentParseWorker(input: RunAttachmentParseWorkerInput): Promise<RunAttachmentParseJobResult[]> {
+  const results: RunAttachmentParseJobResult[] = [];
+  const maxJobs = input.maxJobs ?? Number.POSITIVE_INFINITY;
+
+  while (results.length < maxJobs) {
+    if (input.signal?.aborted) {
+      break;
+    }
+
+    const result = await runAttachmentParseJobAttempt(input);
+    if (result === null) {
+      break;
+    }
+    if (result === STALE_PARSE_ATTEMPT) {
+      continue;
+    }
+    results.push(result);
+  }
+
+  return results;
+}
+
+const STALE_PARSE_ATTEMPT = Symbol("stale-parse-attempt");
+
+async function runAttachmentParseJobAttempt(
+  input: RunAttachmentParseWorkerInput,
+): Promise<RunAttachmentParseJobResult | typeof STALE_PARSE_ATTEMPT | null> {
+  if (input.signal?.aborted) {
+    return null;
+  }
+
   const job = input.runtime.claimNextAttachmentParseJob(input.jobFilters);
   if (!job) {
     return null;
@@ -53,21 +97,27 @@ export async function runAttachmentParseJobOnce(input: RunAttachmentParseWorkerI
       ffmpeg: input.ffmpeg,
     });
     const published = await writeParserArtifacts({
+      attempt: job.attempts,
       vaultRoot: input.vaultRoot,
       output: parsed.output,
     });
     const transcriptOnly = isTranscriptOnlyArtifact(artifact.kind);
     const completedJob = input.runtime.completeAttachmentParseJob({
+      attempt: job.attempts,
       jobId: job.jobId,
       providerId: parsed.providerId,
       resultPath: published.manifestPath,
       extractedText: transcriptOnly ? null : parsed.output.text,
       transcriptText: transcriptOnly ? parsed.output.text : null,
     });
+    if (!completedJob.applied) {
+      await removePublishedArtifacts(input.vaultRoot, published.attemptDirectoryPath);
+      return STALE_PARSE_ATTEMPT;
+    }
 
     return {
       status: "succeeded",
-      job: completedJob,
+      job: completedJob.job,
       providerId: parsed.providerId,
       manifestPath: published.manifestPath,
     };
@@ -75,33 +125,22 @@ export async function runAttachmentParseJobOnce(input: RunAttachmentParseWorkerI
     const errorMessage = redactSensitiveText(error instanceof Error ? error.message : String(error));
     const errorCode = classifyParseError(errorMessage);
     const failedJob = input.runtime.failAttachmentParseJob({
+      attempt: job.attempts,
       jobId: job.jobId,
       errorCode,
       errorMessage,
     });
+    if (!failedJob.applied) {
+      return STALE_PARSE_ATTEMPT;
+    }
 
     return {
       status: "failed",
-      job: failedJob,
+      job: failedJob.job,
       errorCode,
       errorMessage,
     };
   }
-}
-
-export async function runAttachmentParseWorker(input: RunAttachmentParseWorkerInput): Promise<RunAttachmentParseJobResult[]> {
-  const results: RunAttachmentParseJobResult[] = [];
-  const maxJobs = input.maxJobs ?? Number.POSITIVE_INFINITY;
-
-  while (results.length < maxJobs) {
-    const result = await runAttachmentParseJobOnce(input);
-    if (!result) {
-      break;
-    }
-    results.push(result);
-  }
-
-  return results;
 }
 
 function isTranscriptOnlyArtifact(kind: ParserArtifactKind): boolean {
@@ -121,4 +160,11 @@ function classifyParseError(message: string): string {
   }
 
   return "parser_failed";
+}
+
+async function removePublishedArtifacts(
+  vaultRoot: string,
+  attemptDirectoryPath: string,
+): Promise<void> {
+  await removeDirectoryIfExists(resolveVaultRelativePath(vaultRoot, attemptDirectoryPath));
 }

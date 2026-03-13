@@ -47,6 +47,9 @@ importers:
       '@healthybob/inboxd':
         specifier: workspace:*
         version: link:../inboxd
+      '@healthybob/parsers':
+        specifier: workspace:*
+        version: link:../parsers
       '@healthybob/query':
         specifier: workspace:*
         version: link:../query
@@ -101,6 +104,9 @@ importers:
       '@healthybob/inboxd':
         specifier: workspace:*
         version: link:../inboxd
+      '@healthybob/runtime-state':
+        specifier: workspace:*
+        version: link:../runtime-state
 
   packages/query:
     dependencies:

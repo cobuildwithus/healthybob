@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { ParserArtifactRef } from "../contracts/artifact.js";
@@ -7,6 +8,7 @@ import { prepareAudioInput, type FfmpegToolOptions } from "../adapters/ffmpeg.js
 import {
   buildMarkdown,
   ensureDirectory,
+  removeDirectoryIfExists,
   splitTextIntoBlocks,
   toArtifactSummary,
 } from "../shared.js";
@@ -24,32 +26,38 @@ export interface ParseAttachmentResult {
 }
 
 export async function parseAttachment(input: ParseAttachmentInput): Promise<ParseAttachmentResult> {
-  const scratchDirectory = path.resolve(input.scratchRoot, input.artifact.attachmentId);
-  await ensureDirectory(scratchDirectory);
+  const scratchAttachmentRoot = path.resolve(input.scratchRoot, input.artifact.attachmentId);
+  await ensureDirectory(scratchAttachmentRoot);
 
-  const preparedMedia = await prepareAudioInput({
-    artifact: input.artifact,
-    scratchDirectory,
-    ffmpeg: input.ffmpeg,
-  });
-  const request: ParseRequest = {
-    intent: "attachment_text",
-    artifact: input.artifact,
-    inputPath: preparedMedia.inputPath,
-    preparedKind: preparedMedia.preparedKind,
-    scratchDirectory,
-  };
-  const { selection, result } = await input.registry.run(request);
-  const output = normalizeParserOutput({
-    artifact: input.artifact,
-    providerId: selection.provider.id,
-    result,
-  });
+  const scratchDirectory = await fs.mkdtemp(path.join(scratchAttachmentRoot, "run-"));
 
-  return {
-    providerId: selection.provider.id,
-    output,
-  };
+  try {
+    const preparedMedia = await prepareAudioInput({
+      artifact: input.artifact,
+      scratchDirectory,
+      ffmpeg: input.ffmpeg,
+    });
+    const request: ParseRequest = {
+      intent: "attachment_text",
+      artifact: input.artifact,
+      inputPath: preparedMedia.inputPath,
+      preparedKind: preparedMedia.preparedKind,
+      scratchDirectory,
+    };
+    const { selection, result } = await input.registry.run(request);
+    const output = normalizeParserOutput({
+      artifact: input.artifact,
+      providerId: selection.provider.id,
+      result,
+    });
+
+    return {
+      providerId: selection.provider.id,
+      output,
+    };
+  } finally {
+    await removeDirectoryIfExists(scratchDirectory);
+  }
 }
 
 function normalizeParserOutput(input: {

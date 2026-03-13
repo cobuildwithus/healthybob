@@ -2224,11 +2224,13 @@ test.sequential('inbox parse and requeue drive parser queue controls without rea
         limit: 1,
       })
       assert.ok(job)
-      runtime.claimNextAttachmentParseJob({
+      const claimedJob = runtime.claimNextAttachmentParseJob({
         captureId,
       })
+      assert.ok(claimedJob)
       runtime.failAttachmentParseJob({
         jobId: job.jobId,
+        attempt: claimedJob.attempts,
         errorMessage: 'parser failed',
       })
     } finally {

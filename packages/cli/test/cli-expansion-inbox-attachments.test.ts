@@ -81,9 +81,11 @@ async function loadBuiltInboxRuntime() {
         jobId: string
         attachmentId: string
         captureId: string
+        attempts: number
       } | null
       completeAttachmentParseJob(input: {
         jobId: string
+        attempt: number
         providerId: string
         resultPath: string
         extractedText?: string | null
@@ -162,9 +164,11 @@ function createFakeParsersModule() {
               jobId: string
               attachmentId: string
               captureId: string
+              attempts: number
             } | null
             completeAttachmentParseJob(input: {
               jobId: string
+              attempt: number
               providerId: string
               resultPath: string
               extractedText?: string | null
@@ -177,6 +181,7 @@ function createFakeParsersModule() {
 
           runtime.completeAttachmentParseJob({
             jobId: job.jobId,
+            attempt: job.attempts,
             providerId: 'fake-parser',
             resultPath: 'derived/inbox/parse-result.json',
             extractedText: 'Parsed attachment text',
@@ -283,6 +288,7 @@ test.sequential(
         assert.ok(pendingJob)
         runtime.completeAttachmentParseJob({
           jobId: pendingJob.jobId,
+          attempt: pendingJob.attempts,
           providerId: 'fake-image-parser',
           resultPath: 'derived/inbox/manifest.json',
           extractedText: 'Glucose 88 mg/dL',

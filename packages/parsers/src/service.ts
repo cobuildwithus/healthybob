@@ -19,6 +19,7 @@ export interface CreateInboxParserServiceInput {
 
 export interface InboxParserServiceDrainInput extends AttachmentParseJobClaimFilters {
   maxJobs?: number;
+  signal?: AbortSignal;
 }
 
 export interface InboxParserService {
@@ -30,7 +31,7 @@ export interface InboxParserService {
 export function createInboxParserService(input: CreateInboxParserServiceInput): InboxParserService {
   return {
     drain(drainInput = {}) {
-      const { maxJobs, ...jobFilters } = drainInput;
+      const { maxJobs, signal, ...jobFilters } = drainInput;
       return runAttachmentParseWorker({
         vaultRoot: input.vaultRoot,
         runtime: input.runtime,
@@ -39,6 +40,7 @@ export function createInboxParserService(input: CreateInboxParserServiceInput): 
         ffmpeg: input.ffmpeg,
         maxJobs,
         jobFilters,
+        signal,
       });
     },
     drainOnce(jobFilters) {

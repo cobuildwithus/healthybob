@@ -31,6 +31,7 @@ export interface AttachmentParseJobClaimFilters {
 
 export interface CompleteAttachmentParseJobInput {
   jobId: string;
+  attempt: number;
   providerId: string;
   resultPath: string;
   extractedText?: string | null;
@@ -40,10 +41,16 @@ export interface CompleteAttachmentParseJobInput {
 
 export interface FailAttachmentParseJobInput {
   jobId: string;
+  attempt: number;
   providerId?: string | null;
   errorCode?: string | null;
   errorMessage: string;
   finishedAt?: string;
+}
+
+export interface AttachmentParseJobFinalizeResult {
+  job: AttachmentParseJobRecord;
+  applied: boolean;
 }
 
 export interface RequeueAttachmentParseJobsInput {

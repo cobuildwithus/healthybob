@@ -7,6 +7,7 @@ import {
 
 import type {
   AttachmentParseJobClaimFilters,
+  AttachmentParseJobFinalizeResult,
   AttachmentParseJobFilters,
   AttachmentParseJobRecord,
   CompleteAttachmentParseJobInput,
@@ -59,8 +60,8 @@ export interface InboxRuntimeStore {
   listAttachmentParseJobs(filters?: AttachmentParseJobFilters): AttachmentParseJobRecord[];
   claimNextAttachmentParseJob(filters?: AttachmentParseJobClaimFilters): AttachmentParseJobRecord | null;
   requeueAttachmentParseJobs(filters?: RequeueAttachmentParseJobsInput): number;
-  completeAttachmentParseJob(input: CompleteAttachmentParseJobInput): AttachmentParseJobRecord;
-  failAttachmentParseJob(input: FailAttachmentParseJobInput): AttachmentParseJobRecord;
+  completeAttachmentParseJob(input: CompleteAttachmentParseJobInput): AttachmentParseJobFinalizeResult;
+  failAttachmentParseJob(input: FailAttachmentParseJobInput): AttachmentParseJobFinalizeResult;
   listCaptures(filters?: InboxListFilters): InboxCaptureRecord[];
   searchCaptures(filters: InboxSearchFilters): InboxSearchHit[];
   getCapture(captureId: string): InboxCaptureRecord | null;
@@ -615,7 +616,7 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
               where (? is null or capture_id = ?)
                 and (? is null or attachment_id = ?)
                 and (? is null or state = ?)
-                and state in ('failed', 'succeeded')
+                and state in ('failed', 'running', 'succeeded')
             `,
           )
           .all(
@@ -687,7 +688,7 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
         const job = readAttachmentParseJob(database, input.jobId);
         const finishedAt = input.finishedAt ?? new Date().toISOString();
 
-        database
+        const updateResult = database
           .prepare(
             `
               update attachment_parse_job
@@ -698,34 +699,42 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
                   error_message = null,
                   finished_at = ?
               where job_id = ?
+                and state = 'running'
+                and attempts = ?
             `,
           )
-          .run(input.providerId, input.resultPath, finishedAt, input.jobId);
+          .run(input.providerId, input.resultPath, finishedAt, input.jobId, input.attempt);
 
-        database
-          .prepare(
-            `
-              update capture_attachment
-              set extracted_text = ?,
-                  transcript_text = ?,
-                  derived_path = ?,
-                  parser_provider_id = ?,
-                  parser_state = 'succeeded',
-                  parse_updated_at = ?
-              where attachment_id = ?
-            `,
-          )
-          .run(
-            normalizeNullable(input.extractedText),
-            normalizeNullable(input.transcriptText),
-            input.resultPath,
-            input.providerId,
-            finishedAt,
-            job.attachmentId,
-          );
+        if (updateResult.changes > 0) {
+          database
+            .prepare(
+              `
+                update capture_attachment
+                set extracted_text = ?,
+                    transcript_text = ?,
+                    derived_path = ?,
+                    parser_provider_id = ?,
+                    parser_state = 'succeeded',
+                    parse_updated_at = ?
+                where attachment_id = ?
+              `,
+            )
+            .run(
+              normalizeNullable(input.extractedText),
+              normalizeNullable(input.transcriptText),
+              input.resultPath,
+              input.providerId,
+              finishedAt,
+              job.attachmentId,
+            );
 
-        refreshCaptureSearchIndex(database, job.captureId);
-        return readAttachmentParseJob(database, input.jobId);
+          refreshCaptureSearchIndex(database, job.captureId);
+        }
+
+        return {
+          job: readAttachmentParseJob(database, input.jobId),
+          applied: updateResult.changes > 0,
+        };
       });
     },
     failAttachmentParseJob(input) {
@@ -733,7 +742,7 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
         const job = readAttachmentParseJob(database, input.jobId);
         const finishedAt = input.finishedAt ?? new Date().toISOString();
 
-        database
+        const updateResult = database
           .prepare(
             `
               update attachment_parse_job
@@ -743,6 +752,8 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
                   error_message = ?,
                   finished_at = ?
               where job_id = ?
+                and state = 'running'
+                and attempts = ?
             `,
           )
           .run(
@@ -751,21 +762,27 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
             input.errorMessage,
             finishedAt,
             input.jobId,
+            input.attempt,
           );
 
-        database
-          .prepare(
-            `
-              update capture_attachment
-              set parser_provider_id = coalesce(?, parser_provider_id),
-                  parser_state = 'failed',
-                  parse_updated_at = ?
-              where attachment_id = ?
-            `,
-          )
-          .run(normalizeNullable(input.providerId), finishedAt, job.attachmentId);
+        if (updateResult.changes > 0) {
+          database
+            .prepare(
+              `
+                update capture_attachment
+                set parser_provider_id = coalesce(?, parser_provider_id),
+                    parser_state = 'failed',
+                    parse_updated_at = ?
+                where attachment_id = ?
+              `,
+            )
+            .run(normalizeNullable(input.providerId), finishedAt, job.attachmentId);
+        }
 
-        return readAttachmentParseJob(database, input.jobId);
+        return {
+          job: readAttachmentParseJob(database, input.jobId),
+          applied: updateResult.changes > 0,
+        };
       });
     },
     listCaptures(filters = {}) {

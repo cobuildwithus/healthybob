@@ -18,9 +18,13 @@ import {
   createWhisperCppProvider,
   discoverParserToolchain,
   getParserToolchainPaths,
+  parseAttachment,
   prepareAudioInput,
   readParserToolchainConfig,
+  runInboxDaemonWithParsers,
+  runAttachmentParseJobOnce,
   runAttachmentParseWorker,
+  writeParserArtifacts,
   writeParserToolchainConfig,
   type ParserProvider,
 } from "../src/index.js";
@@ -143,6 +147,8 @@ test("shared executable helpers preserve lazy resolution, availability, and miss
 test("parser toolchain config writes, reads, and drives local discovery", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-parser-toolchain");
   const toolsDirectory = await makeTempDirectory("healthybob-parser-toolchain-bin");
+  await fs.mkdir(path.join(vaultRoot, "models"), { recursive: true });
+  await fs.writeFile(path.join(vaultRoot, "models", "fake.bin"), "model", "utf8");
   const fakeToolPath = await writeExecutableFile(
     toolsDirectory,
     "fake-parser-tool",
@@ -201,6 +207,110 @@ test("parser toolchain config writes, reads, and drives local discovery", async 
 
   await fs.rm(vaultRoot, { recursive: true, force: true });
   await fs.rm(toolsDirectory, { recursive: true, force: true });
+});
+
+test("parser toolchain doctor reports missing whisper model files clearly", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parser-toolchain-missing-model");
+  const toolsDirectory = await makeTempDirectory("healthybob-parser-toolchain-missing-model-bin");
+  const fakeToolPath = await writeExecutableFile(
+    toolsDirectory,
+    "fake-parser-tool",
+    "#!/usr/bin/env node\nprocess.exit(0);\n",
+  );
+
+  await initializeVault({
+    vaultRoot,
+    createdAt: "2026-03-13T12:00:00.000Z",
+  });
+
+  await writeParserToolchainConfig({
+    vaultRoot,
+    tools: {
+      whisper: {
+        command: fakeToolPath,
+        modelPath: "./models/missing.bin",
+      },
+    },
+  });
+
+  const doctor = await discoverParserToolchain({ vaultRoot });
+  assert.deepEqual(doctor.tools.whisper, {
+    available: false,
+    command: fakeToolPath,
+    modelPath: "./models/missing.bin",
+    source: "config",
+    reason: "Whisper model path does not exist.",
+  });
+
+  await fs.rm(vaultRoot, { recursive: true, force: true });
+  await fs.rm(toolsDirectory, { recursive: true, force: true });
+});
+
+test("configured parser registry resolves config-relative whisper model paths against the vault root", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parser-toolchain-runtime-model");
+  const toolsDirectory = await makeTempDirectory("healthybob-parser-toolchain-runtime-bin");
+  const outsideDirectory = await makeTempDirectory("healthybob-parser-toolchain-runtime-cwd");
+  const modelPath = path.join(vaultRoot, "models", "runtime.bin");
+  await fs.mkdir(path.dirname(modelPath), { recursive: true });
+  await fs.writeFile(modelPath, "model", "utf8");
+  const fakeWhisperPath = await writeExecutableFile(
+    toolsDirectory,
+    "fake-whisper-runtime",
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const args = process.argv.slice(2);",
+      "const modelPath = args[args.indexOf('-m') + 1];",
+      `if (modelPath !== ${JSON.stringify(modelPath)}) {`,
+      "  console.error(`unexpected model path: ${modelPath}`);",
+      "  process.exit(1);",
+      "}",
+      "const outputBase = args[args.indexOf('-of') + 1];",
+      "fs.writeFileSync(`${outputBase}.txt`, 'runtime model path ok\\n', 'utf8');",
+    ].join("\n"),
+  );
+  const audioPath = await writeExternalFile(toolsDirectory, "voice.wav", "wav-placeholder");
+  const previousCwd = process.cwd();
+
+  await initializeVault({
+    vaultRoot,
+    createdAt: "2026-03-13T12:00:00.000Z",
+  });
+  await writeParserToolchainConfig({
+    vaultRoot,
+    tools: {
+      whisper: {
+        command: fakeWhisperPath,
+        modelPath: "./models/runtime.bin",
+      },
+    },
+  });
+
+  try {
+    process.chdir(outsideDirectory);
+    const configured = await createConfiguredParserRegistry({ vaultRoot });
+    const run = await configured.registry.run({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_whisper_runtime",
+        attachmentId: "att_whisper_runtime",
+        kind: "audio",
+        fileName: "voice.wav",
+        mime: "audio/wav",
+        storedPath: "raw/inbox/example/voice.wav",
+        absolutePath: audioPath,
+      },
+      inputPath: audioPath,
+      scratchDirectory: outsideDirectory,
+    });
+    assert.equal(run.selection.provider.id, "whisper.cpp");
+    assert.equal(run.result.text, "runtime model path ok");
+  } finally {
+    process.chdir(previousCwd);
+    await fs.rm(vaultRoot, { recursive: true, force: true });
+    await fs.rm(toolsDirectory, { recursive: true, force: true });
+    await fs.rm(outsideDirectory, { recursive: true, force: true });
+  }
 });
 
 test("pdftotext provider discovers explicit executables and parses PDF text output", async () => {
@@ -472,6 +582,23 @@ test("PaddleOCR provider discovers explicit executables and harvests OCR artifac
     }),
     true,
   );
+  assert.equal(
+    provider.supports({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_docx_support",
+        attachmentId: "att_docx_support",
+        kind: "document",
+        fileName: "statement.docx",
+        mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        storedPath: "raw/inbox/example/statement.docx",
+        absolutePath: inputPath,
+      },
+      inputPath,
+      scratchDirectory: directory,
+    }),
+    false,
+  );
 
   const result = await provider.run({
     intent: "attachment_text",
@@ -528,6 +655,67 @@ test("PaddleOCR provider rejects stdout-only logs when no structured output file
     }),
     /PaddleOCR did not produce extractable text/u,
   );
+});
+
+test("PaddleOCR treats MIME-only PDFs as PDF-mode inputs", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-paddle-mime-pdf");
+  const executablePath = await writeExecutableFile(
+    directory,
+    "fake-paddleocr-mime-pdf",
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const args = process.argv.slice(2);",
+      "if (!args.includes('--type=structure') || !args.includes('--use_pdf2docx_api=true')) {",
+      "  console.error(`expected pdf-mode args: ${args.join(' ')}`);",
+      "  process.exit(1);",
+      "}",
+      "const outputArg = args.find((arg) => arg.startsWith('--output='));",
+      "const outputDirectory = outputArg ? outputArg.slice('--output='.length) : process.cwd();",
+      "fs.mkdirSync(outputDirectory, { recursive: true });",
+      "fs.writeFileSync(path.join(outputDirectory, 'page1.txt'), 'PDF mode text\\n', 'utf8');",
+    ].join('\n'),
+  );
+  const inputPath = await writeExternalFile(directory, "receipt.bin", "pdf-placeholder");
+  const provider = createPaddleOcrProvider({
+    commandCandidates: [executablePath],
+  });
+
+  assert.equal(
+    provider.supports({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_pdf_mime_support",
+        attachmentId: "att_pdf_mime_support",
+        kind: "document",
+        fileName: "receipt.bin",
+        mime: "application/pdf",
+        storedPath: "raw/inbox/example/receipt.bin",
+        absolutePath: inputPath,
+      },
+      inputPath,
+      scratchDirectory: directory,
+    }),
+    true,
+  );
+
+  const result = await provider.run({
+    intent: "attachment_text",
+    artifact: {
+      captureId: "cap_pdf_mime_run",
+      attachmentId: "att_pdf_mime_run",
+      kind: "document",
+      fileName: "receipt.bin",
+      mime: "application/pdf",
+      storedPath: "raw/inbox/example/receipt.bin",
+      absolutePath: inputPath,
+    },
+    inputPath,
+    scratchDirectory: directory,
+  });
+
+  assert.equal(result.text, "PDF mode text");
 });
 
 test("registry prefers built-in text parsing for markdown documents", async () => {
@@ -633,6 +821,142 @@ test("registry falls through to the next available provider when a higher-ranked
   assert.equal(run.result.text, "Recovered from OCR");
 });
 
+test("parseAttachment uses isolated scratch directories across reruns", async () => {
+  const scratchRoot = await makeTempDirectory("healthybob-parser-scratch-rerun");
+  const sourceRoot = await makeTempDirectory("healthybob-parser-scratch-source");
+  const inputPath = await writeExternalFile(sourceRoot, "scan.png", "png-placeholder");
+  let runCount = 0;
+
+  const registry = createParserRegistry([
+    {
+      id: "scratch-sensitive-provider",
+      locality: "local",
+      openness: "open_source",
+      runtime: "node",
+      priority: 500,
+      async discover() {
+        return {
+          available: true,
+          reason: "available for scratch isolation test",
+        };
+      },
+      supports() {
+        return true;
+      },
+      async run(request) {
+        runCount += 1;
+        const cachedPath = path.join(request.scratchDirectory, "cached-output.txt");
+        const cached = await fs.readFile(cachedPath, "utf8").catch(() => null);
+        if (cached) {
+          return {
+            text: cached.trim(),
+          };
+        }
+
+        const text = `fresh parse ${runCount}`;
+        await fs.writeFile(cachedPath, `${text}\n`, "utf8");
+        return {
+          text,
+        };
+      },
+    },
+  ]);
+
+  const artifact = {
+    captureId: "cap_scratch_rerun",
+    attachmentId: "att_scratch_rerun",
+    kind: "image" as const,
+    fileName: "scan.png",
+    mime: "image/png",
+    storedPath: "raw/inbox/example/scan.png",
+    absolutePath: inputPath,
+  };
+
+  const first = await parseAttachment({
+    artifact,
+    registry,
+    scratchRoot,
+  });
+  const second = await parseAttachment({
+    artifact,
+    registry,
+    scratchRoot,
+  });
+
+  assert.equal(first.output.text, "fresh parse 1");
+  assert.equal(second.output.text, "fresh parse 2");
+  assert.deepEqual(
+    await fs.readdir(path.join(scratchRoot, artifact.attachmentId)),
+    [],
+  );
+});
+
+test("writeParserArtifacts removes stale optional files on rerun", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parser-publish-rerun");
+  await initializeVault({
+    vaultRoot,
+    createdAt: "2026-03-13T12:00:00.000Z",
+  });
+
+  const first = await writeParserArtifacts({
+    attempt: 1,
+    vaultRoot,
+    output: {
+      schema: "healthybob.parser-output.v1",
+      providerId: "fake-provider",
+      artifact: {
+        captureId: "cap_publish_rerun",
+        attachmentId: "att_publish_rerun",
+        kind: "image",
+        fileName: "scan.png",
+        mime: "image/png",
+        storedPath: "raw/inbox/example/scan.png",
+      },
+      text: "first run text",
+      markdown: "first run text",
+      blocks: [],
+      tables: [
+        {
+          id: "tbl_0001",
+          rows: [["Item", "Qty"]],
+        },
+      ],
+      metadata: {},
+      createdAt: "2026-03-13T12:00:00.000Z",
+    },
+  });
+  assert.equal(first.manifestPath, "derived/inbox/cap_publish_rerun/attachments/att_publish_rerun/attempts/0001/manifest.json");
+  assert.equal(first.tablesPath, "derived/inbox/cap_publish_rerun/attachments/att_publish_rerun/attempts/0001/tables.json");
+
+  const second = await writeParserArtifacts({
+    attempt: 2,
+    vaultRoot,
+    output: {
+      schema: "healthybob.parser-output.v1",
+      providerId: "fake-provider",
+      artifact: {
+        captureId: "cap_publish_rerun",
+        attachmentId: "att_publish_rerun",
+        kind: "image",
+        fileName: "scan.png",
+        mime: "image/png",
+        storedPath: "raw/inbox/example/scan.png",
+      },
+      text: "second run text",
+      markdown: "second run text",
+      blocks: [],
+      tables: [],
+      metadata: {},
+      createdAt: "2026-03-13T12:05:00.000Z",
+    },
+  });
+
+  assert.equal(second.tablesPath ?? null, null);
+  assert.equal(second.manifestPath, "derived/inbox/cap_publish_rerun/attachments/att_publish_rerun/attempts/0002/manifest.json");
+  await fs.access(path.join(vaultRoot, first.tablesPath ?? ""));
+  await assert.rejects(fs.access(path.join(vaultRoot, second.attemptDirectoryPath, "tables.json")));
+});
+
 test("attachment parse worker consumes inbox jobs, writes derived artifacts, and updates runtime search", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-parser-worker-vault");
   const sourceRoot = await makeTempDirectory("healthybob-parser-worker-source");
@@ -710,6 +1034,7 @@ test("attachment parse worker consumes inbox jobs, writes derived artifacts, and
   assert.equal(results[0]?.status, "succeeded");
   assert.equal(results[0]?.providerId, "fake-image-parser");
   assert.ok(results[0]?.manifestPath);
+  assert.match(results[0]?.manifestPath ?? "", /attempts\/0001\/manifest\.json$/u);
   assert.equal(results[0]?.job.state, "succeeded");
   assert.equal(results[0]?.job.resultPath, results[0]?.manifestPath);
   assert.equal(results[0]?.job.providerId, "fake-image-parser");
@@ -744,6 +1069,135 @@ test("attachment parse worker consumes inbox jobs, writes derived artifacts, and
   assert.match(plainText, /Omelet with spinach and feta/);
   assert.match(markdown, /## OCR/);
   assert.match(chunks, /Omelet with spinach and feta/);
+
+  pipeline.close();
+});
+
+test("stale running parser attempts do not overwrite a requeued rerun", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parser-worker-race-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-parser-worker-race-source");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const imagePath = await writeExternalFile(sourceRoot, "race.png", "image-bytes-placeholder");
+  const runtime = await openInboxRuntime({ vaultRoot });
+  const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+
+  const capture = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "race-1",
+    accountId: "self",
+    thread: {
+      id: "chat-race-1",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T11:05:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: imagePath,
+        fileName: "race.png",
+      },
+    ],
+    raw: {},
+  });
+
+  let runCount = 0;
+  let releaseFirstRun: (() => void) | null = null;
+  const firstRunStarted = new Promise<void>((resolve) => {
+    releaseFirstRun = resolve;
+  });
+
+  const registry = createParserRegistry([
+    {
+      id: "race-parser",
+      locality: "local",
+      openness: "open_source",
+      runtime: "node",
+      priority: 500,
+      async discover() {
+        return {
+          available: true,
+          reason: "available for race test",
+        };
+      },
+      supports(request) {
+        return (request.preparedKind ?? request.artifact.kind) === "image";
+      },
+      async run() {
+        runCount += 1;
+        if (runCount === 1) {
+          await firstRunStarted;
+          return {
+            text: "stale attempt text",
+          };
+        }
+
+        return {
+          text: "fresh rerun text",
+        };
+      },
+    },
+  ]);
+
+  const firstAttempt = runAttachmentParseJobOnce({
+    vaultRoot,
+    runtime,
+    registry,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    runtime.requeueAttachmentParseJobs({
+      captureId: capture.captureId,
+      state: "running",
+    }),
+    1,
+  );
+
+  const rerun = await runAttachmentParseJobOnce({
+    vaultRoot,
+    runtime,
+    registry,
+  });
+  assert.equal(rerun?.status, "succeeded");
+  assert.match(rerun?.manifestPath ?? "", /attempts\/0002\/manifest\.json$/u);
+
+  releaseFirstRun?.();
+  assert.equal(await firstAttempt, null);
+
+  const refreshed = runtime.getCapture(capture.captureId);
+  assert.ok(refreshed);
+  assert.equal(refreshed.attachments[0]?.extractedText, "fresh rerun text");
+  assert.match(refreshed.attachments[0]?.derivedPath ?? "", /attempts\/0002\/manifest\.json$/u);
+  const refreshedManifest = JSON.parse(
+    await fs.readFile(path.join(vaultRoot, refreshed.attachments[0]?.derivedPath ?? ""), "utf8"),
+  ) as {
+    paths: {
+      plainTextPath: string;
+    };
+  };
+  assert.match(
+    await fs.readFile(path.join(vaultRoot, refreshedManifest.paths.plainTextPath), "utf8"),
+    /fresh rerun text/u,
+  );
+  await assert.rejects(
+    fs.access(
+      path.join(
+        vaultRoot,
+        "derived",
+        "inbox",
+        capture.captureId,
+        "attachments",
+        refreshed.attachments[0]?.attachmentId ?? "",
+        "attempts",
+        "0001",
+      ),
+    ),
+  );
 
   pipeline.close();
 });
@@ -1030,6 +1484,320 @@ test("parsed inbox pipeline auto-drains parser jobs for each processed capture",
   );
 
   pipeline.close();
+});
+
+test("daemon with parsers drains pending jobs before connector watch work begins", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parsed-daemon-startup-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-parsed-daemon-startup-source");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const imagePath = await writeExternalFile(sourceRoot, "startup.png", "image-bytes-placeholder");
+  const runtime = await openInboxRuntime({ vaultRoot });
+  const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+
+  const capture = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "startup-drain-1",
+    thread: {
+      id: "chat-startup-drain",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T11:35:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: imagePath,
+        fileName: "startup.png",
+      },
+    ],
+    raw: {},
+  });
+  pipeline.close();
+
+  const daemonRuntime = await openInboxRuntime({ vaultRoot });
+  const controller = new AbortController();
+  const connector = {
+    id: "noop-imessage",
+    source: "imessage",
+    accountId: "self",
+    kind: "poll" as const,
+    capabilities: {
+      attachments: true,
+      backfill: false,
+      ownMessages: false,
+      watch: true,
+      webhooks: false,
+    },
+    async watch(_cursor, _emit, signal) {
+      if (signal.aborted) {
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    async close() {},
+  };
+
+  const running = runInboxDaemonWithParsers({
+    vaultRoot,
+    runtime: daemonRuntime,
+    registry: createParserRegistry([
+      {
+        id: "startup-drain-parser",
+        locality: "local",
+        openness: "open_source",
+        runtime: "node",
+        priority: 500,
+        async discover() {
+          return {
+            available: true,
+            reason: "available for startup drain test",
+          };
+        },
+        supports(request) {
+          return (request.preparedKind ?? request.artifact.kind) === "image";
+        },
+        async run() {
+          return {
+            text: "Startup-drained OCR text",
+          };
+        },
+      },
+    ]),
+    connectors: [connector],
+    signal: controller.signal,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  controller.abort();
+  await running;
+
+  const refreshedRuntime = await openInboxRuntime({ vaultRoot });
+  try {
+    const refreshed = refreshedRuntime.getCapture(capture.captureId);
+    assert.ok(refreshed);
+    assert.equal(refreshed.attachments[0]?.parseState, "succeeded");
+    assert.equal(refreshed.attachments[0]?.extractedText, "Startup-drained OCR text");
+  } finally {
+    refreshedRuntime.close();
+  }
+});
+
+test("daemon with parsers skips startup drain when the signal is already aborted", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parsed-daemon-aborted-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-parsed-daemon-aborted-source");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const imagePath = await writeExternalFile(sourceRoot, "aborted.png", "image-bytes-placeholder");
+  const runtime = await openInboxRuntime({ vaultRoot });
+  const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+
+  const capture = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "aborted-drain-1",
+    thread: {
+      id: "chat-aborted-drain",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T11:36:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: imagePath,
+        fileName: "aborted.png",
+      },
+    ],
+    raw: {},
+  });
+  pipeline.close();
+
+  let closeCount = 0;
+  const daemonRuntime = await openInboxRuntime({ vaultRoot });
+  const controller = new AbortController();
+  controller.abort();
+
+  await runInboxDaemonWithParsers({
+    vaultRoot,
+    runtime: daemonRuntime,
+    registry: createParserRegistry([]),
+    connectors: [
+      {
+        id: "aborted-imessage",
+        source: "imessage",
+        accountId: "self",
+        kind: "poll" as const,
+        capabilities: {
+          attachments: true,
+          backfill: false,
+          ownMessages: false,
+          watch: false,
+          webhooks: false,
+        },
+        async close() {
+          closeCount += 1;
+        },
+      },
+    ],
+    signal: controller.signal,
+  });
+
+  const refreshedRuntime = await openInboxRuntime({ vaultRoot });
+  try {
+    const refreshed = refreshedRuntime.getCapture(capture.captureId);
+    assert.ok(refreshed);
+    assert.equal(refreshed.attachments[0]?.parseState, "pending");
+  } finally {
+    refreshedRuntime.close();
+  }
+  assert.equal(closeCount, 1);
+});
+
+test("daemon with parsers stops startup drain after abort between jobs", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parsed-daemon-abort-mid-drain-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-parsed-daemon-abort-mid-drain-source");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const firstPath = await writeExternalFile(sourceRoot, "first.png", "first-image");
+  const secondPath = await writeExternalFile(sourceRoot, "second.png", "second-image");
+  const runtime = await openInboxRuntime({ vaultRoot });
+  const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+
+  const first = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "abort-drain-first",
+    thread: {
+      id: "chat-abort-drain",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T11:37:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: firstPath,
+        fileName: "first.png",
+      },
+    ],
+    raw: {},
+  });
+  const second = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "abort-drain-second",
+    thread: {
+      id: "chat-abort-drain",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T11:38:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: secondPath,
+        fileName: "second.png",
+      },
+    ],
+    raw: {},
+  });
+  pipeline.close();
+
+  const daemonRuntime = await openInboxRuntime({ vaultRoot });
+  const controller = new AbortController();
+  let parseCount = 0;
+
+  await runInboxDaemonWithParsers({
+    vaultRoot,
+    runtime: daemonRuntime,
+    registry: createParserRegistry([
+      {
+        id: "abort-mid-drain-parser",
+        locality: "local",
+        openness: "open_source",
+        runtime: "node",
+        priority: 500,
+        async discover() {
+          return {
+            available: true,
+            reason: "available for abort-mid-drain test",
+          };
+        },
+        supports(request) {
+          return (request.preparedKind ?? request.artifact.kind) === "image";
+        },
+        async run() {
+          parseCount += 1;
+          if (parseCount === 1) {
+            controller.abort();
+          }
+
+          return {
+            text: `drained ${parseCount}`,
+          };
+        },
+      },
+    ]),
+    connectors: [],
+    signal: controller.signal,
+  });
+
+  const refreshedRuntime = await openInboxRuntime({ vaultRoot });
+  try {
+    assert.equal(refreshedRuntime.getCapture(first.captureId)?.attachments[0]?.parseState, "succeeded");
+    assert.equal(refreshedRuntime.getCapture(second.captureId)?.attachments[0]?.parseState, "pending");
+  } finally {
+    refreshedRuntime.close();
+  }
+});
+
+test("daemon with parsers still rejects connector failures after cleanup", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-parsed-daemon-failure-vault");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const runtime = await openInboxRuntime({ vaultRoot });
+
+  await assert.rejects(
+    runInboxDaemonWithParsers({
+      vaultRoot,
+      runtime,
+      registry: createParserRegistry([]),
+      connectors: [
+        {
+          id: "failing-imessage",
+          source: "imessage",
+          accountId: "self",
+          kind: "poll" as const,
+          capabilities: {
+            attachments: true,
+            backfill: true,
+            ownMessages: false,
+            watch: false,
+            webhooks: false,
+          },
+          async backfill() {
+            throw new Error("daemon blew up");
+          },
+          async close() {},
+        },
+      ],
+      signal: new AbortController().signal,
+    }),
+    /Connector "failing-imessage" \(imessage\) failed: daemon blew up/u,
+  );
 });
 
 test("parsed inbox pipeline stores captures even when auto-drain parsing fails", async () => {

@@ -16,6 +16,15 @@ export async function ensureDirectory(directoryPath: string): Promise<void> {
   await fs.mkdir(directoryPath, { recursive: true });
 }
 
+export async function removeDirectoryIfExists(directoryPath: string): Promise<void> {
+  await fs.rm(directoryPath, { recursive: true, force: true });
+}
+
+export async function resetDirectory(directoryPath: string): Promise<void> {
+  await removeDirectoryIfExists(directoryPath);
+  await ensureDirectory(directoryPath);
+}
+
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);

@@ -252,6 +252,7 @@ test("completed attachment parse jobs refresh capture search text and attachment
   assert.equal(runtime.getCapture(capture.captureId)?.attachments[0]?.parseState, "running");
   runtime.completeAttachmentParseJob({
     jobId: pendingJob.jobId,
+    attempt: pendingJob.attempts,
     providerId: "fake-image-parser",
     resultPath: "derived/inbox/manifest.json",
     extractedText: "Glucose 88 mg/dL",
@@ -341,12 +342,14 @@ test("attachment parse job filters and requeue reset runtime-only parser state",
 
   runtime.completeAttachmentParseJob({
     jobId: firstJob.jobId,
+    attempt: firstJob.attempts,
     providerId: "fake-image-parser",
     resultPath: "derived/inbox/first.json",
     extractedText: "Glucose 88 mg/dL",
   });
   runtime.completeAttachmentParseJob({
     jobId: secondJob.jobId,
+    attempt: secondJob.attempts,
     providerId: "fake-image-parser",
     resultPath: "derived/inbox/second.json",
     extractedText: "Unrelated text",
@@ -400,7 +403,7 @@ test("attachment parse job filters and requeue reset runtime-only parser state",
   pipeline.close();
 });
 
-test("requeue leaves running attachment parse jobs untouched", async () => {
+test("requeue can reset running attachment parse jobs back to pending", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-inbox-requeue-running-vault");
   const sourceRoot = await makeTempDirectory("healthybob-inbox-requeue-running-source");
   await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
@@ -440,17 +443,107 @@ test("requeue leaves running attachment parse jobs untouched", async () => {
   assert.equal(
     runtime.requeueAttachmentParseJobs({
       captureId: capture.captureId,
+      state: "running",
     }),
-    0,
+    1,
   );
+
+  const requeuedJob = runtime.listAttachmentParseJobs({
+    captureId: capture.captureId,
+    limit: 10,
+  })[0];
+  assert.equal(requeuedJob?.state, "pending");
+  assert.equal(requeuedJob?.providerId ?? null, null);
+  assert.equal(requeuedJob?.resultPath ?? null, null);
+  assert.equal(requeuedJob?.errorCode ?? null, null);
+  assert.equal(requeuedJob?.errorMessage ?? null, null);
+  assert.equal(requeuedJob?.startedAt ?? null, null);
+  assert.equal(requeuedJob?.finishedAt ?? null, null);
+  assert.equal(runtime.getCapture(capture.captureId)?.attachments[0]?.parseState, "pending");
+
+  pipeline.close();
+});
+
+test("requeue invalidates stale running claims before finalization", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-inbox-requeue-stale-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-inbox-requeue-stale-source");
+  await initializeVault({ vaultRoot, createdAt: "2026-03-12T12:00:00.000Z" });
+
+  const imagePath = await writeExternalFile(sourceRoot, "stale.png", "image");
+  const runtime = await openInboxRuntime({ vaultRoot });
+  const pipeline = await createInboxPipeline({ vaultRoot, runtime });
+
+  const capture = await pipeline.processCapture({
+    source: "imessage",
+    externalId: "requeue-stale",
+    thread: {
+      id: "chat-requeue-stale",
+    },
+    actor: {
+      isSelf: false,
+    },
+    occurredAt: "2026-03-13T10:33:00.000Z",
+    text: null,
+    attachments: [
+      {
+        kind: "image",
+        mime: "image/png",
+        originalPath: imagePath,
+        fileName: "stale.png",
+      },
+    ],
+    raw: {},
+  });
+
+  const staleClaim = runtime.claimNextAttachmentParseJob({
+    captureId: capture.captureId,
+  });
+  assert.ok(staleClaim);
+  assert.equal(staleClaim.state, "running");
+
   assert.equal(
-    runtime.listAttachmentParseJobs({
+    runtime.requeueAttachmentParseJobs({
       captureId: capture.captureId,
-      limit: 10,
-    })[0]?.state,
-    "running",
+      state: "running",
+    }),
+    1,
   );
-  assert.equal(runtime.getCapture(capture.captureId)?.attachments[0]?.parseState, "running");
+
+  const staleComplete = runtime.completeAttachmentParseJob({
+    jobId: staleClaim.jobId,
+    attempt: staleClaim.attempts,
+    providerId: "stale-provider",
+    resultPath: "derived/inbox/stale.json",
+    extractedText: "stale text",
+  });
+  assert.equal(staleComplete.applied, false);
+  assert.equal(staleComplete.job.state, "pending");
+
+  const staleFail = runtime.failAttachmentParseJob({
+    jobId: staleClaim.jobId,
+    attempt: staleClaim.attempts,
+    errorCode: "stale",
+    errorMessage: "stale claim",
+  });
+  assert.equal(staleFail.applied, false);
+  assert.equal(staleFail.job.state, "pending");
+
+  const freshClaim = runtime.claimNextAttachmentParseJob({
+    captureId: capture.captureId,
+  });
+  assert.ok(freshClaim);
+  assert.equal(freshClaim.attempts, staleClaim.attempts + 1);
+
+  const freshComplete = runtime.completeAttachmentParseJob({
+    jobId: freshClaim.jobId,
+    attempt: freshClaim.attempts,
+    providerId: "fresh-provider",
+    resultPath: "derived/inbox/fresh.json",
+    extractedText: "fresh text",
+  });
+  assert.equal(freshComplete.applied, true);
+  assert.equal(freshComplete.job.state, "succeeded");
+  assert.equal(runtime.getCapture(capture.captureId)?.attachments[0]?.derivedPath, "derived/inbox/fresh.json");
 
   pipeline.close();
 });
