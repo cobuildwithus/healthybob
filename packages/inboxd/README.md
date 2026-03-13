@@ -18,3 +18,4 @@ runtime database for cursors, dedupe, and search indexes.
 - iMessage-first poll connector over an injected driver boundary
 - capture pipeline with raw persistence, event/audit append, dedupe, and FTS
 - runtime list, show, and search helpers for future CLI/agent surfaces
+- `vault-cli inbox ...` is the intended human/operator surface layered on top of this package

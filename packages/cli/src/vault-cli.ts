@@ -8,6 +8,7 @@ import { registerGeneticsCommands } from './commands/genetics.js'
 import { registerGoalCommands } from './commands/goal.js'
 import { registerHistoryCommands } from './commands/history.js'
 import { registerIntakeCommands } from './commands/intake.js'
+import { registerInboxCommands } from './commands/inbox.js'
 import { registerJournalCommands } from './commands/journal.js'
 import { registerMealCommands } from './commands/meal.js'
 import { registerProfileCommands } from './commands/profile.js'
@@ -22,6 +23,10 @@ import {
   createIntegratedVaultCliServices,
   type VaultCliServices,
 } from './vault-cli-services.js'
+import {
+  createIntegratedInboxCliServices,
+  type InboxCliServices,
+} from './inbox-services.js'
 
 const require = createRequire(import.meta.url)
 const packageJson = require('../package.json') as { version?: string }
@@ -31,6 +36,7 @@ export const CLI_DESCRIPTION =
 
 export function createVaultCli(
   services: VaultCliServices = createIntegratedVaultCliServices(),
+  inboxServices: InboxCliServices = createIntegratedInboxCliServices(),
 ): Cli.Cli {
   const cli = Cli.create('vault-cli', {
     description: CLI_DESCRIPTION,
@@ -47,6 +53,7 @@ export function createVaultCli(
   registerSearchCommands(cli, services)
   registerExportCommands(cli, services)
   registerIntakeCommands(cli, services)
+  registerInboxCommands(cli, inboxServices)
   registerProfileCommands(cli, services)
   registerGoalCommands(cli, services)
   registerConditionCommands(cli, services)

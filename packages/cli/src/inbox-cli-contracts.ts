@@ -1,0 +1,223 @@
+import { z } from 'incur'
+import {
+  isoTimestampSchema,
+  pathSchema,
+} from './vault-cli-contracts.js'
+
+export const inboxSourceValues = ['imessage'] as const
+export const inboxPromotionTargetValues = ['meal', 'journal', 'experiment-note'] as const
+export const inboxCheckStatusValues = ['pass', 'warn', 'fail'] as const
+
+export const inboxConnectorOptionsSchema = z.object({
+  includeOwnMessages: z.boolean().optional(),
+  backfillLimit: z.number().int().positive().max(5000).optional(),
+})
+
+export const inboxConnectorConfigSchema = z.object({
+  id: z.string().min(1),
+  source: z.enum(inboxSourceValues),
+  enabled: z.boolean(),
+  accountId: z.string().min(1).nullable(),
+  options: inboxConnectorOptionsSchema,
+})
+
+export const inboxRuntimeConfigSchema = z.object({
+  version: z.literal(1),
+  connectors: z.array(inboxConnectorConfigSchema),
+})
+
+export const inboxDoctorCheckSchema = z.object({
+  name: z.string().min(1),
+  status: z.enum(inboxCheckStatusValues),
+  message: z.string().min(1),
+  details: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const inboxPromotionEntrySchema = z.object({
+  captureId: z.string().min(1),
+  target: z.enum(inboxPromotionTargetValues),
+  status: z.enum(['applied', 'unsupported']),
+  promotedAt: isoTimestampSchema,
+  lookupId: z.string().min(1).nullable(),
+  relatedId: z.string().min(1).nullable(),
+  note: z.string().min(1).nullable(),
+})
+
+export const inboxPromotionStoreSchema = z.object({
+  version: z.literal(1),
+  entries: z.array(inboxPromotionEntrySchema),
+})
+
+export const inboxAttachmentSchema = z.object({
+  ordinal: z.number().int().positive(),
+  externalId: z.string().min(1).nullable().optional(),
+  kind: z.enum(['image', 'audio', 'video', 'document', 'other']),
+  mime: z.string().min(1).nullable().optional(),
+  originalPath: pathSchema.nullable().optional(),
+  storedPath: pathSchema.nullable().optional(),
+  fileName: z.string().min(1).nullable().optional(),
+  byteSize: z.number().int().nonnegative().nullable().optional(),
+  sha256: z.string().min(1).nullable().optional(),
+})
+
+export const inboxCaptureSummarySchema = z.object({
+  captureId: z.string().min(1),
+  source: z.string().min(1),
+  accountId: z.string().min(1).nullable(),
+  externalId: z.string().min(1),
+  threadId: z.string().min(1),
+  threadTitle: z.string().min(1).nullable(),
+  actorId: z.string().min(1).nullable(),
+  actorName: z.string().min(1).nullable(),
+  actorIsSelf: z.boolean(),
+  occurredAt: isoTimestampSchema,
+  receivedAt: isoTimestampSchema.nullable(),
+  text: z.string().nullable(),
+  attachmentCount: z.number().int().nonnegative(),
+  envelopePath: pathSchema,
+  eventId: z.string().min(1),
+  promotions: z.array(inboxPromotionEntrySchema),
+})
+
+export const inboxCaptureDetailSchema = inboxCaptureSummarySchema.extend({
+  createdAt: isoTimestampSchema,
+  threadIsDirect: z.boolean(),
+  attachments: z.array(inboxAttachmentSchema),
+  raw: z.record(z.string(), z.unknown()),
+})
+
+export const inboxInitResultSchema = z.object({
+  vault: pathSchema,
+  runtimeDirectory: pathSchema,
+  databasePath: pathSchema,
+  configPath: pathSchema,
+  createdPaths: z.array(pathSchema),
+  rebuiltCaptures: z.number().int().nonnegative(),
+})
+
+export const inboxSourceAddResultSchema = z.object({
+  vault: pathSchema,
+  configPath: pathSchema,
+  connector: inboxConnectorConfigSchema,
+  connectorCount: z.number().int().nonnegative(),
+})
+
+export const inboxSourceRemoveResultSchema = z.object({
+  vault: pathSchema,
+  configPath: pathSchema,
+  removed: z.boolean(),
+  connectorId: z.string().min(1),
+  connectorCount: z.number().int().nonnegative(),
+})
+
+export const inboxSourceListResultSchema = z.object({
+  vault: pathSchema,
+  configPath: pathSchema,
+  connectors: z.array(inboxConnectorConfigSchema),
+})
+
+export const inboxDoctorResultSchema = z.object({
+  vault: pathSchema,
+  configPath: pathSchema.nullable(),
+  databasePath: pathSchema.nullable(),
+  target: z.string().min(1).nullable(),
+  ok: z.boolean(),
+  checks: z.array(inboxDoctorCheckSchema),
+  connectors: z.array(inboxConnectorConfigSchema),
+})
+
+export const inboxBackfillResultSchema = z.object({
+  vault: pathSchema,
+  sourceId: z.string().min(1),
+  importedCount: z.number().int().nonnegative(),
+  dedupedCount: z.number().int().nonnegative(),
+  cursor: z.record(z.string(), z.unknown()).nullable(),
+})
+
+export const inboxDaemonStateSchema = z.object({
+  running: z.boolean(),
+  stale: z.boolean(),
+  pid: z.number().int().positive().nullable(),
+  startedAt: isoTimestampSchema.nullable(),
+  stoppedAt: isoTimestampSchema.nullable(),
+  status: z.enum(['idle', 'running', 'stopped', 'failed', 'stale']),
+  connectorIds: z.array(z.string().min(1)),
+  statePath: pathSchema,
+  configPath: pathSchema,
+  databasePath: pathSchema,
+  message: z.string().min(1).nullable(),
+})
+
+export const inboxRunResultSchema = z.object({
+  vault: pathSchema,
+  sourceIds: z.array(z.string().min(1)),
+  startedAt: isoTimestampSchema,
+  stoppedAt: isoTimestampSchema,
+  reason: z.enum(['completed', 'signal', 'error']),
+  statePath: pathSchema,
+})
+
+export const inboxListResultSchema = z.object({
+  vault: pathSchema,
+  filters: z.object({
+    sourceId: z.string().min(1).nullable(),
+    limit: z.number().int().positive().max(200),
+  }),
+  items: z.array(inboxCaptureSummarySchema),
+})
+
+export const inboxShowResultSchema = z.object({
+  vault: pathSchema,
+  capture: inboxCaptureDetailSchema,
+})
+
+export const inboxSearchHitSchema = z.object({
+  captureId: z.string().min(1),
+  source: z.string().min(1),
+  accountId: z.string().min(1).nullable(),
+  threadId: z.string().min(1),
+  threadTitle: z.string().min(1).nullable(),
+  occurredAt: isoTimestampSchema,
+  text: z.string().nullable(),
+  snippet: z.string(),
+  score: z.number(),
+  envelopePath: pathSchema,
+  promotions: z.array(inboxPromotionEntrySchema),
+})
+
+export const inboxSearchResultSchema = z.object({
+  vault: pathSchema,
+  filters: z.object({
+    text: z.string().min(1),
+    sourceId: z.string().min(1).nullable(),
+    limit: z.number().int().positive().max(200),
+  }),
+  hits: z.array(inboxSearchHitSchema),
+})
+
+export const inboxPromoteMealResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  target: z.literal('meal'),
+  lookupId: z.string().min(1),
+  relatedId: z.string().min(1),
+  created: z.boolean(),
+})
+
+export type InboxConnectorConfig = z.infer<typeof inboxConnectorConfigSchema>
+export type InboxRuntimeConfig = z.infer<typeof inboxRuntimeConfigSchema>
+export type InboxDoctorCheck = z.infer<typeof inboxDoctorCheckSchema>
+export type InboxPromotionEntry = z.infer<typeof inboxPromotionEntrySchema>
+export type InboxPromotionStore = z.infer<typeof inboxPromotionStoreSchema>
+export type InboxInitResult = z.infer<typeof inboxInitResultSchema>
+export type InboxSourceAddResult = z.infer<typeof inboxSourceAddResultSchema>
+export type InboxSourceRemoveResult = z.infer<typeof inboxSourceRemoveResultSchema>
+export type InboxSourceListResult = z.infer<typeof inboxSourceListResultSchema>
+export type InboxDoctorResult = z.infer<typeof inboxDoctorResultSchema>
+export type InboxBackfillResult = z.infer<typeof inboxBackfillResultSchema>
+export type InboxDaemonState = z.infer<typeof inboxDaemonStateSchema>
+export type InboxRunResult = z.infer<typeof inboxRunResultSchema>
+export type InboxListResult = z.infer<typeof inboxListResultSchema>
+export type InboxShowResult = z.infer<typeof inboxShowResultSchema>
+export type InboxSearchResult = z.infer<typeof inboxSearchResultSchema>
+export type InboxPromoteMealResult = z.infer<typeof inboxPromoteMealResultSchema>

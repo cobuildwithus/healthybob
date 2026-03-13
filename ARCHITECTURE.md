@@ -7,8 +7,9 @@ Last verified: 2026-03-12
 - `packages/contracts`: canonical Zod contracts, parse helpers, TypeScript types, and generated JSON Schema artifacts
 - `packages/core`: the only package allowed to mutate canonical vault data
 - `packages/importers`: ingestion adapters that parse external files and delegate all writes to core
+- `packages/inboxd`: inbox capture ingestion/runtime package that persists canonical raw inbox evidence while keeping cursors and search indexes in local SQLite state
 - `packages/query`: read helpers and export-pack generation over canonical vault data
-- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query
+- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query/inboxd
 - `fixtures/` and `e2e/`: deterministic fixture corpus and end-to-end smoke flows
 
 ## Trust Boundaries
@@ -17,12 +18,13 @@ Last verified: 2026-03-12
 - Human-facing truth lives in Markdown documents such as `CORE.md`, journal pages, and experiment pages.
 - Machine-facing truth lives in append-only JSONL ledgers for events, samples, and audit records.
 - Raw imported artifacts are immutable once copied into `raw/`.
+- Inbox runtime state is local-only under `.runtime/` and is rebuildable from canonical vault evidence under `raw/inbox/**`.
 - Assistant/session state belongs outside the canonical vault under `assistant-state/`.
 
 ## Control Flow
 
 1. Operators, automations, and future agent layers call `vault-cli` or package APIs.
-2. CLI commands perform validation and delegate to `packages/core`, `packages/importers`, or `packages/query`.
+2. CLI commands perform validation and delegate to `packages/core`, `packages/importers`, `packages/query`, or `packages/inboxd`-backed service layers.
 3. Importers may parse and normalize external inputs but must never write canonical vault files directly.
 4. Query/export paths are read-only and must not mutate canonical vault state.
 

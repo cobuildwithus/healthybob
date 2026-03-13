@@ -13,6 +13,9 @@
       "path": "../importers"
     },
     {
+      "path": "../inboxd"
+    },
+    {
       "path": "../query"
     }
   ],

@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-13 (retrieval/search docs updated earlier today; active execution-plan inventory refreshed for current simplification and integration work)
+Last verified: 2026-03-13 (retrieval/search and inbox runtime docs updated earlier today; active execution-plan inventory refreshed for current simplification and integration work)
 
 ## Purpose
 
@@ -11,7 +11,7 @@ This index is the table of contents for durable, repository-local context that a
 | Path | Purpose | Source of truth | Owner | Review cadence | Criticality | Last verified |
 | --- | --- | --- | --- | --- | --- | --- |
 | `README.md` | Repo bootstrap summary, runtime-package status, and verification entrypoint for humans. | Repository bootstrap decisions | Healthy Bob Maintainer | Per bootstrap/process change | Medium | 2026-03-12 |
-| `ARCHITECTURE.md` | Top-level module map and trust-boundary summary. | Product/runtime code plus repo decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
+| `ARCHITECTURE.md` | Top-level module map and trust-boundary summary. | Product/runtime code plus repo decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-13 |
 | `docs/architecture.md` | One-page architecture summary and target repo shape for the baseline vault. | Baseline vault architecture decisions | Healthy Bob Maintainer | Per architecture change | High | 2026-03-12 |
 | `docs/contracts/` | Frozen contract docs for vault layout, schemas, command surface, and invariants. | Baseline vault interface decisions | Healthy Bob Maintainer | Per contract change | High | 2026-03-12 |
 | `agent-docs/PLANS.md` | Execution-plan workflow and storage conventions. | `agent-docs/exec-plans/**` | Healthy Bob Maintainer | Per process change | Medium | 2026-03-12 |
