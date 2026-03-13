@@ -1,14 +1,5 @@
 import { Cli, z } from 'incur'
 import {
-  emptyArgsSchema,
-  requestIdFromOptions,
-  withBaseOptions,
-} from '../command-helpers.js'
-import {
-  inputFileOptionSchema,
-  normalizeInputFileOption,
-} from '../json-input.js'
-import {
   listItemSchema,
   localDateSchema,
   pathSchema,
@@ -19,6 +10,7 @@ import type { VaultCliServices } from '../vault-cli-services.js'
 import {
   eventScaffoldKindSchema,
 } from './event-command-helpers.js'
+import { registerLedgerEventEntityGroup } from './health-command-factory.js'
 
 const eventIdSchema = z
   .string()
@@ -55,88 +47,68 @@ const eventListResultSchema = z.object({
 })
 
 export function registerEventCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const event = Cli.create('event', {
+  registerLedgerEventEntityGroup(cli, {
+    commandName: 'event',
     description: 'Generic canonical event commands for event kinds without specialized nouns.',
-  })
-
-  event.command('scaffold', {
-    description: 'Emit an event payload template for one canonical event kind.',
-    args: emptyArgsSchema,
-    options: withBaseOptions({
-      kind: eventScaffoldKindSchema.describe('Canonical event kind to scaffold.'),
-    }),
-    output: eventScaffoldResultSchema,
-    async run({ options }) {
-      const result = await services.core.scaffoldEvent({
-        kind: options.kind,
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-      })
-      return result as z.infer<typeof eventScaffoldResultSchema>
+    scaffold: {
+      description: 'Emit an event payload template for one canonical event kind.',
+      kindOption: eventScaffoldKindSchema.describe('Canonical event kind to scaffold.'),
+      output: eventScaffoldResultSchema,
+      async run(input) {
+        const result = await services.core.scaffoldEvent({
+          kind: input.kind,
+          vault: input.vault,
+          requestId: input.requestId,
+        })
+        return result as z.infer<typeof eventScaffoldResultSchema>
+      },
     },
-  })
-
-  event.command('upsert', {
-    description: 'Append one canonical event from a JSON payload file or stdin.',
-    args: emptyArgsSchema,
-    options: withBaseOptions({
-      input: inputFileOptionSchema,
-    }),
-    output: eventUpsertResultSchema,
-    async run({ options }) {
-      return services.core.upsertEvent({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        inputFile: normalizeInputFileOption(options.input),
-      })
+    upsert: {
+      description: 'Append one canonical event from a JSON payload file or stdin.',
+      output: eventUpsertResultSchema,
+      async run(input) {
+        return services.core.upsertEvent({
+          vault: input.vault,
+          requestId: input.requestId,
+          inputFile: input.input,
+        })
+      },
     },
-  })
-
-  event.command('show', {
-    description: 'Show one canonical non-history event by event id.',
-    args: z.object({
-      id: eventIdSchema.describe('Canonical event id such as evt_<ULID>.'),
-    }),
-    options: withBaseOptions(),
-    output: showResultSchema,
-    async run({ args, options }) {
-      return services.query.showEvent({
-        eventId: args.id,
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-      })
+    show: {
+      description: 'Show one canonical non-history event by event id.',
+      argName: 'id',
+      argSchema: eventIdSchema.describe('Canonical event id such as evt_<ULID>.'),
+      output: showResultSchema,
+      async run(input) {
+        return services.query.showEvent({
+          eventId: input.id,
+          vault: input.vault,
+          requestId: input.requestId,
+        })
+      },
     },
-  })
-
-  event.command('list', {
-    description: 'List canonical non-history events with kind, date, tag, and experiment filters.',
-    args: emptyArgsSchema,
-    options: withBaseOptions({
-      kind: z.string().min(1).optional(),
-      from: localDateSchema.optional(),
-      to: localDateSchema.optional(),
-      tag: z
+    list: {
+      description: 'List canonical non-history events with kind, date, tag, and experiment filters.',
+      kindOption: z.string().min(1).optional(),
+      tagOption: z
         .array(z.string().min(1))
         .optional()
         .describe('Optional tag filter. Repeat --tag for multiple values.'),
-      experiment: slugSchema.optional(),
-      limit: z.number().int().positive().max(200).default(50),
-    }),
-    output: eventListResultSchema,
-    async run({ options }) {
-      const result = await services.query.listEvents({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        kind: options.kind,
-        from: options.from,
-        to: options.to,
-        tag: options.tag,
-        experiment: options.experiment,
-        limit: options.limit,
-      })
-      return result as z.infer<typeof eventListResultSchema>
+      experimentOption: slugSchema.optional(),
+      output: eventListResultSchema,
+      async run(input) {
+        const result = await services.query.listEvents({
+          vault: input.vault,
+          requestId: input.requestId,
+          kind: input.kind,
+          from: input.from,
+          to: input.to,
+          tag: Array.isArray(input.tag) ? input.tag : undefined,
+          experiment: input.experiment,
+          limit: input.limit ?? 50,
+        })
+        return result as z.infer<typeof eventListResultSchema>
+      },
     },
   })
-
-  cli.command(event)
 }

@@ -15,6 +15,7 @@ import {
   isHealthQueryableRecordId,
 } from '../health-cli-descriptors.js'
 import { loadJsonInputObject } from '../json-input.js'
+import { normalizeRepeatableFlagOption } from '../option-utils.js'
 import { loadQueryRuntime, type QueryRuntimeModule } from '../query-runtime.js'
 import { loadRuntimeModule } from '../runtime-import.js'
 import { VaultCliError } from '../vault-cli-errors.js'
@@ -570,7 +571,7 @@ export async function listEventRecords(input: {
   experiment?: string
   limit: number
 }) {
-  const tags = normalizeRepeatedOption(input.tag)
+  const tags = normalizeRepeatableFlagOption(input.tag, 'tag')
   const query = await loadProviderEventQueryRuntime()
   const readModel = await query.readVault(input.vault)
   const items = query
@@ -1036,20 +1037,6 @@ function stringArray(value: unknown) {
 
 function uniqueStrings(values: readonly string[]) {
   return [...new Set(values)]
-}
-
-function normalizeRepeatedOption(value: string[] | undefined) {
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-
-  const entries = uniqueStrings(
-    value
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
-  )
-
-  return entries.length > 0 ? entries : undefined
 }
 
 function compactObject(record: JsonObject) {

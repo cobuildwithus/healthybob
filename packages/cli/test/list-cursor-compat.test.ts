@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'vitest'
-import { repoRoot } from './cli-test-helpers.js'
+import { commandOutputFromError, repoRoot } from './cli-test-helpers.js'
 
 const execFileAsync = promisify(execFile)
 const sourceBinPath = path.join(repoRoot, 'packages/cli/src/bin.ts')
@@ -36,23 +36,41 @@ type CliEnvelope<TData = Record<string, unknown>> =
 async function runSourceCli<TData = Record<string, unknown>>(
   args: string[],
 ): Promise<CliEnvelope<TData>> {
-  const { stdout } = await execFileAsync(
-    'pnpm',
-    ['exec', 'tsx', sourceBinPath, ...withMachineOutput(args)],
-    { cwd: repoRoot },
-  )
+  try {
+    const { stdout } = await execFileAsync(
+      'pnpm',
+      ['exec', 'tsx', sourceBinPath, ...withMachineOutput(args)],
+      { cwd: repoRoot },
+    )
 
-  return JSON.parse(stdout) as CliEnvelope<TData>
+    return JSON.parse(stdout) as CliEnvelope<TData>
+  } catch (error) {
+    const output = commandOutputFromError(error)
+    if (output !== null) {
+      return JSON.parse(output) as CliEnvelope<TData>
+    }
+
+    throw error
+  }
 }
 
 async function runRawSourceCli(args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync(
-    'pnpm',
-    ['exec', 'tsx', sourceBinPath, ...args],
-    { cwd: repoRoot },
-  )
+  try {
+    const { stdout } = await execFileAsync(
+      'pnpm',
+      ['exec', 'tsx', sourceBinPath, ...args],
+      { cwd: repoRoot },
+    )
 
-  return stdout.trim()
+    return stdout.trim()
+  } catch (error) {
+    const output = commandOutputFromError(error)
+    if (output !== null) {
+      return output
+    }
+
+    throw error
+  }
 }
 
 function requireData<TData>(result: CliEnvelope<TData>): TData {
@@ -110,7 +128,15 @@ test('list help and schemas no longer expose cursor pagination options', async (
   assert.equal('status' in readSchema.options.properties, true)
   assert.equal('stream' in readSchema.options.properties, true)
   assert.equal('tag' in readSchema.options.properties, true)
+  assert.equal('from' in readSchema.options.properties, true)
+  assert.equal('to' in readSchema.options.properties, true)
+  assert.equal('dateFrom' in readSchema.options.properties, false)
+  assert.equal('dateTo' in readSchema.options.properties, false)
   assert.equal('cursor' in intakeSchema.options.properties, false)
+  assert.equal('from' in intakeSchema.options.properties, true)
+  assert.equal('to' in intakeSchema.options.properties, true)
+  assert.equal('dateFrom' in intakeSchema.options.properties, false)
+  assert.equal('dateTo' in intakeSchema.options.properties, false)
 })
 
 test.sequential('list commands still run after cursor removal', async () => {
@@ -122,6 +148,7 @@ test.sequential('list commands still run after cursor removal', async () => {
     assert.equal(requireData(initResult).created, true)
 
     const readList = await runSourceCli<{
+      count: number
       filters: Record<string, unknown>
       nextCursor: string | null
     }>([
@@ -133,10 +160,12 @@ test.sequential('list commands still run after cursor removal', async () => {
     ])
     assert.equal(readList.ok, true)
     assert.equal(readList.meta?.command, 'list')
+    assert.equal(requireData(readList).count, 0)
     assert.equal('cursor' in requireData(readList).filters, false)
     assert.equal(requireData(readList).nextCursor, null)
 
     const intakeList = await runSourceCli<{
+      count: number
       filters: Record<string, unknown>
       nextCursor: string | null
     }>([
@@ -149,6 +178,7 @@ test.sequential('list commands still run after cursor removal', async () => {
     ])
     assert.equal(intakeList.ok, true)
     assert.equal(intakeList.meta?.command, 'intake list')
+    assert.equal(requireData(intakeList).count, 0)
     assert.equal('cursor' in requireData(intakeList).filters, false)
     assert.equal(requireData(intakeList).nextCursor, null)
 
@@ -241,9 +271,9 @@ test.sequential('generic list exposes record-type, status, stream, and tag filte
 
     const experimentList = await runSourceCli<{
       filters: {
-        recordType?: string
+        recordType?: string[]
         status?: string
-        tag?: string
+        tag?: string[]
       }
       items: Array<{
         id: string
@@ -253,25 +283,35 @@ test.sequential('generic list exposes record-type, status, stream, and tag filte
       'list',
       '--record-type',
       'experiment',
+      '--record-type',
+      'goal',
       '--status',
       'paused',
       '--tag',
       'energy',
+      '--tag',
+      'sleep',
       '--vault',
       vaultRoot,
     ])
     assert.equal(experimentList.ok, true)
-    assert.equal(requireData(experimentList).filters.recordType, 'experiment')
+    assert.deepEqual(requireData(experimentList).filters.recordType, [
+      'experiment',
+      'goal',
+    ])
     assert.equal(requireData(experimentList).filters.status, 'paused')
-    assert.equal(requireData(experimentList).filters.tag, 'energy')
+    assert.deepEqual(requireData(experimentList).filters.tag, [
+      'energy',
+      'sleep',
+    ])
     assert.equal(requireData(experimentList).items.length, 1)
     assert.equal(requireData(experimentList).items[0]?.id, experimentId)
     assert.equal(requireData(experimentList).items[0]?.kind, 'experiment')
 
     const sampleList = await runSourceCli<{
       filters: {
-        recordType?: string
-        stream?: string
+        recordType?: string[]
+        stream?: string[]
       }
       items: Array<{
         id: string
@@ -281,14 +321,24 @@ test.sequential('generic list exposes record-type, status, stream, and tag filte
       'list',
       '--record-type',
       'sample',
+      '--record-type',
+      'event',
       '--stream',
       'heart_rate',
+      '--stream',
+      'glucose',
       '--vault',
       vaultRoot,
     ])
     assert.equal(sampleList.ok, true)
-    assert.equal(requireData(sampleList).filters.recordType, 'sample')
-    assert.equal(requireData(sampleList).filters.stream, 'heart_rate')
+    assert.deepEqual(requireData(sampleList).filters.recordType, [
+      'sample',
+      'event',
+    ])
+    assert.deepEqual(requireData(sampleList).filters.stream, [
+      'heart_rate',
+      'glucose',
+    ])
     assert.equal(requireData(sampleList).items.length, 2)
     assert.equal(
       requireData(sampleList).items.every((item) => item.kind === 'sample'),
@@ -297,4 +347,20 @@ test.sequential('generic list exposes record-type, status, stream, and tag filte
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }
+})
+
+test.sequential('generic list rejects comma-delimited repeatable filter tokens', async () => {
+  const result = await runSourceCli([
+    'list',
+    '--record-type',
+    'sample,event',
+    '--vault',
+    path.join(repoRoot, 'fixtures/minimal-vault'),
+  ])
+
+  assert.equal(result.ok, false)
+  assert.match(
+    result.error.message ?? '',
+    /comma-delimited values are not supported.*repeat the flag instead/ui,
+  )
 })

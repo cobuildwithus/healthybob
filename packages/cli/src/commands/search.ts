@@ -7,6 +7,7 @@ import {
   slugSchema,
 } from '../vault-cli-contracts.js'
 import { VaultCliError } from '../vault-cli-errors.js'
+import { normalizeRepeatableFlagOption } from '../option-utils.js'
 import { loadQueryRuntime } from '../query-runtime.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
@@ -213,9 +214,9 @@ export function registerSearchCommands(
       }
 
       const recordTypes = parseRecordTypes(options.recordType)
-      const kinds = normalizeRepeatedOption(options.kind)
-      const streams = normalizeRepeatedOption(options.stream)
-      const tags = normalizeRepeatedOption(options.tag)
+      const kinds = normalizeRepeatableFlagOption(options.kind, 'kind') ?? []
+      const streams = normalizeRepeatableFlagOption(options.stream, 'stream') ?? []
+      const tags = normalizeRepeatableFlagOption(options.tag, 'tag') ?? []
       const backend = options.backend ?? 'auto'
       const result = await query.searchVaultRuntime(
         options.vault,
@@ -291,8 +292,8 @@ export function registerSearchCommands(
       }),
       output: timelineResultSchema,
       async run({ options }) {
-        const kinds = normalizeRepeatedOption(options.kind)
-        const streams = normalizeRepeatedOption(options.stream)
+        const kinds = normalizeRepeatableFlagOption(options.kind, 'kind') ?? []
+        const streams = normalizeRepeatableFlagOption(options.stream, 'stream') ?? []
         const entryTypes = parseTimelineEntryTypes(options.entryType)
         const entryTypeSet = entryTypes.length > 0 ? new Set(entryTypes) : null
         const query = await loadQueryRuntime()
@@ -334,24 +335,10 @@ export function registerSearchCommands(
   )
 }
 
-function normalizeRepeatedOption(value: string[] | undefined): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return [
-    ...new Set(
-      value
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    ),
-  ]
-}
-
 function parseRecordTypes(
   value: string[] | undefined,
 ): Array<(typeof recordTypeValues)[number]> {
-  const requestedValues = normalizeRepeatedOption(value)
+  const requestedValues = normalizeRepeatableFlagOption(value, 'record-type') ?? []
   const recordTypeSet = new Set(recordTypeValues)
 
   return requestedValues.filter(
@@ -363,7 +350,7 @@ function parseRecordTypes(
 function parseTimelineEntryTypes(
   value: string[] | undefined,
 ): Array<(typeof timelineEntryTypeValues)[number]> {
-  const requestedValues = normalizeRepeatedOption(value)
+  const requestedValues = normalizeRepeatableFlagOption(value, 'entry-type') ?? []
   const entryTypeSet = new Set(timelineEntryTypeValues)
 
   return requestedValues.filter(

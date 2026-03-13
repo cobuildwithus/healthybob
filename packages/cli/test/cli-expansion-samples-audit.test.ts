@@ -112,7 +112,9 @@ test.sequential('samples commands support richer import options plus show/list/b
       '--delimiter',
       ';',
       '--metadata-columns',
-      'device,context',
+      'device',
+      '--metadata-columns',
+      'context',
       '--source',
       'device',
     ])
@@ -123,6 +125,31 @@ test.sequential('samples commands support richer import options plus show/list/b
     assert.match(requireData(imported).transformId, /^xfm_/u)
     assert.equal(requireData(imported).lookupIds.length, 2)
     await access(path.join(vaultRoot, requireData(imported).manifestFile))
+
+    const csvMetadataColumns = await runSliceCli([
+      'samples',
+      'import-csv',
+      csvPath,
+      '--vault',
+      vaultRoot,
+      '--stream',
+      'heart_rate',
+      '--ts-column',
+      'recorded_at',
+      '--value-column',
+      'value',
+      '--unit',
+      'bpm',
+      '--delimiter',
+      ';',
+      '--metadata-columns',
+      'device,context',
+    ])
+    assert.equal(csvMetadataColumns.ok, false)
+    assert.match(
+      csvMetadataColumns.error.message ?? '',
+      /repeat the flag instead|comma-delimited values are not supported/iu,
+    )
 
     const showResult = await runSliceCli<{
       entity: {
@@ -150,10 +177,12 @@ test.sequential('samples commands support richer import options plus show/list/b
     assert.equal(invalidSampleShow.ok, false)
 
     const listResult = await runSliceCli<{
+      count: number
       items: Array<{
         id: string
         quality: string | null
         stream: string | null
+        data: Record<string, unknown>
       }>
     }>([
       'samples',
@@ -170,6 +199,7 @@ test.sequential('samples commands support richer import options plus show/list/b
       '2026-03-12',
     ])
     assert.equal(listResult.ok, true)
+    assert.equal(requireData(listResult).count, 2)
     assert.equal(requireData(listResult).items.length, 2)
     assert.deepEqual(
       requireData(listResult).items.map((item) => item.quality),
@@ -283,13 +313,20 @@ test.sequential('audit commands show, filter, and tail canonical audit records',
     assert.equal(requireData(showResult).entity.kind, 'audit')
 
     const listResult = await runSliceCli<{
+      count: number
       items: Array<{
         id: string
+        kind: string
+        title: string | null
+        occurredAt: string | null
+        path: string | null
         action: string | null
         actor: string | null
         status: string | null
         commandName: string | null
         summary: string | null
+        data: Record<string, unknown>
+        links: Array<{ id: string }>
       }>
     }>([
       'audit',
@@ -308,24 +345,50 @@ test.sequential('audit commands show, filter, and tail canonical audit records',
       '2026-03-12',
     ])
     assert.equal(listResult.ok, true)
+    assert.equal(requireData(listResult).count, 1)
     assert.deepEqual(
       requireData(listResult).items.map((item) => item.id),
       ['aud_01JNW00000000000000000002'],
     )
-    assert.deepEqual(requireData(listResult).items[0], {
-      id: 'aud_01JNW00000000000000000002',
-      kind: 'audit',
-      title: 'Missing lookup id.',
-      occurredAt: '2026-03-12T09:15:00Z',
-      path: 'audit/2026/2026-03.jsonl',
-      action: 'show',
-      actor: 'query',
-      status: 'failure',
-      commandName: 'vault-cli show',
-      summary: 'Missing lookup id.',
-    })
+    assert.equal(requireData(listResult).items[0]?.kind, 'audit')
+    assert.equal(requireData(listResult).items[0]?.title, 'Missing lookup id.')
+    assert.equal(requireData(listResult).items[0]?.occurredAt, '2026-03-12T09:15:00Z')
+    assert.equal(requireData(listResult).items[0]?.path, 'audit/2026/2026-03.jsonl')
+    assert.equal(requireData(listResult).items[0]?.action, 'show')
+    assert.equal(requireData(listResult).items[0]?.actor, 'query')
+    assert.equal(requireData(listResult).items[0]?.status, 'failure')
+    assert.equal(requireData(listResult).items[0]?.commandName, 'vault-cli show')
+    assert.equal(requireData(listResult).items[0]?.summary, 'Missing lookup id.')
+    assert.equal(requireData(listResult).items[0]?.data.summary, 'Missing lookup id.')
+    assert.equal(requireData(listResult).items[0]?.links.length, 0)
+
+    const ascendingListResult = await runSliceCli<{
+      count: number
+      filters: {
+        sort: 'asc' | 'desc'
+      }
+      items: Array<{
+        id: string
+      }>
+    }>([
+      'audit',
+      'list',
+      '--vault',
+      vaultRoot,
+      '--sort',
+      'asc',
+      '--limit',
+      '2',
+    ])
+    assert.equal(ascendingListResult.ok, true)
+    assert.equal(requireData(ascendingListResult).filters.sort, 'asc')
+    assert.deepEqual(
+      requireData(ascendingListResult).items.map((item) => item.id),
+      ['aud_01JNW00000000000000000001', 'aud_01JNW00000000000000000002'],
+    )
 
     const tailResult = await runSliceCli<{
+      count: number
       items: Array<{
         id: string
       }>
@@ -338,6 +401,7 @@ test.sequential('audit commands show, filter, and tail canonical audit records',
       '1',
     ])
     assert.equal(tailResult.ok, true)
+    assert.equal(requireData(tailResult).count, 1)
     assert.deepEqual(
       requireData(tailResult).items.map((item) => item.id),
       ['aud_01JNW00000000000000000002'],
@@ -382,6 +446,7 @@ test.sequential('audit commands are reachable through the top-level CLI registra
     )
 
     const tailResult = await runCli<{
+      count: number
       items: Array<{
         id: string
       }>
@@ -396,6 +461,7 @@ test.sequential('audit commands are reachable through the top-level CLI registra
 
     assert.equal(tailResult.ok, true)
     assert.equal(tailResult.meta?.command, 'audit tail')
+    assert.equal(requireData(tailResult).count, 1)
     assert.deepEqual(
       requireData(tailResult).items.map((item) => item.id),
       ['aud_01JNW00000000000000000010'],

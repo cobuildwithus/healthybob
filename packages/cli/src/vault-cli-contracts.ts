@@ -111,44 +111,41 @@ export const entityRefSchema = z.object({
   queryable: z.boolean(),
 })
 
-export const showResultSchema = z.object({
-  vault: pathSchema,
-  entity: z.object({
-    id: z.string().min(1),
-    kind: z.string().min(1),
-    title: z.string().min(1).nullable(),
-    occurredAt: isoTimestampSchema.nullable(),
-    path: pathSchema.nullable(),
-    markdown: z.string().nullable(),
-    data: z.record(z.string(), z.unknown()),
-    links: z.array(entityRefSchema),
-  }),
-})
-
-export const listFilterSchema = z.object({
-  recordType: z.string().min(1).optional(),
-  kind: z.string().min(1).optional(),
-  status: z.string().min(1).optional(),
-  stream: z.string().min(1).optional(),
-  experiment: slugSchema.optional(),
-  dateFrom: localDateSchema.optional(),
-  dateTo: localDateSchema.optional(),
-  tag: z.string().min(1).optional(),
-  limit: z.number().int().positive().max(200).default(50),
-})
-
-export const listItemSchema = z.object({
+export const readEntitySchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1),
   title: z.string().min(1).nullable(),
   occurredAt: isoTimestampSchema.nullable(),
   path: pathSchema.nullable(),
+  markdown: z.string().nullable(),
+  data: z.record(z.string(), z.unknown()),
+  links: z.array(entityRefSchema),
 })
+
+export const showResultSchema = z.object({
+  vault: pathSchema,
+  entity: readEntitySchema,
+})
+
+export const listFilterSchema = z.object({
+  recordType: z.array(z.string().min(1)).optional(),
+  kind: z.string().min(1).optional(),
+  status: z.string().min(1).optional(),
+  stream: z.array(z.string().min(1)).optional(),
+  experiment: slugSchema.optional(),
+  from: localDateSchema.optional(),
+  to: localDateSchema.optional(),
+  tag: z.array(z.string().min(1)).optional(),
+  limit: z.number().int().positive().max(200).default(50),
+})
+
+export const listItemSchema = readEntitySchema
 
 export const listResultSchema = z.object({
   vault: pathSchema,
   filters: listFilterSchema,
   items: z.array(listItemSchema),
+  count: z.number().int().nonnegative(),
   nextCursor: z.string().min(1).nullable(),
 })
 
@@ -174,6 +171,7 @@ export type ExperimentCreateResult = z.infer<
   typeof experimentCreateResultSchema
 >
 export type JournalEnsureResult = z.infer<typeof journalEnsureResultSchema>
+export type ReadEntity = z.infer<typeof readEntitySchema>
 export type ShowResult = z.infer<typeof showResultSchema>
 export type ListFilters = z.infer<typeof listFilterSchema>
 export type ListResult = z.infer<typeof listResultSchema>

@@ -87,6 +87,18 @@ test('provider and event scaffold schemas expose the new noun entrypoints', asyn
   assert.equal('input' in samplesSchema.options.properties, true)
 })
 
+test('provider/event/samples help uses generic id selectors for read commands', async () => {
+  const providerHelp = await runSliceCliRaw(['provider', 'show', '--help'])
+  const eventHelp = await runSliceCliRaw(['event', 'show', '--help'])
+  const sampleHelp = await runSliceCliRaw(['samples', 'show', '--help'])
+  const batchHelp = await runSliceCliRaw(['samples', 'batch', 'show', '--help'])
+
+  assert.match(providerHelp, /Usage: vault-cli provider show <id> \[options\]/u)
+  assert.match(eventHelp, /Usage: vault-cli event show <id> \[options\]/u)
+  assert.match(sampleHelp, /Usage: vault-cli samples show <id> \[options\]/u)
+  assert.match(batchHelp, /Usage: vault-cli samples batch show <id> \[options\]/u)
+})
+
 test.sequential(
   'provider upsert/show/list, event upsert/show/list, and samples add work through the slice commands',
   async () => {
@@ -167,9 +179,11 @@ test.sequential(
         filters: {
           status: string | null
         }
+        count: number
         items: Array<{
           id: string
           kind: string
+          data: Record<string, unknown>
         }>
       }>([
         'provider',
@@ -193,8 +207,10 @@ test.sequential(
 
       assert.equal(providerList.ok, true)
       assert.equal(requireData(providerList).filters.status, 'active')
+      assert.equal(requireData(providerList).count, 1)
       assert.equal(requireData(providerList).items.length, 1)
       assert.equal(requireData(providerList).items[0]?.kind, 'provider')
+      assert.equal(requireData(providerList).items[0]?.data.specialty, 'lab')
 
       await writeFile(
         eventPayloadPath,
@@ -252,11 +268,17 @@ test.sequential(
       const eventList = await runSliceCli<{
         filters: {
           kind: string | null
-          tag: string | null
+          tag: string[]
         }
+        count: number
         items: Array<{
           id: string
           kind: string
+          data: Record<string, unknown>
+          links: Array<{
+            id: string
+            kind: string
+          }>
         }>
       }>([
         'event',
@@ -265,6 +287,8 @@ test.sequential(
         'symptom',
         '--tag',
         'symptom',
+        '--tag',
+        'morning',
         '--vault',
         vaultRoot,
       ])
@@ -284,9 +308,29 @@ test.sequential(
 
       assert.equal(eventList.ok, true)
       assert.equal(requireData(eventList).filters.kind, 'symptom')
-      assert.equal(requireData(eventList).filters.tag, 'symptom')
+      assert.deepEqual(requireData(eventList).filters.tag, [
+        'symptom',
+        'morning',
+      ])
+      assert.equal(requireData(eventList).count, 1)
       assert.equal(requireData(eventList).items.length, 1)
       assert.equal(requireData(eventList).items[0]?.kind, 'symptom')
+      assert.equal(requireData(eventList).items[0]?.data.symptom, 'headache')
+      assert.equal(requireData(eventList).items[0]?.links[0]?.id, requireData(providerUpsert).providerId)
+
+      const csvEventList = await runSliceCli([
+        'event',
+        'list',
+        '--tag',
+        'symptom,morning',
+        '--vault',
+        vaultRoot,
+      ])
+      assert.equal(csvEventList.ok, false)
+      assert.match(
+        csvEventList.error.message ?? '',
+        /repeat the flag instead|comma-delimited values are not supported/iu,
+      )
 
       await writeFile(
         samplesPayloadPath,
@@ -351,11 +395,13 @@ test.sequential(
           stream: string | null
           quality: string | null
         }
+        count: number
         items: Array<{
           id: string
           kind: string
           stream: string | null
           quality: string | null
+          data: Record<string, unknown>
         }>
       }>([
         'samples',
@@ -374,10 +420,12 @@ test.sequential(
       assert.equal(sampleList.ok, true)
       assert.equal(requireData(sampleList).filters.stream, 'heart_rate')
       assert.equal(requireData(sampleList).filters.quality, 'raw')
+      assert.equal(requireData(sampleList).count, 2)
       assert.equal(requireData(sampleList).items.length, 2)
       assert.equal(requireData(sampleList).items[0]?.kind, 'sample')
       assert.equal(requireData(sampleList).items[0]?.stream, 'heart_rate')
       assert.equal(requireData(sampleList).items[0]?.quality, 'raw')
+      assert.equal(requireData(sampleList).items[0]?.data.stream, 'heart_rate')
 
       const providerMarkdown = await readFile(
         path.join(vaultRoot, requireData(providerUpsert).path),

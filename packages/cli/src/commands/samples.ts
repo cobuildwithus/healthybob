@@ -23,6 +23,7 @@ import {
   listSamples as listSamplesWithArtifacts,
   showSample as showSampleWithArtifacts,
 } from './sample-query-command-helpers.js'
+import { normalizeRepeatableFlagOption } from '../option-utils.js'
 
 const sampleIdSchema = z
   .string()
@@ -180,7 +181,10 @@ export function registerSamplesCommands(
         return importCsvSamplesWithArtifacts({
           delimiter: options.delimiter,
           file: args.file,
-          metadataColumns: options.metadataColumns,
+          metadataColumns: normalizeRepeatableFlagOption(
+            options.metadataColumns,
+            'metadata-columns',
+          ),
           presetId: options.preset,
           requestId: requestIdFromOptions(options),
           source: options.source,
@@ -221,20 +225,13 @@ export function registerSamplesCommands(
     }),
     output: samplesListResultSchema,
     async run({ options }) {
-      const items = (
-        await listSamplesWithArtifacts(options.vault, {
-          from: options.from,
-          limit: options.limit,
-          quality: options.quality,
-          stream: options.stream,
-          to: options.to,
-        })
-      ).map((item) => ({
-        ...item,
-        markdown: null,
-        data: {},
-        links: [],
-      }))
+      const items = await listSamplesWithArtifacts(options.vault, {
+        from: options.from,
+        limit: options.limit,
+        quality: options.quality,
+        stream: options.stream,
+        to: options.to,
+      })
 
       return {
         vault: options.vault,

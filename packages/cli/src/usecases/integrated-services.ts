@@ -32,6 +32,7 @@ import {
   toGenericListItem,
   toGenericShowEntity,
 } from "./shared.js"
+import { normalizeRepeatableFlagOption } from "../option-utils.js"
 import {
   listDocuments as listDocumentsUseCase,
   showDocument as showDocumentUseCase,
@@ -468,9 +469,9 @@ function createIntegratedQueryServices(): QueryServices {
       } = input
       const { query } = await loadIntegratedRuntime()
       const readModel = await query.readVault(vault)
-      const recordTypes = normalizeRepeatedOption(recordType)
-      const streams = normalizeRepeatedOption(stream)
-      const tags = normalizeRepeatedOption(tag)
+      const recordTypes = normalizeRepeatableFlagOption(recordType, "record-type") ?? []
+      const streams = normalizeRepeatableFlagOption(stream, "stream") ?? []
+      const tags = normalizeRepeatableFlagOption(tag, "tag") ?? []
       const items = query
         .listEntities(readModel, {
           families: recordTypes.length > 0 ? recordTypes : undefined,
@@ -535,20 +536,6 @@ function createIntegratedQueryServices(): QueryServices {
       }
     },
   } satisfies QueryServices
-}
-
-function normalizeRepeatedOption(value: string[] | undefined): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return [
-    ...new Set(
-      value
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    ),
-  ]
 }
 
 export function createIntegratedVaultCliServices(): VaultCliServices {

@@ -694,15 +694,11 @@ test.sequential('timeline exposes projected health entry types', async () => {
   }
 })
 
-test.sequential('search no longer splits comma-delimited record-type tokens', async () => {
+test.sequential('search rejects comma-delimited record-type tokens', async () => {
   const vaultRoot = await makeCanonicalHealthFixture()
 
   try {
-    const result = await runCli<{
-      filters: {
-        recordTypes: string[]
-      }
-    }>([
+    const result = await runCli([
       'search',
       '--text',
       'sleep',
@@ -712,22 +708,21 @@ test.sequential('search no longer splits comma-delimited record-type tokens', as
       vaultRoot,
     ])
 
-    assert.equal(result.ok, true)
-    assert.deepEqual(requireData(result).filters.recordTypes, [])
+    assert.equal(result.ok, false)
+    assert.match(
+      result.error.message ?? '',
+      /repeat the flag instead|comma-delimited values are not supported/u,
+    )
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }
 })
 
-test.sequential('timeline no longer splits comma-delimited entry-type tokens', async () => {
+test.sequential('timeline rejects comma-delimited entry-type tokens', async () => {
   const vaultRoot = await makeCanonicalHealthFixture()
 
   try {
-    const result = await runCli<{
-      filters: {
-        entryTypes: string[]
-      }
-    }>([
+    const result = await runCli([
       'timeline',
       '--entry-type',
       'assessment,history',
@@ -739,8 +734,11 @@ test.sequential('timeline no longer splits comma-delimited entry-type tokens', a
       vaultRoot,
     ])
 
-    assert.equal(result.ok, true)
-    assert.deepEqual(requireData(result).filters.entryTypes, [])
+    assert.equal(result.ok, false)
+    assert.match(
+      result.error.message ?? '',
+      /repeat the flag instead|comma-delimited values are not supported/u,
+    )
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }

@@ -19,7 +19,7 @@ vault-cli vault paths --vault <path> [--format json|md] [--request-id <id>]
 vault-cli vault stats --vault <path> [--format json|md] [--request-id <id>]
 vault-cli vault update --vault <path> [--title <title>] [--timezone <tz>] [--format json|md] [--request-id <id>]
 vault-cli audit show <id> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli audit list --vault <path> [--action <action>] [--actor <actor>] [--status <status>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli audit list --vault <path> [--action <action>] [--actor <actor>] [--status <status>] [--from <date>] [--to <date>] [--sort asc|desc] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli audit tail --vault <path> [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli provider scaffold --vault <path> [--format json|md] [--request-id <id>]
 vault-cli provider upsert --vault <path> --input @file.json [--format json|md] [--request-id <id>]
@@ -53,10 +53,8 @@ vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id 
 vault-cli journal show <date> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli journal list --vault <path> [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli journal append <date> --vault <path> --text "..." [--format json|md] [--request-id <id>]
-vault-cli journal link-event <date> --vault <path> --id <evt_*> [--id <evt_*> ...] [--format json|md] [--request-id <id>]
-vault-cli journal unlink-event <date> --vault <path> --id <evt_*> [--id <evt_*> ...] [--format json|md] [--request-id <id>]
-vault-cli journal link-stream <date> --vault <path> --stream <stream> [--stream <stream> ...] [--format json|md] [--request-id <id>]
-vault-cli journal unlink-stream <date> --vault <path> --stream <stream> [--stream <stream> ...] [--format json|md] [--request-id <id>]
+vault-cli journal link <date> --vault <path> [--event-id <evt_*> ...] [--stream <stream> ...] [--format json|md] [--request-id <id>]
+vault-cli journal unlink <date> --vault <path> [--event-id <evt_*> ...] [--stream <stream> ...] [--format json|md] [--request-id <id>]
 vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli list --vault <path> [--record-type <type> ...] [--kind <kind>] [--status <status>] [--stream <stream> ...] [--tag <tag> ...] [--experiment <slug>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli search --vault <path> --text <query> [--backend auto|scan|sqlite] [--record-type <type> ...] [--kind <kind> ...] [--stream <stream> ...] [--experiment <slug>] [--from <date>] [--to <date>] [--tag <tag> ...] [--limit <n>] [--format json|md] [--request-id <id>]
@@ -148,7 +146,7 @@ Every command now uses native `incur` command definitions directly:
 - `--request-id` is optional, forwarded to package service calls, and reserved for audit correlation.
 - `json` is the canonical machine format.
 - `md` is a human-oriented rendering mode handled by `incur`; it is not a second machine-stable envelope.
-- Retrieval filters and similar multi-value options use repeatable flags such as `--kind meal --kind note`, `--entry-type event --entry-type sample_summary`, or `--metadata-columns device --metadata-columns context`.
+- Retrieval filters and similar multi-value options use repeatable flags such as `--kind meal --kind note`, `--entry-type event --entry-type sample_summary`, or `--metadata-columns device --metadata-columns context`. Comma-delimited tokens such as `--kind meal,note` are invalid and should be rewritten as repeated flags.
 - Canonical ids emitted by core/import flows follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
 - Commands that create or read canonical records align to the generated schemas in `packages/contracts/generated/`.
 - Write/import commands return `lookupId` or `lookupIds` when the follow-on read path should use a queryable id rather than a related or batch id.
@@ -352,14 +350,14 @@ The examples below are the full successful `--format json` response bodies.
 {
   "vault": "<path>",
   "filters": {
-    "recordType": "event",
+    "recordType": ["event"],
     "kind": "meal",
     "status": null,
-    "stream": null,
+    "stream": [],
     "experiment": "sleep-window",
     "from": "2026-03-01",
     "to": "2026-03-12",
-    "tag": "lunch",
+    "tag": ["lunch"],
     "limit": 50
   },
   "items": [
@@ -371,6 +369,7 @@ The examples below are the full successful `--format json` response bodies.
       "path": "<path>"
     }
   ],
+  "count": 1,
   "nextCursor": null
 }
 ```
@@ -517,7 +516,7 @@ The five-file pack shape stays stable; health extensions enrich `manifest.json`,
 ## Boundary Rules
 
 - `init`, `validate`, `meal add`, `document import`, `samples import-csv`, and `intake import` delegate to `packages/core` or `packages/importers` write paths that preserve immutable raw evidence and append-only ledgers.
-- `provider upsert`, `event upsert`, `samples add`, `experiment create|update|checkpoint|stop`, `journal ensure|append|link-event|unlink-event|link-stream|unlink-stream`, `vault update`, `intake project`, health `<noun> scaffold`, health `<noun> upsert`, `profile current rebuild`, and `regimen stop` all delegate to `packages/core` exports or to CLI-local helpers built only on top of `packages/core` frontmatter/jsonl primitives and canonical write locks.
+- `provider upsert`, `event upsert`, `samples add`, `experiment create|update|checkpoint|stop`, `journal ensure|append|link|unlink`, `vault update`, `intake project`, health `<noun> scaffold`, health `<noun> upsert`, `profile current rebuild`, and `regimen stop` all delegate to `packages/core` exports or to CLI-local helpers built only on top of `packages/core` frontmatter/jsonl primitives and canonical write locks.
 - `show`, `list`, `search`, `timeline`, `document/meal/samples/intake/export` follow-up reads, `audit show|list|tail`, and `vault show|paths|stats` delegate to the read model plus immutable-manifest inspection helpers.
 - `inbox` bootstrap/setup, capture review, attachment parse, and promote commands delegate to `packages/inboxd`, `packages/parsers`, and shared `packages/core` primitives without directly writing arbitrary vault files from the CLI layer.
 - Contract validation errors normalize to the shared codes in `docs/contracts/04-error-codes.md`.
