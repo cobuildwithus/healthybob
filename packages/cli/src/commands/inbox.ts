@@ -5,12 +5,17 @@ import {
   withBaseOptions,
 } from '../command-helpers.js'
 import {
+  inboxAttachmentListResultSchema,
+  inboxAttachmentReparseResultSchema,
+  inboxAttachmentShowResultSchema,
+  inboxAttachmentStatusResultSchema,
   inboxBackfillResultSchema,
   inboxDaemonStateSchema,
   inboxDoctorResultSchema,
   inboxInitResultSchema,
   inboxListResultSchema,
   inboxPromoteMealResultSchema,
+  inboxPromoteJournalResultSchema,
   inboxRunResultSchema,
   inboxSearchResultSchema,
   inboxShowResultSchema,
@@ -375,6 +380,76 @@ export function registerInboxCommands(
     },
   })
 
+  const attachment = Cli.create('attachment', {
+    description: 'Inspect stored inbox attachments and their runtime parse state.',
+  })
+
+  attachment.command('list', {
+    args: z.object({
+      captureId: z.string().min(1).describe('Inbox capture id to inspect.'),
+    }),
+    description: 'List stored attachments for one inbox capture.',
+    options: withBaseOptions(),
+    output: inboxAttachmentListResultSchema,
+    async run(context) {
+      return services.listAttachments({
+        vault: context.options.vault,
+        requestId: requestIdFromOptions(context.options),
+        captureId: context.args.captureId,
+      })
+    },
+  })
+
+  attachment.command('show', {
+    args: z.object({
+      attachmentId: z.string().min(1).describe('Inbox attachment id to inspect.'),
+    }),
+    description: 'Show one stored inbox attachment by its runtime attachment id.',
+    options: withBaseOptions(),
+    output: inboxAttachmentShowResultSchema,
+    async run(context) {
+      return services.showAttachment({
+        vault: context.options.vault,
+        requestId: requestIdFromOptions(context.options),
+        attachmentId: context.args.attachmentId,
+      })
+    },
+  })
+
+  attachment.command('show-status', {
+    args: z.object({
+      attachmentId: z.string().min(1).describe('Inbox attachment id to inspect.'),
+    }),
+    description: 'Show the current runtime parse status for one inbox attachment.',
+    options: withBaseOptions(),
+    output: inboxAttachmentStatusResultSchema,
+    async run(context) {
+      return services.showAttachmentStatus({
+        vault: context.options.vault,
+        requestId: requestIdFromOptions(context.options),
+        attachmentId: context.args.attachmentId,
+      })
+    },
+  })
+
+  attachment.command('reparse', {
+    args: z.object({
+      attachmentId: z.string().min(1).describe('Inbox attachment id to requeue.'),
+    }),
+    description: 'Requeue the current runtime parse job for one parseable inbox attachment.',
+    options: withBaseOptions(),
+    output: inboxAttachmentReparseResultSchema,
+    async run(context) {
+      return services.reparseAttachment({
+        vault: context.options.vault,
+        requestId: requestIdFromOptions(context.options),
+        attachmentId: context.args.attachmentId,
+      })
+    },
+  })
+
+  inbox.command(attachment)
+
   const promote = Cli.create('promote', {
     description: 'Promote captured inbox items into canonical Healthy Bob records.',
   })
@@ -403,8 +478,9 @@ export function registerInboxCommands(
       captureId: z.string().min(1).describe('Inbox capture id to promote.'),
     }),
     description:
-      'Reserved placeholder for future journal promotion. Currently returns `INBOX_PROMOTION_UNSUPPORTED`.',
+      'Promote one inbox capture into the journal day for its occurred-at date using a stable, idempotent note block.',
     options: withBaseOptions(),
+    output: inboxPromoteJournalResultSchema,
     async run(context) {
       return services.promoteJournal({
         vault: context.options.vault,
@@ -419,7 +495,7 @@ export function registerInboxCommands(
       captureId: z.string().min(1).describe('Inbox capture id to promote.'),
     }),
     description:
-      'Reserved placeholder for future experiment-note promotion. Currently returns `INBOX_PROMOTION_UNSUPPORTED`.',
+      'Reserved placeholder for future experiment-note promotion. The current runtime does not expose a deterministic experiment target-selection rule.',
     options: withBaseOptions(),
     async run(context) {
       return services.promoteExperimentNote({

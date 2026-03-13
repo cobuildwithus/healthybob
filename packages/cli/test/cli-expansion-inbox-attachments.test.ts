@@ -1,0 +1,399 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { test } from 'vitest'
+import { createIntegratedInboxCliServices } from '../src/inbox-services.js'
+import { createVaultCli } from '../src/vault-cli.js'
+import { createUnwiredVaultCliServices } from '../src/vault-cli-services.js'
+import { requireData, type CliEnvelope } from './cli-test-helpers.js'
+
+const builtCoreRuntimeUrl = new URL('../../core/dist/index.js', import.meta.url).href
+const builtInboxRuntimeUrl = new URL('../../inboxd/dist/index.js', import.meta.url).href
+
+async function makeVaultFixture(prefix: string): Promise<{
+  homeRoot: string
+  photoPath: string
+  vaultRoot: string
+}> {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), `${prefix}-vault-`))
+  const homeRoot = await mkdtemp(path.join(tmpdir(), `${prefix}-home-`))
+  const photoPath = path.join(vaultRoot, 'meal-photo.jpg')
+  const messagesDbPath = path.join(homeRoot, 'Library', 'Messages', 'chat.db')
+
+  const coreRuntime = await loadBuiltCoreRuntime()
+  await coreRuntime.initializeVault({
+    vaultRoot,
+    createdAt: '2026-03-13T12:00:00.000Z',
+  })
+  await writeFile(photoPath, 'photo', 'utf8')
+  await mkdir(path.dirname(messagesDbPath), { recursive: true })
+  await writeFile(messagesDbPath, 'messages', 'utf8')
+
+  return {
+    homeRoot,
+    photoPath,
+    vaultRoot,
+  }
+}
+
+async function loadBuiltCoreRuntime() {
+  return (await import(builtCoreRuntimeUrl)) as {
+    initializeVault(input: {
+      vaultRoot: string
+      createdAt: string
+    }): Promise<void>
+  }
+}
+
+async function loadBuiltInboxRuntime() {
+  return (await import(builtInboxRuntimeUrl)) as {
+    openInboxRuntime(input: { vaultRoot: string }): Promise<{
+      close(): void
+      getCapture(captureId: string): {
+        captureId: string
+        eventId: string
+        attachments: Array<{
+          attachmentId?: string | null
+          derivedPath?: string | null
+          extractedText?: string | null
+          parseState?: string | null
+        }>
+      } | null
+      claimNextAttachmentParseJob(filters?: {
+        captureId?: string
+        attachmentId?: string
+      }): {
+        jobId: string
+        attachmentId: string
+        captureId: string
+      } | null
+      completeAttachmentParseJob(input: {
+        jobId: string
+        providerId: string
+        resultPath: string
+        extractedText?: string | null
+      }): unknown
+    }>
+  }
+}
+
+async function runInProcessInboxCli<TData>(
+  args: string[],
+  inboxServices: ReturnType<typeof createIntegratedInboxCliServices>,
+): Promise<CliEnvelope<TData>> {
+  const cli = createVaultCli(createUnwiredVaultCliServices(), inboxServices)
+  const output: string[] = []
+
+  await cli.serve([...args, '--verbose', '--format', 'json'], {
+    env: process.env,
+    exit: () => {},
+    stdout(chunk) {
+      output.push(chunk)
+    },
+  })
+
+  return JSON.parse(output.join('').trim()) as CliEnvelope<TData>
+}
+
+function createFakeImessageDriver(input: {
+  photoPath: string
+  text?: string
+}) {
+  return {
+    async listChats() {
+      return [{ guid: 'chat-1', displayName: 'Breakfast', participantCount: 2 }]
+    },
+    async getMessages() {
+      return [
+        {
+          guid: 'im-1',
+          text: input.text ?? 'Toast and eggs',
+          date: '2026-03-13T08:00:00.000Z',
+          dateRead: '2026-03-13T08:00:10.000Z',
+          chatGuid: 'chat-1',
+          handleId: 'friend',
+          displayName: 'Friend',
+          isFromMe: false,
+          attachments: [
+            {
+              guid: 'att-1',
+              fileName: 'meal-photo.jpg',
+              path: input.photoPath,
+              mimeType: 'image/jpeg',
+            },
+          ],
+        },
+      ]
+    },
+  }
+}
+
+async function initializeImessageSource(input: {
+  services: ReturnType<typeof createIntegratedInboxCliServices>
+  vaultRoot: string
+}) {
+  await input.services.init({
+    vault: input.vaultRoot,
+    requestId: null,
+  })
+  await input.services.sourceAdd({
+    vault: input.vaultRoot,
+    requestId: null,
+    source: 'imessage',
+    id: 'imessage:self',
+    account: 'self',
+    includeOwn: true,
+  })
+}
+
+async function captureSingleCapture(input: {
+  services: ReturnType<typeof createIntegratedInboxCliServices>
+  vaultRoot: string
+}) {
+  const listed = await input.services.list({
+    vault: input.vaultRoot,
+    requestId: null,
+    limit: 10,
+  })
+  const captureId = listed.items[0]?.captureId
+  assert.ok(captureId)
+  const shown = await input.services.show({
+    vault: input.vaultRoot,
+    requestId: null,
+    captureId,
+  })
+  return shown.capture
+}
+
+test.sequential(
+  'inbox attachment commands expose stored metadata, parse status, and requeue support',
+  async () => {
+    const fixture = await makeVaultFixture('healthybob-inbox-attachments')
+    const services = createIntegratedInboxCliServices({
+      enableJournalPromotion: true,
+      getHomeDirectory: () => fixture.homeRoot,
+      getPlatform: () => 'darwin',
+      loadCoreModule: loadBuiltCoreRuntime as never,
+      loadInboxModule: loadBuiltInboxRuntime as never,
+      loadImessageDriver: async () =>
+        createFakeImessageDriver({ photoPath: fixture.photoPath }),
+    })
+
+    try {
+      await initializeImessageSource({
+        services,
+        vaultRoot: fixture.vaultRoot,
+      })
+      await services.backfill({
+        vault: fixture.vaultRoot,
+        requestId: null,
+        sourceId: 'imessage:self',
+      })
+      const capture = await captureSingleCapture({
+        services,
+        vaultRoot: fixture.vaultRoot,
+      })
+      const attachmentId = capture.attachments[0]?.attachmentId
+      assert.ok(attachmentId)
+
+      const inboxRuntime = await loadBuiltInboxRuntime()
+      const runtime = await inboxRuntime.openInboxRuntime({
+        vaultRoot: fixture.vaultRoot,
+      })
+      try {
+        const pendingJob = runtime.claimNextAttachmentParseJob({ attachmentId })
+        assert.ok(pendingJob)
+        runtime.completeAttachmentParseJob({
+          jobId: pendingJob.jobId,
+          providerId: 'fake-image-parser',
+          resultPath: 'derived/inbox/manifest.json',
+          extractedText: 'Glucose 88 mg/dL',
+        })
+      } finally {
+        runtime.close()
+      }
+
+      const listed = requireData(
+        await runInProcessInboxCli<{
+          captureId: string
+          attachmentCount: number
+          attachments: Array<{
+            attachmentId: string | null
+            parseState: string | null
+            derivedPath: string | null
+          }>
+        }>(
+          ['inbox', 'attachment', 'list', capture.captureId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(listed.captureId, capture.captureId)
+      assert.equal(listed.attachmentCount, 1)
+      assert.equal(listed.attachments[0]?.attachmentId, attachmentId)
+      assert.equal(listed.attachments[0]?.parseState, 'succeeded')
+
+      const shown = requireData(
+        await runInProcessInboxCli<{
+          captureId: string
+          attachment: {
+            attachmentId: string | null
+            derivedPath: string | null
+            extractedText: string | null
+          }
+        }>(
+          ['inbox', 'attachment', 'show', attachmentId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(shown.captureId, capture.captureId)
+      assert.equal(shown.attachment.attachmentId, attachmentId)
+      assert.equal(shown.attachment.derivedPath, 'derived/inbox/manifest.json')
+      assert.equal(shown.attachment.extractedText, 'Glucose 88 mg/dL')
+
+      const status = requireData(
+        await runInProcessInboxCli<{
+          attachmentId: string
+          currentState: string | null
+          parseable: boolean
+          jobs: Array<{
+            state: string
+            resultPath: string | null
+          }>
+        }>(
+          ['inbox', 'attachment', 'show-status', attachmentId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(status.attachmentId, attachmentId)
+      assert.equal(status.parseable, true)
+      assert.equal(status.currentState, 'succeeded')
+      assert.equal(status.jobs[0]?.state, 'succeeded')
+      assert.equal(status.jobs[0]?.resultPath, 'derived/inbox/manifest.json')
+
+      const reparsed = requireData(
+        await runInProcessInboxCli<{
+          attachmentId: string
+          requeuedJobs: number
+          currentState: string | null
+          jobs: Array<{
+            state: string
+          }>
+        }>(
+          ['inbox', 'attachment', 'reparse', attachmentId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(reparsed.attachmentId, attachmentId)
+      assert.equal(reparsed.requeuedJobs, 1)
+      assert.equal(reparsed.currentState, 'pending')
+      assert.equal(reparsed.jobs[0]?.state, 'pending')
+    } finally {
+      await rm(fixture.vaultRoot, { recursive: true, force: true })
+      await rm(fixture.homeRoot, { recursive: true, force: true })
+    }
+  },
+)
+
+test.sequential(
+  'inbox journal promotion is idempotent and experiment-note remains unsupported',
+  async () => {
+    const fixture = await makeVaultFixture('healthybob-inbox-journal-promotion')
+    const services = createIntegratedInboxCliServices({
+      enableJournalPromotion: true,
+      getHomeDirectory: () => fixture.homeRoot,
+      getPlatform: () => 'darwin',
+      loadCoreModule: loadBuiltCoreRuntime as never,
+      loadInboxModule: loadBuiltInboxRuntime as never,
+      loadImessageDriver: async () =>
+        createFakeImessageDriver({
+          photoPath: fixture.photoPath,
+          text: 'Breakfast note from inbox',
+        }),
+    })
+
+    try {
+      await initializeImessageSource({
+        services,
+        vaultRoot: fixture.vaultRoot,
+      })
+      await services.backfill({
+        vault: fixture.vaultRoot,
+        requestId: null,
+        sourceId: 'imessage:self',
+      })
+      const capture = await captureSingleCapture({
+        services,
+        vaultRoot: fixture.vaultRoot,
+      })
+
+      const firstPromotion = requireData(
+        await runInProcessInboxCli<{
+          target: string
+          lookupId: string
+          relatedId: string
+          journalPath: string
+          created: boolean
+          appended: boolean
+          linked: boolean
+        }>(
+          ['inbox', 'promote', 'journal', capture.captureId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(firstPromotion.target, 'journal')
+      assert.equal(firstPromotion.lookupId, 'journal:2026-03-13')
+      assert.equal(firstPromotion.relatedId, capture.eventId)
+      assert.equal(firstPromotion.journalPath, 'journal/2026/2026-03-13.md')
+      assert.equal(firstPromotion.created, true)
+      assert.equal(firstPromotion.appended, true)
+      assert.equal(firstPromotion.linked, true)
+
+      const journalPath = path.join(fixture.vaultRoot, firstPromotion.journalPath)
+      const firstJournal = await readFile(journalPath, 'utf8')
+      assert.match(firstJournal, /eventIds:\n  - evt_/)
+      assert.match(firstJournal, /## Inbox Captures/)
+      assert.match(firstJournal, /<!-- inbox-capture:cap_/)
+      assert.match(firstJournal, /Breakfast note from inbox/)
+
+      const secondPromotion = requireData(
+        await runInProcessInboxCli<{
+          created: boolean
+          appended: boolean
+          linked: boolean
+        }>(
+          ['inbox', 'promote', 'journal', capture.captureId, '--vault', fixture.vaultRoot],
+          services,
+        ),
+      )
+      assert.equal(secondPromotion.created, false)
+      assert.equal(secondPromotion.appended, false)
+      assert.equal(secondPromotion.linked, false)
+
+      const secondJournal = await readFile(journalPath, 'utf8')
+      assert.equal(
+        secondJournal.split(`<!-- inbox-capture:${capture.captureId} -->`).length - 1,
+        1,
+      )
+
+      const experimentNote = await runInProcessInboxCli(
+        [
+          'inbox',
+          'promote',
+          'experiment-note',
+          capture.captureId,
+          '--vault',
+          fixture.vaultRoot,
+        ],
+        services,
+      )
+      assert.equal(experimentNote.ok, false)
+      if (!experimentNote.ok) {
+        assert.equal(experimentNote.error.code, 'INBOX_PROMOTION_UNSUPPORTED')
+      }
+    } finally {
+      await rm(fixture.vaultRoot, { recursive: true, force: true })
+      await rm(fixture.homeRoot, { recursive: true, force: true })
+    }
+  },
+)

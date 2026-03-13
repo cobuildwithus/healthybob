@@ -49,6 +49,7 @@ export const inboxPromotionStoreSchema = z.object({
 })
 
 export const inboxAttachmentSchema = z.object({
+  attachmentId: z.string().min(1).nullable().optional(),
   ordinal: z.number().int().positive(),
   externalId: z.string().min(1).nullable().optional(),
   kind: z.enum(['image', 'audio', 'video', 'document', 'other']),
@@ -58,6 +59,27 @@ export const inboxAttachmentSchema = z.object({
   fileName: z.string().min(1).nullable().optional(),
   byteSize: z.number().int().nonnegative().nullable().optional(),
   sha256: z.string().min(1).nullable().optional(),
+  extractedText: z.string().nullable().optional(),
+  transcriptText: z.string().nullable().optional(),
+  derivedPath: pathSchema.nullable().optional(),
+  parserProviderId: z.string().min(1).nullable().optional(),
+  parseState: z.enum(['pending', 'running', 'succeeded', 'failed']).nullable().optional(),
+})
+
+export const inboxAttachmentParseJobSchema = z.object({
+  jobId: z.string().min(1),
+  captureId: z.string().min(1),
+  attachmentId: z.string().min(1),
+  pipeline: z.literal('attachment_text'),
+  state: z.enum(['pending', 'running', 'succeeded', 'failed']),
+  attempts: z.number().int().nonnegative(),
+  providerId: z.string().min(1).nullable().optional(),
+  resultPath: pathSchema.nullable().optional(),
+  errorCode: z.string().min(1).nullable().optional(),
+  errorMessage: z.string().min(1).nullable().optional(),
+  createdAt: isoTimestampSchema,
+  startedAt: isoTimestampSchema.nullable().optional(),
+  finishedAt: isoTimestampSchema.nullable().optional(),
 })
 
 export const inboxCaptureSummarySchema = z.object({
@@ -204,6 +226,50 @@ export const inboxPromoteMealResultSchema = z.object({
   created: z.boolean(),
 })
 
+export const inboxPromoteJournalResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  target: z.literal('journal'),
+  lookupId: z.string().min(1),
+  relatedId: z.string().min(1),
+  journalPath: pathSchema,
+  created: z.boolean(),
+  appended: z.boolean(),
+  linked: z.boolean(),
+})
+
+export const inboxAttachmentListResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  attachmentCount: z.number().int().nonnegative(),
+  attachments: z.array(inboxAttachmentSchema),
+})
+
+export const inboxAttachmentShowResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  attachment: inboxAttachmentSchema,
+})
+
+export const inboxAttachmentStatusResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  attachmentId: z.string().min(1),
+  parseable: z.boolean(),
+  currentState: z.enum(['pending', 'running', 'succeeded', 'failed']).nullable(),
+  jobs: z.array(inboxAttachmentParseJobSchema),
+})
+
+export const inboxAttachmentReparseResultSchema = z.object({
+  vault: pathSchema,
+  captureId: z.string().min(1),
+  attachmentId: z.string().min(1),
+  parseable: z.boolean(),
+  requeuedJobs: z.number().int().nonnegative(),
+  currentState: z.enum(['pending', 'running', 'succeeded', 'failed']).nullable(),
+  jobs: z.array(inboxAttachmentParseJobSchema),
+})
+
 export type InboxConnectorConfig = z.infer<typeof inboxConnectorConfigSchema>
 export type InboxRuntimeConfig = z.infer<typeof inboxRuntimeConfigSchema>
 export type InboxDoctorCheck = z.infer<typeof inboxDoctorCheckSchema>
@@ -221,3 +287,8 @@ export type InboxListResult = z.infer<typeof inboxListResultSchema>
 export type InboxShowResult = z.infer<typeof inboxShowResultSchema>
 export type InboxSearchResult = z.infer<typeof inboxSearchResultSchema>
 export type InboxPromoteMealResult = z.infer<typeof inboxPromoteMealResultSchema>
+export type InboxPromoteJournalResult = z.infer<typeof inboxPromoteJournalResultSchema>
+export type InboxAttachmentListResult = z.infer<typeof inboxAttachmentListResultSchema>
+export type InboxAttachmentShowResult = z.infer<typeof inboxAttachmentShowResultSchema>
+export type InboxAttachmentStatusResult = z.infer<typeof inboxAttachmentStatusResultSchema>
+export type InboxAttachmentReparseResult = z.infer<typeof inboxAttachmentReparseResultSchema>
