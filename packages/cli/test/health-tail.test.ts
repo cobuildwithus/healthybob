@@ -142,12 +142,23 @@ test.sequential("goal descriptor wiring keeps noun-specific and generic reads al
       "--vault",
       vaultRoot,
     ]);
+    const genericUnfilteredList = await runCli<{
+      items: Array<{
+        id: string;
+        kind: string;
+      }>;
+    }>([
+      "list",
+      "--vault",
+      vaultRoot,
+    ]);
 
     assert.equal(upsertResult.ok, true);
     assert.equal(nounShow.ok, true);
     assert.equal(nounList.ok, true);
     assert.equal(genericShow.ok, true);
     assert.equal(genericList.ok, true);
+    assert.equal(genericUnfilteredList.ok, true);
     assert.equal(requireData(genericShow).entity.id, goalId);
     assert.equal(requireData(genericShow).entity.kind, "goal");
     assert.equal(
@@ -164,6 +175,14 @@ test.sequential("goal descriptor wiring keeps noun-specific and generic reads al
     );
     assert.deepEqual(
       requireData(genericList).items.map((item) => item.kind),
+      ["goal"],
+    );
+    assert.deepEqual(
+      requireData(genericUnfilteredList).items.map((item) => item.id),
+      [goalId],
+    );
+    assert.deepEqual(
+      requireData(genericUnfilteredList).items.map((item) => item.kind),
       ["goal"],
     );
   } finally {

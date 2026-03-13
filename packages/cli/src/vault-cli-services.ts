@@ -17,8 +17,6 @@ import { VaultCliError } from "./vault-cli-errors.js"
 import {
   type HealthCoreDescriptorEntry,
   type HealthQueryDescriptorEntry,
-  findHealthDescriptorForListKind,
-  findHealthDescriptorForLookup,
   hasHealthCoreDescriptor,
   hasHealthQueryDescriptor,
   healthCoreServiceMethodNames,
@@ -322,8 +320,25 @@ interface QueryRecord {
   data: Record<string, unknown>
 }
 
+interface QueryEntity {
+  entityId: string
+  family: string
+  kind: string
+  path: string
+  title: string | null
+  occurredAt: string | null
+  body: string | null
+  attributes: Record<string, unknown>
+  relatedIds: string[]
+}
+
 interface QueryRuntimeModule extends HealthQueryRuntimeMethods {
   readVault(vaultRoot: string): Promise<unknown>
+  lookupEntityById(readModel: unknown, entityId: string): QueryEntity | null
+  listEntities(
+    readModel: unknown,
+    filters?: Record<string, unknown>,
+  ): QueryEntity[]
   lookupRecordById(readModel: unknown, recordId: string): QueryRecord | null
   listRecords(
     readModel: unknown,
@@ -567,29 +582,6 @@ function firstStringField(record: JsonObject, keys: string[]) {
   return null
 }
 
-function toHealthListItem(record: JsonObject, fallbackKind: string) {
-  return {
-    id: String(record.displayId ?? record.id ?? ""),
-    kind: firstStringField(record, ["kind"]) ?? fallbackKind,
-    title: firstStringField(record, ["title", "summary"]) ?? null,
-    occurredAt: firstStringField(record, ["occurredAt", "recordedAt", "updatedAt"]) ?? null,
-    path: recordPath(record) ?? null,
-  }
-}
-
-function toHealthShowEntity(record: JsonObject, fallbackKind: string) {
-  return {
-    id: String(record.displayId ?? record.id ?? ""),
-    kind: firstStringField(record, ["kind"]) ?? fallbackKind,
-    title: firstStringField(record, ["title", "summary"]) ?? null,
-    occurredAt: firstStringField(record, ["occurredAt", "recordedAt", "updatedAt"]) ?? null,
-    path: recordPath(record) ?? null,
-    markdown: typeof record.markdown === "string" ? record.markdown : null,
-    data: record,
-    links: buildEntityLinks({ data: record }),
-  }
-}
-
 function buildScaffoldPayload(noun: string) {
   const descriptor = healthEntityDescriptorByNoun.get(noun)
   if (!descriptor?.core) {
@@ -601,6 +593,7 @@ function buildScaffoldPayload(noun: string) {
 
 function buildEntityLinks(record: {
   data: JsonObject
+  relatedIds?: string[]
 }) {
   const links: Array<{
     id: string
@@ -608,9 +601,11 @@ function buildEntityLinks(record: {
     queryable: boolean
   }> = []
 
-  const relatedIds = Array.isArray(record.data.relatedIds)
-    ? record.data.relatedIds
-    : []
+  const relatedIds = Array.isArray(record.relatedIds)
+    ? record.relatedIds
+    : Array.isArray(record.data.relatedIds)
+      ? record.data.relatedIds
+      : []
   for (const relatedId of relatedIds) {
     if (typeof relatedId === "string" && relatedId.trim()) {
       links.push({
@@ -635,6 +630,48 @@ function buildEntityLinks(record: {
   }
 
   return links
+}
+
+function normalizeGenericEntityKind(entity: QueryEntity) {
+  if (entity.family === 'current_profile' || entity.family === 'profile_snapshot') {
+    return 'profile'
+  }
+
+  return entity.kind || entity.family
+}
+
+function toGenericShowEntity(entity: QueryEntity) {
+  return {
+    id: entity.entityId,
+    kind: normalizeGenericEntityKind(entity),
+    title: entity.title ?? null,
+    occurredAt: entity.occurredAt ?? null,
+    path: entity.path ?? null,
+    markdown: entity.body ?? null,
+    data: entity.attributes,
+    links: buildEntityLinks({
+      data: entity.attributes,
+      relatedIds: entity.relatedIds,
+    }),
+  }
+}
+
+function toGenericListItem(entity: QueryEntity) {
+  return {
+    id: entity.entityId,
+    kind: normalizeGenericEntityKind(entity),
+    title: entity.title ?? null,
+    occurredAt: entity.occurredAt ?? null,
+    path: entity.path ?? null,
+  }
+}
+
+function matchesGenericKindFilter(entity: QueryEntity, kind?: string) {
+  if (!kind) {
+    return true
+  }
+
+  return entity.kind === kind || entity.family === kind
 }
 
 function buildHealthCoreRuntimeInput(
@@ -728,33 +765,6 @@ function buildHealthServiceListOptions(
   }
 
   return {}
-}
-
-function buildHealthGenericListOptions(
-  descriptor: HealthQueryDescriptorEntry,
-  input: CommandContext & ListFilters,
-) {
-  switch (descriptor.query.genericListMode) {
-    case "date-range-limit":
-      return {
-        from: input.dateFrom,
-        to: input.dateTo,
-        limit: input.limit,
-      }
-    case "history-kind-date-range-limit":
-      return {
-        kind: input.kind,
-        from: input.dateFrom,
-        to: input.dateTo,
-        limit: input.limit,
-      }
-    case "limit-only":
-      return {
-        limit: input.limit,
-      }
-    default:
-      return {}
-  }
 }
 
 function getCoreRuntimeMethod(
@@ -1209,79 +1219,31 @@ function createIntegratedQueryServices(): QueryServices {
       }
 
       const { query } = await loadIntegratedRuntime()
-      const descriptor = findHealthDescriptorForLookup(id)
-      if (descriptor) {
-        const entity = await getQueryShowMethod(query, descriptor)(vault, id)
-        if (!entity) {
-          throw new VaultCliError(
-            "not_found",
-            `No ${descriptor.query.notFoundLabel} found for "${id}".`,
-          )
-        }
-
-        return {
-          vault,
-          entity: toHealthShowEntity(entity, descriptor.kind),
-        }
-      }
-
       const readModel = await query.readVault(vault)
-      const record = query.lookupRecordById(readModel, id)
+      const entity = query.lookupEntityById(readModel, id)
 
-      if (!record) {
-        throw new VaultCliError("not_found", `No record found for "${id}".`)
+      if (!entity) {
+        throw new VaultCliError("not_found", `No entity found for "${id}".`)
       }
 
       return {
         vault,
-        entity: {
-          id: record.id,
-          kind: record.kind ?? record.recordType,
-          title: record.title ?? null,
-          occurredAt: record.occurredAt ?? null,
-          path: record.sourcePath ?? null,
-          markdown: record.body ?? null,
-          data: record.data,
-          links: buildEntityLinks(record),
-        },
+        entity: toGenericShowEntity(entity),
       }
     },
     async list(input: CommandContext & ListFilters) {
       const { vault, kind, experiment, dateFrom, dateTo, limit } = input
       const { query } = await loadIntegratedRuntime()
-      const descriptor = findHealthDescriptorForListKind(kind)
-      if (descriptor) {
-        const items = (
-          await getQueryListMethod(query, descriptor)(
-            vault,
-            buildHealthGenericListOptions(descriptor, input),
-          )
-        ).map((record) => toHealthListItem(record, descriptor.kind))
-
-        return {
-          vault,
-          filters: { kind, experiment, dateFrom, dateTo, limit },
-          items,
-          nextCursor: null,
-        }
-      }
-
       const readModel = await query.readVault(vault)
       const items = query
-        .listRecords(readModel, {
-          kinds: kind ? [kind] : undefined,
+        .listEntities(readModel, {
           experimentSlug: experiment,
           from: dateFrom,
           to: dateTo,
         })
+        .filter((entity) => matchesGenericKindFilter(entity, kind))
         .slice(0, limit)
-        .map((record) => ({
-          id: record.id,
-          kind: record.kind ?? record.recordType,
-          title: record.title ?? null,
-          occurredAt: record.occurredAt ?? null,
-          path: record.sourcePath ?? null,
-        }))
+        .map(toGenericListItem)
 
       return {
         vault,
