@@ -148,6 +148,13 @@ export function buildFtsQuery(text: string): string {
   return tokens.map((token) => `"${token.replace(/"/g, "\"\"")}"*`).join(" AND ");
 }
 
+export function mapObjectEntries(
+  value: object,
+  mapEntry: (key: string, entry: unknown) => [string, unknown],
+): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => mapEntry(key, entry)));
+}
+
 export function normalizeTextValue(value: unknown): string | null {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized ? normalized : null;
@@ -187,9 +194,7 @@ export function redactSensitivePaths(value: unknown): unknown {
   }
 
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, redactSensitivePaths(entry)]),
-    );
+    return mapObjectEntries(value, (key, entry) => [key, redactSensitivePaths(entry)]);
   }
 
   if (typeof value === "string") {

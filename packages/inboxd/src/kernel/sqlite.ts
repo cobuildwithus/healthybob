@@ -120,21 +120,163 @@ export async function openInboxRuntime({
 }
 
 function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): InboxRuntimeStore {
+  const selectCursorStatement = database.prepare(
+    `
+      select cursor_json
+      from source_cursor
+      where source = ? and account_id = ?
+    `,
+  );
+  const deleteCursorStatement = database.prepare(
+    "delete from source_cursor where source = ? and account_id = ?",
+  );
+  const upsertCursorStatement = database.prepare(
+    `
+      insert into source_cursor (source, account_id, cursor_json, updated_at)
+      values (?, ?, ?, ?)
+      on conflict (source, account_id) do update set
+        cursor_json = excluded.cursor_json,
+        updated_at = excluded.updated_at
+    `,
+  );
+  const findByExternalIdStatement = database.prepare(
+    `
+      select
+        capture_id,
+        vault_event_id,
+        envelope_path,
+        created_at
+      from capture
+      where source = ? and account_id = ? and external_id = ?
+    `,
+  );
+  const upsertCaptureStatement = database.prepare(
+    `
+      insert into capture (
+        capture_id,
+        source,
+        account_id,
+        external_id,
+        thread_id,
+        thread_title,
+        thread_is_direct,
+        actor_id,
+        actor_name,
+        actor_is_self,
+        occurred_at,
+        received_at,
+        text_content,
+        raw_json,
+        vault_event_id,
+        envelope_path,
+        created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict (capture_id) do update set
+        source = excluded.source,
+        account_id = excluded.account_id,
+        external_id = excluded.external_id,
+        thread_id = excluded.thread_id,
+        thread_title = excluded.thread_title,
+        thread_is_direct = excluded.thread_is_direct,
+        actor_id = excluded.actor_id,
+        actor_name = excluded.actor_name,
+        actor_is_self = excluded.actor_is_self,
+        occurred_at = excluded.occurred_at,
+        received_at = excluded.received_at,
+        text_content = excluded.text_content,
+        raw_json = excluded.raw_json,
+        vault_event_id = excluded.vault_event_id,
+        envelope_path = excluded.envelope_path,
+        created_at = excluded.created_at
+    `,
+  );
+  const deleteCaptureAttachmentsStatement = database.prepare(
+    "delete from capture_attachment where capture_id = ?",
+  );
+  const insertAttachmentStatement = database.prepare(
+    `
+      insert into capture_attachment (
+        capture_id,
+        ordinal,
+        external_id,
+        kind,
+        mime,
+        original_path,
+        stored_path,
+        file_name,
+        sha256,
+        size_bytes,
+        extracted_text,
+        transcript_text,
+        created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  );
+  const deleteCaptureFtsStatement = database.prepare("delete from capture_fts where capture_id = ?");
+  const insertCaptureFtsStatement = database.prepare(
+    `
+      insert into capture_fts (
+        capture_id,
+        source,
+        thread_id,
+        text_content,
+        attachment_text,
+        tags
+      ) values (?, ?, ?, ?, ?, ?)
+    `,
+  );
+  const insertDerivedJobStatement = database.prepare(
+    `
+      insert into derived_job (capture_id, kind, state, created_at)
+      values (?, ?, ?, ?)
+      on conflict (capture_id, kind) do nothing
+    `,
+  );
+  const listCapturesStatement = database.prepare(
+    `
+      select *
+      from capture
+      where (? is null or source = ?)
+        and (? is null or account_id = ?)
+      order by occurred_at desc, capture_id desc
+      limit ?
+    `,
+  );
+  const searchCapturesStatement = database.prepare(
+    `
+      select
+        capture.capture_id,
+        capture.source,
+        capture.account_id,
+        capture.thread_id,
+        capture.thread_title,
+        capture.occurred_at,
+        capture.text_content,
+        capture.envelope_path,
+        capture_fts.text_content as indexed_text,
+        capture_fts.attachment_text as indexed_attachment_text,
+        -bm25(capture_fts, 6.0, 2.0, 0.25) as score
+      from capture_fts
+      join capture on capture.capture_id = capture_fts.capture_id
+      where capture_fts match ?
+        and (? is null or capture.source = ?)
+        and (? is null or capture.account_id = ?)
+      order by bm25(capture_fts, 6.0, 2.0, 0.25), capture.occurred_at desc
+      limit ?
+    `,
+  );
+  const getCaptureStatement = database.prepare("select * from capture where capture_id = ?");
+
   return {
     databasePath,
     close() {
       database.close();
     },
     getCursor(source, accountId = null) {
-      const row = database
-        .prepare(
-          `
-            select cursor_json
-            from source_cursor
-            where source = ? and account_id = ?
-          `,
-        )
-        .get(source, normalizeAccountKey(accountId)) as { cursor_json?: string } | undefined;
+      const row = selectCursorStatement.get(
+        source,
+        normalizeAccountKey(accountId),
+      ) as { cursor_json?: string } | undefined;
 
       if (!row?.cursor_json) {
         return null;
@@ -146,43 +288,19 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
       const normalizedAccountId = normalizeAccountKey(accountId);
 
       if (cursor === null) {
-        database
-          .prepare("delete from source_cursor where source = ? and account_id = ?")
-          .run(source, normalizedAccountId);
+        deleteCursorStatement.run(source, normalizedAccountId);
         return;
       }
 
-      database
-        .prepare(
-          `
-            insert into source_cursor (source, account_id, cursor_json, updated_at)
-            values (?, ?, ?, ?)
-            on conflict (source, account_id) do update set
-              cursor_json = excluded.cursor_json,
-              updated_at = excluded.updated_at
-          `,
-        )
-        .run(
-          source,
-          normalizedAccountId,
-          JSON.stringify(cursor),
-          new Date().toISOString(),
-        );
+      upsertCursorStatement.run(
+        source,
+        normalizedAccountId,
+        JSON.stringify(cursor),
+        new Date().toISOString(),
+      );
     },
     findByExternalId(source, accountId = null, externalId) {
-      const row = database
-        .prepare(
-          `
-            select
-              capture_id,
-              vault_event_id,
-              envelope_path,
-              created_at
-            from capture
-            where source = ? and account_id = ? and external_id = ?
-          `,
-        )
-        .get(source, normalizeAccountKey(accountId), externalId) as
+      const row = findByExternalIdStatement.get(source, normalizeAccountKey(accountId), externalId) as
         | {
             capture_id: string;
             vault_event_id: string;
@@ -205,91 +323,30 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
     },
     upsertCaptureIndex({ captureId, eventId, input, stored }) {
       withTransaction(database, () => {
-        database
-          .prepare(
-            `
-              insert into capture (
-                capture_id,
-                source,
-                account_id,
-                external_id,
-                thread_id,
-                thread_title,
-                thread_is_direct,
-                actor_id,
-                actor_name,
-                actor_is_self,
-                occurred_at,
-                received_at,
-                text_content,
-                raw_json,
-                vault_event_id,
-                envelope_path,
-                created_at
-              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              on conflict (capture_id) do update set
-                source = excluded.source,
-                account_id = excluded.account_id,
-                external_id = excluded.external_id,
-                thread_id = excluded.thread_id,
-                thread_title = excluded.thread_title,
-                thread_is_direct = excluded.thread_is_direct,
-                actor_id = excluded.actor_id,
-                actor_name = excluded.actor_name,
-                actor_is_self = excluded.actor_is_self,
-                occurred_at = excluded.occurred_at,
-                received_at = excluded.received_at,
-                text_content = excluded.text_content,
-                raw_json = excluded.raw_json,
-                vault_event_id = excluded.vault_event_id,
-                envelope_path = excluded.envelope_path,
-                created_at = excluded.created_at
-            `,
-          )
-          .run(
-            captureId,
-            input.source,
-            normalizeAccountKey(input.accountId),
-            input.externalId,
-            input.thread.id,
-            normalizeNullable(input.thread.title),
-            input.thread.isDirect ? 1 : 0,
-            normalizeNullable(input.actor.id),
-            normalizeNullable(input.actor.displayName),
-            input.actor.isSelf ? 1 : 0,
-            input.occurredAt,
-            normalizeNullable(input.receivedAt),
-            normalizeNullable(input.text),
-            JSON.stringify(redactSensitivePaths(input.raw)),
-            eventId,
-            stored.envelopePath,
-            stored.storedAt,
-          );
-
-        database.prepare("delete from capture_attachment where capture_id = ?").run(captureId);
-
-        const insertAttachment = database.prepare(
-          `
-            insert into capture_attachment (
-              capture_id,
-              ordinal,
-              external_id,
-              kind,
-              mime,
-              original_path,
-              stored_path,
-              file_name,
-              sha256,
-              size_bytes,
-              extracted_text,
-              transcript_text,
-              created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
+        upsertCaptureStatement.run(
+          captureId,
+          input.source,
+          normalizeAccountKey(input.accountId),
+          input.externalId,
+          input.thread.id,
+          normalizeNullable(input.thread.title),
+          input.thread.isDirect ? 1 : 0,
+          normalizeNullable(input.actor.id),
+          normalizeNullable(input.actor.displayName),
+          input.actor.isSelf ? 1 : 0,
+          input.occurredAt,
+          normalizeNullable(input.receivedAt),
+          normalizeNullable(input.text),
+          JSON.stringify(redactSensitivePaths(input.raw)),
+          eventId,
+          stored.envelopePath,
+          stored.storedAt,
         );
 
+        deleteCaptureAttachmentsStatement.run(captureId);
+
         for (const attachment of stored.attachments) {
-          insertAttachment.run(
+          insertAttachmentStatement.run(
             captureId,
             attachment.ordinal,
             normalizeNullable(attachment.externalId),
@@ -311,28 +368,15 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
           .join(" ")
           .trim();
 
-        database.prepare("delete from capture_fts where capture_id = ?").run(captureId);
-        database
-          .prepare(
-            `
-              insert into capture_fts (
-                capture_id,
-                source,
-                thread_id,
-                text_content,
-                attachment_text,
-                tags
-              ) values (?, ?, ?, ?, ?, ?)
-            `,
-          )
-          .run(
-            captureId,
-            input.source,
-            input.thread.id,
-            normalizeNullable(input.text),
-            normalizeNullable(attachmentText),
-            `inbox source-${input.source}`,
-          );
+        deleteCaptureFtsStatement.run(captureId);
+        insertCaptureFtsStatement.run(
+          captureId,
+          input.source,
+          input.thread.id,
+          normalizeNullable(input.text),
+          normalizeNullable(attachmentText),
+          `inbox source-${input.source}`,
+        );
       });
     },
     enqueueDerivedJobs({ captureId, stored }) {
@@ -340,36 +384,17 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
         return;
       }
 
-      database
-        .prepare(
-          `
-            insert into derived_job (capture_id, kind, state, created_at)
-            values (?, ?, ?, ?)
-            on conflict (capture_id, kind) do nothing
-          `,
-        )
-        .run(captureId, "attachment_text", "pending", stored.storedAt);
+      insertDerivedJobStatement.run(captureId, "attachment_text", "pending", stored.storedAt);
     },
     listCaptures(filters = {}) {
       const normalizedFilters = normalizeCaptureFilters(filters);
-      const rows = database
-        .prepare(
-          `
-            select *
-            from capture
-            where (? is null or source = ?)
-              and (? is null or account_id = ?)
-            order by occurred_at desc, capture_id desc
-            limit ?
-          `,
-        )
-        .all(
-          normalizedFilters.source,
-          normalizedFilters.source,
-          normalizedFilters.accountId,
-          normalizedFilters.accountId,
-          normalizedFilters.limit,
-        );
+      const rows = listCapturesStatement.all(
+        normalizedFilters.source,
+        normalizedFilters.source,
+        normalizedFilters.accountId,
+        normalizedFilters.accountId,
+        normalizedFilters.limit,
+      );
 
       return hydrateCaptureRows(database, decodeCaptureRows(rows));
     },
@@ -380,45 +405,21 @@ function createInboxRuntimeStore(database: DatabaseSync, databasePath: string): 
       }
 
       const normalizedFilters = normalizeCaptureFilters(filters);
-      const rows = database
-        .prepare(
-          `
-            select
-              capture.capture_id,
-              capture.source,
-              capture.account_id,
-              capture.thread_id,
-              capture.thread_title,
-              capture.occurred_at,
-              capture.text_content,
-              capture.envelope_path,
-              capture_fts.text_content as indexed_text,
-              capture_fts.attachment_text as indexed_attachment_text,
-              -bm25(capture_fts, 6.0, 2.0, 0.25) as score
-            from capture_fts
-            join capture on capture.capture_id = capture_fts.capture_id
-            where capture_fts match ?
-              and (? is null or capture.source = ?)
-              and (? is null or capture.account_id = ?)
-            order by bm25(capture_fts, 6.0, 2.0, 0.25), capture.occurred_at desc
-            limit ?
-          `,
-        )
-        .all(
+      const rows = decodeSearchRows(
+        searchCapturesStatement.all(
           query,
           normalizedFilters.source,
           normalizedFilters.source,
           normalizedFilters.accountId,
           normalizedFilters.accountId,
           normalizedFilters.limit,
-        ) as unknown as SearchRow[];
+        ),
+      );
 
       return rows.map(createSearchHitFromRow);
     },
     getCapture(captureId) {
-      const row = database
-        .prepare("select * from capture where capture_id = ?")
-        .get(captureId) as Record<string, unknown> | undefined;
+      const row = getCaptureStatement.get(captureId) as Record<string, unknown> | undefined;
 
       if (!row) {
         return null;
@@ -513,6 +514,14 @@ function expectNumber(value: unknown, label: string): number {
   return value;
 }
 
+function expectNullableNumber(value: unknown, label: string): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  return expectNumber(value, label);
+}
+
 interface AttachmentRow {
   capture_id: string;
   ordinal: number;
@@ -563,7 +572,7 @@ function decodeCaptureRow(row: Record<string, unknown>): CaptureRow {
 }
 
 function loadAttachmentRows(database: DatabaseSync, captureIds: string[]): AttachmentRow[] {
-  return database
+  const rows = database
     .prepare(
       `
         select *
@@ -572,7 +581,9 @@ function loadAttachmentRows(database: DatabaseSync, captureIds: string[]): Attac
         order by capture_id asc, ordinal asc
       `,
     )
-    .all(...captureIds) as unknown as AttachmentRow[];
+    .all(...captureIds);
+
+  return decodeAttachmentRows(rows);
 }
 
 function hydrateCaptureAttachments(
@@ -672,4 +683,46 @@ function createSearchHitFromRow(row: SearchRow): InboxSearchHit {
 
 function joinTextValues(...values: Array<string | null | undefined>): string {
   return values.filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
+}
+
+function decodeSearchRows(rows: ReadonlyArray<Record<string, unknown>>): SearchRow[] {
+  return rows.map(decodeSearchRow);
+}
+
+function decodeAttachmentRows(rows: ReadonlyArray<Record<string, unknown>>): AttachmentRow[] {
+  return rows.map(decodeAttachmentRow);
+}
+
+function decodeSearchRow(row: Record<string, unknown>): SearchRow {
+  return {
+    capture_id: expectString(row.capture_id, "capture_search.capture_id"),
+    source: expectString(row.source, "capture_search.source"),
+    account_id: expectNullableString(row.account_id, "capture_search.account_id"),
+    thread_id: expectString(row.thread_id, "capture_search.thread_id"),
+    thread_title: expectNullableString(row.thread_title, "capture_search.thread_title"),
+    occurred_at: expectString(row.occurred_at, "capture_search.occurred_at"),
+    text_content: expectNullableString(row.text_content, "capture_search.text_content"),
+    envelope_path: expectString(row.envelope_path, "capture_search.envelope_path"),
+    indexed_text: expectNullableString(row.indexed_text, "capture_search.indexed_text"),
+    indexed_attachment_text: expectNullableString(
+      row.indexed_attachment_text,
+      "capture_search.indexed_attachment_text",
+    ),
+    score: expectNumber(row.score, "capture_search.score"),
+  };
+}
+
+function decodeAttachmentRow(row: Record<string, unknown>): AttachmentRow {
+  return {
+    capture_id: expectString(row.capture_id, "capture_attachment.capture_id"),
+    ordinal: expectNumber(row.ordinal, "capture_attachment.ordinal"),
+    external_id: expectNullableString(row.external_id, "capture_attachment.external_id"),
+    kind: expectString(row.kind, "capture_attachment.kind") as StoredAttachment["kind"],
+    mime: expectNullableString(row.mime, "capture_attachment.mime"),
+    original_path: expectNullableString(row.original_path, "capture_attachment.original_path"),
+    stored_path: expectNullableString(row.stored_path, "capture_attachment.stored_path"),
+    file_name: expectNullableString(row.file_name, "capture_attachment.file_name"),
+    size_bytes: expectNullableNumber(row.size_bytes, "capture_attachment.size_bytes"),
+    sha256: expectNullableString(row.sha256, "capture_attachment.sha256"),
+  };
 }

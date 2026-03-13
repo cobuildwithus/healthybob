@@ -1,5 +1,5 @@
 import type { InboundAttachment, InboundCapture } from "../../contracts/capture.js";
-import { normalizeTextValue, sanitizeObjectKey, toIsoTimestamp } from "../../shared.js";
+import { mapObjectEntries, normalizeTextValue, sanitizeObjectKey, toIsoTimestamp } from "../../shared.js";
 
 export interface ImessageKitAttachmentLike {
   guid?: string | null;
@@ -167,13 +167,7 @@ function inferAttachmentKind(
 }
 
 function sanitizeRawMessage(message: ImessageKitMessageLike): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(message)) {
-    result[sanitizeObjectKey(key)] = coerceRawValue(value);
-  }
-
-  return result;
+  return coerceRawValue(message) as Record<string, unknown>;
 }
 
 function coerceRawValue(value: unknown): unknown {
@@ -195,11 +189,7 @@ function coerceRawValue(value: unknown): unknown {
   }
 
   if (typeof value === "object") {
-    const record: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value)) {
-      record[sanitizeObjectKey(key)] = coerceRawValue(child);
-    }
-    return record;
+    return mapObjectEntries(value, (key, child) => [sanitizeObjectKey(key), coerceRawValue(child)]);
   }
 
   return String(value);
