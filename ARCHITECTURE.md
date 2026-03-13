@@ -10,7 +10,7 @@ Last verified: 2026-03-13
 - `packages/importers`: ingestion adapters that parse external files and delegate all writes to core
 - `packages/inboxd`: inbox capture ingestion/runtime package that persists canonical raw inbox evidence while keeping inbox-only cursors, capture indexes, and attachment job state in local SQLite state
 - `packages/query`: read helpers, export-pack generation, and the optional lexical search index over canonical vault data
-- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query/inboxd
+- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query/inboxd with internal `src/usecases/**` modules for CLI-owned application orchestration
 - `fixtures/` and `e2e/`: deterministic fixture corpus and end-to-end smoke flows
 
 ## Trust Boundaries
@@ -27,7 +27,7 @@ Last verified: 2026-03-13
 ## Control Flow
 
 1. Operators, automations, and future agent layers call `vault-cli` or package APIs.
-2. CLI commands perform validation and delegate to `packages/core`, `packages/importers`, `packages/query`, or `packages/inboxd`-backed service layers.
+2. CLI commands stay thin, validate input, and delegate to internal CLI use-case modules that coordinate `packages/core`, `packages/importers`, `packages/query`, or `packages/inboxd`-backed service layers.
 3. Importers may parse and normalize external inputs but must never write canonical vault files directly.
 4. Query/export paths are read-only and must not mutate canonical vault state.
 
