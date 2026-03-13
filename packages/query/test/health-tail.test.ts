@@ -506,6 +506,84 @@ test("buildExportPack date filters exclude older health slices while keeping cur
   }
 });
 
+test("buildExportPack trims health export strings and drops non-string array entries", async () => {
+  const vaultRoot = await createHealthVault({
+    currentProfileSnapshotId: "psnap_health_01",
+  });
+
+  try {
+    await writeVaultFile(
+      vaultRoot,
+      "ledger/profile-snapshots/2026/2026-03.jsonl",
+      `${JSON.stringify({
+        schemaVersion: "hb.profile-snapshot.v1",
+        id: "psnap_health_01",
+        recordedAt: "2026-03-12T14:00:00Z",
+        source: "  assessment_projection  ",
+        sourceAssessmentIds: ["  asmt_health_01  ", "", 42],
+        sourceEventIds: ["  evt_health_01  ", null],
+        profile: {
+          topGoalIds: ["  goal_sleep_01  ", "", 42],
+        },
+      })}\n`,
+    );
+
+    await writeVaultFile(
+      vaultRoot,
+      "ledger/events/2026/2026-03.jsonl",
+      `${JSON.stringify({
+        schemaVersion: "hb.event.v1",
+        id: "evt_health_01",
+        kind: "  encounter  ",
+        occurredAt: "2026-03-12T12:45:00Z",
+        recordedAt: "2026-03-12T12:50:00Z",
+        source: "  manual  ",
+        title: "  Sleep medicine intake visit  ",
+        tags: ["  endocrine  ", "", 1],
+        relatedIds: ["  goal_sleep_01  ", " cond_sleep_01 ", null],
+      })}\n`,
+    );
+
+    await writeVaultFile(
+      vaultRoot,
+      "bank/profile/current.md",
+      `---
+schemaVersion: hb.frontmatter.profile-current.v1
+docType: profile_current
+snapshotId: psnap_health_01
+updatedAt: " 2026-03-12T14:00:00Z "
+topGoalIds:
+  - "  goal_sleep_01  "
+  - ""
+---
+# Current Profile
+
+Snapshot ID: \`psnap_health_01\`
+`,
+    );
+
+    const vault = await readVault(vaultRoot);
+    const pack = buildExportPack(vault, {
+      from: "2026-03-01",
+      to: "2026-03-31",
+      packId: "health-pack-normalized",
+      generatedAt: "2026-03-13T12:00:00.000Z",
+    });
+
+    assert.deepEqual(pack.health.profileSnapshots[0]?.sourceAssessmentIds, ["asmt_health_01"]);
+    assert.deepEqual(pack.health.profileSnapshots[0]?.sourceEventIds, ["evt_health_01"]);
+    assert.equal(pack.health.profileSnapshots[0]?.source, "assessment_projection");
+    assert.equal(pack.health.historyEvents[0]?.kind, "encounter");
+    assert.equal(pack.health.historyEvents[0]?.title, "Sleep medicine intake visit");
+    assert.equal(pack.health.historyEvents[0]?.source, "manual");
+    assert.deepEqual(pack.health.historyEvents[0]?.tags, ["endocrine"]);
+    assert.deepEqual(pack.health.historyEvents[0]?.relatedIds, ["goal_sleep_01", "cond_sleep_01"]);
+    assert.deepEqual(pack.health.currentProfile?.topGoalIds, ["goal_sleep_01"]);
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
 test("buildExportPack tolerates vaults with no health directories", async () => {
   const vaultRoot = await mkdtemp(path.join(os.tmpdir(), "healthybob-query-health-empty-"));
 

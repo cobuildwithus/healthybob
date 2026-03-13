@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 
 export type FrontmatterScalar = string | number | boolean | null;
 export type FrontmatterValue =
@@ -35,8 +36,26 @@ interface ParseResult<TValue> {
   index: number;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+const plainObjectSchema: z.ZodType<Record<string, unknown>> = z.object({}).catchall(z.unknown());
+const trimmedNonEmptyStringSchema: z.ZodType<string> = z
+  .string()
+  .transform((value: string) => value.trim())
+  .pipe(z.string().min(1));
+const finiteNumberSchema: z.ZodType<number> = z.number().finite();
+const booleanSchema: z.ZodType<boolean> = z.boolean();
+const trimmedStringListSchema: z.ZodType<string[]> = z.array(z.unknown()).transform((entries: unknown[]) =>
+  entries.flatMap((entry: unknown) => {
+    const parsed = trimmedNonEmptyStringSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  }),
+);
+
+function parseNullable<TValue>(
+  schema: z.ZodType<TValue>,
+  value: unknown,
+): TValue | null {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function countIndentation(line: string): number {
@@ -352,7 +371,7 @@ export async function readJsonlRecords(
 }
 
 export function asObject(value: unknown): Record<string, unknown> | null {
-  return isPlainObject(value) ? value : null;
+  return parseNullable<Record<string, unknown>>(plainObjectSchema, value);
 }
 
 export function firstString(
@@ -360,10 +379,9 @@ export function firstString(
   keys: readonly string[],
 ): string | null {
   for (const key of keys) {
-    const value = source[key];
-
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
+    const parsed = parseNullable(trimmedNonEmptyStringSchema, source[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
 
@@ -375,10 +393,9 @@ export function firstNumber(
   keys: readonly string[],
 ): number | null {
   for (const key of keys) {
-    const value = source[key];
-
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
+    const parsed = parseNullable(finiteNumberSchema, source[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
 
@@ -390,10 +407,9 @@ export function firstBoolean(
   keys: readonly string[],
 ): boolean | null {
   for (const key of keys) {
-    const value = source[key];
-
-    if (typeof value === "boolean") {
-      return value;
+    const parsed = parseNullable(booleanSchema, source[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
 
@@ -405,10 +421,9 @@ export function firstObject(
   keys: readonly string[],
 ): Record<string, unknown> | null {
   for (const key of keys) {
-    const value = source[key];
-
-    if (isPlainObject(value)) {
-      return value;
+    const parsed = parseNullable<Record<string, unknown>>(plainObjectSchema, source[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
 
@@ -426,9 +441,7 @@ export function firstStringArray(
       continue;
     }
 
-    return value
-      .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-      .map((entry) => entry.trim());
+    return trimmedStringListSchema.parse(value);
   }
 
   return [];
@@ -439,9 +452,7 @@ export function normalizeStringList(value: unknown): string[] {
     return [];
   }
 
-  return value
-    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-    .map((entry) => entry.trim());
+  return trimmedStringListSchema.parse(value);
 }
 
 export function compareNullableStrings(
@@ -537,5 +548,5 @@ export function pathSlug(relativePath: string): string {
 }
 
 export function maybeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  return parseNullable(trimmedNonEmptyStringSchema, value);
 }

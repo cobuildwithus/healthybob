@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { parseFrontmatterDocument } from "./health/shared.js";
+import {
+  asObject,
+  firstObject,
+  firstString,
+  firstStringArray,
+  parseFrontmatterDocument,
+} from "./health/shared.js";
 
 import type {
   ExportPackAssessmentRecord,
@@ -19,22 +25,22 @@ export function readAssessmentRecords(
   return readJsonlDirectory(vaultRoot, "ledger/assessments")
     .map(({ relativePath, value }) => {
       const source = asObject(value);
-      const id = firstString(source, ["id"]);
+      const id = firstStringOrNull(source, ["id"]);
       if (!source || !id?.startsWith("asmt_")) {
         return null;
       }
 
       return {
         id,
-        title: firstString(source, ["title"]),
-        assessmentType: firstString(source, ["assessmentType"]),
-        recordedAt: firstString(source, ["recordedAt", "occurredAt", "importedAt"]),
-        importedAt: firstString(source, ["importedAt"]),
-        source: firstString(source, ["source"]),
-        sourcePath: firstString(source, ["rawPath", "sourcePath"]),
-        questionnaireSlug: firstString(source, ["questionnaireSlug"]),
-        relatedIds: firstStringArray(source, ["relatedIds"]),
-        responses: firstObject(source, ["responses", "response"]),
+        title: firstStringOrNull(source, ["title"]),
+        assessmentType: firstStringOrNull(source, ["assessmentType"]),
+        recordedAt: firstStringOrNull(source, ["recordedAt", "occurredAt", "importedAt"]),
+        importedAt: firstStringOrNull(source, ["importedAt"]),
+        source: firstStringOrNull(source, ["source"]),
+        sourcePath: firstStringOrNull(source, ["rawPath", "sourcePath"]),
+        questionnaireSlug: firstStringOrNull(source, ["questionnaireSlug"]),
+        relatedIds: firstStringArrayOrEmpty(source, ["relatedIds"]),
+        responses: firstObjectOrEmpty(source, ["responses", "response"]),
         relativePath,
       };
     })
@@ -53,28 +59,29 @@ export function readProfileSnapshotRecords(
   return readJsonlDirectory(vaultRoot, "ledger/profile-snapshots")
     .map(({ relativePath, value }) => {
       const source = asObject(value);
-      const id = firstString(source, ["id"]);
+      const id = firstStringOrNull(source, ["id"]);
       if (!source || !id?.startsWith("psnap_")) {
         return null;
       }
 
-      const sourceObject = firstObject(source, ["source"]);
+      const sourceObject = firstObjectOrEmpty(source, ["source"]);
       const fallbackAssessmentId = firstString(sourceObject, ["assessmentId"]);
+      const sourceAssessmentIds = firstStringArrayOrEmpty(source, ["sourceAssessmentIds"]);
 
       return {
         id,
-        recordedAt: firstString(source, ["recordedAt", "capturedAt"]),
+        recordedAt: firstStringOrNull(source, ["recordedAt", "capturedAt"]),
         source:
-          firstString(source, ["source"]) ??
+          firstStringOrNull(source, ["source"]) ??
           firstString(sourceObject, ["kind", "source", "importedFrom"]),
         sourceAssessmentIds:
-          firstStringArray(source, ["sourceAssessmentIds"]).length > 0
-            ? firstStringArray(source, ["sourceAssessmentIds"])
+          sourceAssessmentIds.length > 0
+            ? sourceAssessmentIds
             : fallbackAssessmentId
               ? [fallbackAssessmentId]
               : [],
-        sourceEventIds: firstStringArray(source, ["sourceEventIds"]),
-        profile: firstObject(source, ["profile"]),
+        sourceEventIds: firstStringArrayOrEmpty(source, ["sourceEventIds"]),
+        profile: firstObjectOrEmpty(source, ["profile"]),
         relativePath,
       };
     })
@@ -94,10 +101,10 @@ export function readHistoryRecords(
   return readJsonlDirectory(vaultRoot, "ledger/events")
     .map(({ relativePath, value }) => {
       const source = asObject(value);
-      const id = firstString(source, ["id"]);
-      const kind = firstString(source, ["kind"]);
-      const occurredAt = firstString(source, ["occurredAt"]);
-      const title = firstString(source, ["title"]);
+      const id = firstStringOrNull(source, ["id"]);
+      const kind = firstStringOrNull(source, ["kind"]);
+      const occurredAt = firstStringOrNull(source, ["occurredAt"]);
+      const title = firstStringOrNull(source, ["title"]);
 
       if (!source || !id?.startsWith("evt_") || !kind || !healthKinds.has(kind) || !occurredAt || !title) {
         return null;
@@ -107,12 +114,12 @@ export function readHistoryRecords(
         id,
         kind,
         occurredAt,
-        recordedAt: firstString(source, ["recordedAt"]),
-        source: firstString(source, ["source"]),
+        recordedAt: firstStringOrNull(source, ["recordedAt"]),
+        source: firstStringOrNull(source, ["source"]),
         title,
-        status: firstString(source, ["status"]),
-        tags: firstStringArray(source, ["tags"]),
-        relatedIds: firstStringArray(source, ["relatedIds"]),
+        status: firstStringOrNull(source, ["status"]),
+        tags: firstStringArrayOrEmpty(source, ["tags"]),
+        relatedIds: firstStringArrayOrEmpty(source, ["relatedIds"]),
         relativePath,
         data: source,
       };
@@ -296,13 +303,7 @@ function matchesDateWindow(
   return true;
 }
 
-function asObject(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function firstObject(
+function firstObjectOrEmpty(
   value: Record<string, unknown> | null,
   keys: readonly string[],
 ): Record<string, unknown> {
@@ -310,17 +311,10 @@ function firstObject(
     return {};
   }
 
-  for (const key of keys) {
-    const candidate = asObject(value[key]);
-    if (candidate) {
-      return candidate;
-    }
-  }
-
-  return {};
+  return firstObject(value, keys) ?? {};
 }
 
-function firstString(
+function firstStringOrNull(
   value: Record<string, unknown> | null,
   keys: readonly string[],
 ): string | null {
@@ -328,17 +322,10 @@ function firstString(
     return null;
   }
 
-  for (const key of keys) {
-    const candidate = value[key];
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate;
-    }
-  }
-
-  return null;
+  return firstString(value, keys);
 }
 
-function firstStringArray(
+function firstStringArrayOrEmpty(
   value: Record<string, unknown> | null,
   keys: readonly string[],
 ): string[] {
@@ -346,14 +333,7 @@ function firstStringArray(
     return [];
   }
 
-  for (const key of keys) {
-    const candidate = value[key];
-    if (Array.isArray(candidate)) {
-      return candidate.filter((entry): entry is string => typeof entry === "string");
-    }
-  }
-
-  return [];
+  return firstStringArray(value, keys);
 }
 
 function tryParseFrontmatterDocument(markdown: string) {
