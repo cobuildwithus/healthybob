@@ -52,13 +52,20 @@ interface ShowEnvelope {
 interface ListEnvelope {
   filters: {
     kind?: string
-    dateFrom?: string
-    dateTo?: string
+    from?: string
+    to?: string
     limit: number
   }
+  count: number
   items: Array<{
     id: string
     kind: string
+    data: Record<string, unknown>
+    links: Array<{
+      id: string
+      kind: string
+      queryable: boolean
+    }>
   }>
 }
 
@@ -276,13 +283,16 @@ test.sequential(
       assert.equal(listedDocuments.ok, true)
       assert.equal(listedDocuments.meta?.command, 'document list')
       assert.equal(requireData(listedDocuments).filters.kind, 'document')
-      assert.equal(requireData(listedDocuments).filters.dateFrom, '2026-03-12')
-      assert.equal(requireData(listedDocuments).filters.dateTo, '2026-03-12')
+      assert.equal(requireData(listedDocuments).filters.from, '2026-03-12')
+      assert.equal(requireData(listedDocuments).filters.to, '2026-03-12')
       assert.equal(requireData(listedDocuments).filters.limit, 50)
+      assert.equal(requireData(listedDocuments).count, 1)
       assert.deepEqual(
         requireData(listedDocuments).items.map((item) => item.id),
         [currentDocument.documentId],
       )
+      assert.equal(requireData(listedDocuments).items[0]?.data.source, 'device')
+      assert.equal(requireData(listedDocuments).items[0]?.links[0]?.id, currentDocument.lookupId)
       assert.equal(
         requireData(listedDocuments).items.some((item) => item.id === olderDocument.documentId),
         false,
@@ -394,13 +404,16 @@ test.sequential(
       assert.equal(listedMeals.ok, true)
       assert.equal(listedMeals.meta?.command, 'meal list')
       assert.equal(requireData(listedMeals).filters.kind, 'meal')
-      assert.equal(requireData(listedMeals).filters.dateFrom, '2026-03-12')
-      assert.equal(requireData(listedMeals).filters.dateTo, '2026-03-12')
+      assert.equal(requireData(listedMeals).filters.from, '2026-03-12')
+      assert.equal(requireData(listedMeals).filters.to, '2026-03-12')
       assert.equal(requireData(listedMeals).filters.limit, 50)
+      assert.equal(requireData(listedMeals).count, 1)
       assert.deepEqual(
         requireData(listedMeals).items.map((item) => item.id),
         [currentMeal.mealId],
       )
+      assert.equal(requireData(listedMeals).items[0]?.data.source, 'device')
+      assert.equal(requireData(listedMeals).items[0]?.links[0]?.id, currentMeal.lookupId)
       assert.equal(
         requireData(listedMeals).items.some((item) => item.id === olderMeal.mealId),
         false,

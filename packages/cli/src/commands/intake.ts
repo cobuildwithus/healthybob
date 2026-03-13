@@ -230,7 +230,7 @@ export function registerIntakeCommands(cli: Cli.Cli, services: VaultCliServices)
           .string()
           .min(1)
           .describe('Assessment response id to project.'),
-      },
+      }),
       options: withBaseOptions(),
       output: intakeProjectResultSchema,
       async run({ args, options }) {

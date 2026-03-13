@@ -1,3 +1,5 @@
+import type { ReadEntity } from "./vault-cli-contracts.js"
+
 export type JsonObject = Record<string, unknown>
 
 export interface CommandContext {
@@ -29,13 +31,23 @@ export interface HealthScaffoldResult<TNoun extends string> {
 
 export interface HealthEntityEnvelope {
   vault: string
-  entity: JsonObject
+  entity: ReadEntity
+}
+
+export interface HealthListFilters {
+  from?: string
+  to?: string
+  kind?: string
+  status?: string
+  limit: number
 }
 
 export interface HealthListEnvelope {
   vault: string
-  items: JsonObject[]
+  filters: HealthListFilters
+  items: ReadEntity[]
   count: number
+  nextCursor: string | null
 }
 
 export interface ProfileSnapshotUpsertResult {

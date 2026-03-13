@@ -128,7 +128,7 @@ function buildLinks(query: QueryRuntimeModule, record: VaultRecord) {
   }))
 }
 
-function toShowEntity(query: QueryRuntimeModule, record: VaultRecord) {
+function toReadEntity(query: QueryRuntimeModule, record: VaultRecord) {
   return {
     id: record.displayId,
     kind: record.kind ?? record.recordType,
@@ -138,16 +138,6 @@ function toShowEntity(query: QueryRuntimeModule, record: VaultRecord) {
     markdown: record.body ?? null,
     data: record.data,
     links: buildLinks(query, record),
-  }
-}
-
-function toListItem(record: VaultRecord) {
-  return {
-    id: record.displayId,
-    kind: record.kind ?? record.recordType,
-    title: record.title ?? null,
-    occurredAt: record.occurredAt ?? null,
-    path: record.sourcePath ?? null,
   }
 }
 
@@ -276,7 +266,7 @@ async function showOwnedRecord(
 
   return {
     vault,
-    entity: toShowEntity(query, record),
+    entity: toReadEntity(query, record),
   }
 }
 
@@ -296,18 +286,19 @@ async function listOwnedRecords(input: {
       to: input.to,
     })
     .slice(0, DEFAULT_LIST_LIMIT)
-    .map(toListItem)
+    .map((record) => toReadEntity(query, record))
 
   return {
     vault: input.vault,
     filters: {
       kind: input.expectedKind,
       experiment: undefined,
-      dateFrom: input.from,
-      dateTo: input.to,
+      from: input.from,
+      to: input.to,
       limit: DEFAULT_LIST_LIMIT,
     },
     items,
+    count: items.length,
     nextCursor: null,
   }
 }

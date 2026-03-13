@@ -36,6 +36,7 @@ test.sequential("intake show and intake list route assessment reads through the 
       entity: {
         id: string;
         kind: string;
+        data: Record<string, unknown>;
       };
     }>([
       "intake",
@@ -45,9 +46,12 @@ test.sequential("intake show and intake list route assessment reads through the 
       vaultRoot,
     ]);
     const listResult = await runCli<{
+      count: number;
       items: Array<{
         id: string;
         kind: string;
+        data: Record<string, unknown>;
+        links: Array<{ id: string }>;
       }>;
     }>([
       "intake",
@@ -59,7 +63,9 @@ test.sequential("intake show and intake list route assessment reads through the 
     assert.equal(showResult.ok, true);
     assert.equal(requireData(showResult).entity.id, "asmt_cli_01");
     assert.equal(requireData(showResult).entity.kind, "assessment");
+    assert.equal(requireData(showResult).entity.data.assessmentType, "full-intake");
     assert.equal(listResult.ok, true);
+    assert.equal(requireData(listResult).count, 1);
     assert.deepEqual(
       requireData(listResult).items.map((item) => item.id),
       ["asmt_cli_01"],
@@ -67,6 +73,83 @@ test.sequential("intake show and intake list route assessment reads through the 
     assert.deepEqual(
       requireData(listResult).items.map((item) => item.kind),
       ["assessment"],
+    );
+    assert.equal(requireData(listResult).items[0]?.data.assessmentType, "full-intake");
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test.sequential("intake list applies date bounds and echoes renamed filter keys", async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
+
+  try {
+    await runCli(["init", "--vault", vaultRoot]);
+    await mkdir(path.join(vaultRoot, "ledger/assessments/2026"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(vaultRoot, "ledger/assessments/2026/2026-03.jsonl"),
+      [
+        JSON.stringify({
+          schemaVersion: "hb.assessment-response.v1",
+          id: "asmt_cli_out_of_range",
+          assessmentType: "full-intake",
+          recordedAt: "2026-03-10T13:00:00Z",
+          source: "import",
+          rawPath: "raw/assessments/2026/03/asmt_cli_out_of_range/source.json",
+          title: "Outside the requested range",
+          responses: {
+            sleep: {
+              averageHours: 5,
+            },
+          },
+        }),
+        JSON.stringify({
+          schemaVersion: "hb.assessment-response.v1",
+          id: "asmt_cli_in_range",
+          assessmentType: "full-intake",
+          recordedAt: "2026-03-12T13:00:00Z",
+          source: "import",
+          rawPath: "raw/assessments/2026/03/asmt_cli_in_range/source.json",
+          title: "Inside the requested range",
+          responses: {
+            sleep: {
+              averageHours: 7,
+            },
+          },
+        }),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const listResult = await runCli<{
+      count: number;
+      filters: Record<string, unknown>;
+      items: Array<{
+        id: string;
+      }>;
+    }>([
+      "intake",
+      "list",
+      "--from",
+      "2026-03-12",
+      "--to",
+      "2026-03-12",
+      "--vault",
+      vaultRoot,
+    ]);
+
+    assert.equal(listResult.ok, true);
+    assert.equal(requireData(listResult).filters.from, "2026-03-12");
+    assert.equal(requireData(listResult).filters.to, "2026-03-12");
+    assert.equal("dateFrom" in requireData(listResult).filters, false);
+    assert.equal("dateTo" in requireData(listResult).filters, false);
+    assert.equal(requireData(listResult).count, 1);
+    assert.deepEqual(
+      requireData(listResult).items.map((item) => item.id),
+      ["asmt_cli_in_range"],
     );
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
@@ -103,7 +186,12 @@ test.sequential("goal descriptor wiring keeps noun-specific and generic reads al
     const goalId = requireData(upsertResult).goalId;
 
     const nounShow = await runCli<{
-      entity: Record<string, unknown>;
+      entity: {
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+        links: Array<{ id: string }>;
+      };
     }>([
       "goal",
       "show",
@@ -112,7 +200,12 @@ test.sequential("goal descriptor wiring keeps noun-specific and generic reads al
       vaultRoot,
     ]);
     const nounList = await runCli<{
-      items: Array<Record<string, unknown>>;
+      count: number;
+      items: Array<{
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+      }>;
     }>([
       "goal",
       "list",
@@ -161,14 +254,17 @@ test.sequential("goal descriptor wiring keeps noun-specific and generic reads al
     assert.equal(genericUnfilteredList.ok, true);
     assert.equal(requireData(genericShow).entity.id, goalId);
     assert.equal(requireData(genericShow).entity.kind, "goal");
-    assert.equal(
-      requireData(nounShow).entity.id ?? requireData(nounShow).entity.goalId,
-      goalId,
-    );
+    assert.equal(requireData(nounShow).entity.id, goalId);
+    assert.equal(requireData(nounShow).entity.kind, "goal");
+    assert.equal(requireData(nounShow).entity.data.status, "active");
+    assert.deepEqual(requireData(nounShow).entity.data.domains, ["sleep"]);
+    assert.equal(requireData(nounShow).entity.links.length, 0);
+    assert.equal(requireData(nounList).count, 1);
     assert.deepEqual(
       requireData(nounList).items.map((item) => item.id),
       [goalId],
     );
+    assert.equal(requireData(nounList).items[0]?.data.status, "active");
     assert.deepEqual(
       requireData(genericList).items.map((item) => item.id),
       [goalId],
@@ -265,7 +361,11 @@ test.sequential("family descriptor wiring keeps member-specific commands aligned
     const familyMemberId = requireData(upsertResult).familyMemberId;
 
     const nounShow = await runCli<{
-      entity: Record<string, unknown>;
+      entity: {
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+      };
     }>([
       "family",
       "show",
@@ -274,7 +374,12 @@ test.sequential("family descriptor wiring keeps member-specific commands aligned
       vaultRoot,
     ]);
     const nounList = await runCli<{
-      items: Array<Record<string, unknown>>;
+      count: number;
+      items: Array<{
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+      }>;
     }>([
       "family",
       "list",
@@ -312,14 +417,15 @@ test.sequential("family descriptor wiring keeps member-specific commands aligned
     assert.equal(genericList.ok, true);
     assert.equal(requireData(genericShow).entity.id, familyMemberId);
     assert.equal(requireData(genericShow).entity.kind, "family");
-    assert.equal(
-      requireData(nounShow).entity.id ?? requireData(nounShow).entity.familyMemberId,
-      familyMemberId,
-    );
+    assert.equal(requireData(nounShow).entity.id, familyMemberId);
+    assert.equal(requireData(nounShow).entity.kind, "family");
+    assert.deepEqual(requireData(nounShow).entity.data.conditions, ["hypertension"]);
+    assert.equal(requireData(nounList).count, 1);
     assert.deepEqual(
       requireData(nounList).items.map((item) => item.id),
       [familyMemberId],
     );
+    assert.deepEqual(requireData(nounList).items[0]?.data.conditions, ["hypertension"]);
     assert.deepEqual(
       requireData(genericList).items.map((item) => item.id),
       [familyMemberId],
@@ -369,9 +475,22 @@ test.sequential("history descriptor wiring preserves the shared history-ledger u
       entity: {
         id: string;
         kind: string;
+        data: Record<string, unknown>;
       };
     }>([
       "history",
+      "show",
+      eventId,
+      "--vault",
+      vaultRoot,
+    ]);
+    const genericShow = await runCli<{
+      entity: {
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+      };
+    }>([
       "show",
       eventId,
       "--vault",
@@ -387,8 +506,73 @@ test.sequential("history descriptor wiring preserves the shared history-ledger u
       "ledger/events/2026/2026-03.jsonl",
     );
     assert.equal(showResult.ok, true);
+    assert.equal(genericShow.ok, true);
     assert.equal(requireData(showResult).entity.id, eventId);
     assert.equal(requireData(showResult).entity.kind, "encounter");
+    assert.equal(requireData(showResult).entity.data.encounterType, "office_visit");
+    assert.equal(requireData(genericShow).entity.id, eventId);
+    assert.equal(requireData(genericShow).entity.kind, "encounter");
+    assert.equal(requireData(genericShow).entity.data.encounterType, "office_visit");
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test.sequential("history list keeps canonical kind/data and echoes shared filters", async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
+  const encounterPayloadPath = path.join(vaultRoot, "history-encounter.json");
+
+  try {
+    await runCli(["init", "--vault", vaultRoot]);
+    await writeFile(
+      encounterPayloadPath,
+      JSON.stringify({
+        kind: "encounter",
+        occurredAt: "2026-03-12T13:00:00.000Z",
+        title: "Primary care follow-up",
+        encounterType: "office_visit",
+        location: "Primary care clinic",
+      }),
+      "utf8",
+    );
+
+    await runCli([
+      "history",
+      "upsert",
+      "--input",
+      `@${encounterPayloadPath}`,
+      "--vault",
+      vaultRoot,
+    ]);
+    const listResult = await runCli<{
+      count: number;
+      filters: Record<string, unknown>;
+      nextCursor: string | null;
+      items: Array<{
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+      }>;
+    }>([
+      "history",
+      "list",
+      "--kind",
+      "encounter",
+      "--limit",
+      "5",
+      "--vault",
+      vaultRoot,
+    ]);
+
+    assert.equal(listResult.ok, true);
+    assert.equal(requireData(listResult).filters.kind, "encounter");
+    assert.equal("from" in requireData(listResult).filters, false);
+    assert.equal("to" in requireData(listResult).filters, false);
+    assert.equal(requireData(listResult).filters.limit, 5);
+    assert.equal(requireData(listResult).count, 1);
+    assert.equal(requireData(listResult).nextCursor, null);
+    assert.equal(requireData(listResult).items[0]?.kind, "encounter");
+    assert.equal(requireData(listResult).items[0]?.data.encounterType, "office_visit");
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
   }
@@ -421,7 +605,12 @@ test.sequential("profile current lookup stays wired for both noun-specific and g
       vaultRoot,
     ]);
     const nounShow = await runCli<{
-      entity: Record<string, unknown>;
+      entity: {
+        id: string;
+        kind: string;
+        data: Record<string, unknown>;
+        links: Array<{ id: string }>;
+      };
     }>([
       "profile",
       "show",
@@ -444,10 +633,188 @@ test.sequential("profile current lookup stays wired for both noun-specific and g
     assert.equal(nounShow.ok, true);
     assert.equal(genericShow.ok, true);
     assert.equal(requireData(genericShow).entity.kind, "profile");
-    assert.equal(
-      requireData(nounShow).entity.id ?? requireData(nounShow).entity.snapshotId ?? "current",
-      "current",
+    assert.equal(requireData(nounShow).entity.id, "current");
+    assert.equal(requireData(nounShow).entity.kind, "profile");
+    assert.deepEqual(requireData(nounShow).entity.data.topGoalIds, []);
+    assert.equal(requireData(nounShow).entity.links.length >= 1, true);
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test.sequential("profile list and current show preserve canonical links and strip reserved fields", async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
+  const goalPayloadPath = path.join(vaultRoot, "goal-linked.json");
+  const profilePayloadPath = path.join(vaultRoot, "profile-linked.json");
+  const assessmentId = "asmt_01JNY0B2W4VG5C2A0G9S8M7R6Q";
+  const eventId = "evt_01JNY0B2W4VG5C2A0G9S8M7R6R";
+
+  try {
+    await runCli(["init", "--vault", vaultRoot]);
+    await writeFile(
+      goalPayloadPath,
+      JSON.stringify({
+        title: "Recover better",
+        status: "active",
+        horizon: "long_term",
+        domains: ["sleep"],
+      }),
+      "utf8",
     );
+
+    const goalUpsert = await runCli<{
+      goalId: string;
+    }>([
+      "goal",
+      "upsert",
+      "--input",
+      `@${goalPayloadPath}`,
+      "--vault",
+      vaultRoot,
+    ]);
+    const goalId = requireData(goalUpsert).goalId;
+
+    await mkdir(path.join(vaultRoot, "ledger/assessments/2026"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(vaultRoot, "ledger/assessments/2026/2026-03.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: "hb.assessment-response.v1",
+        id: assessmentId,
+        assessmentType: "full-intake",
+        recordedAt: "2026-03-12T13:00:00Z",
+        source: "manual",
+        title: "Linked assessment",
+        responses: {
+          sleep: {
+            averageHours: 7,
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+    await mkdir(path.join(vaultRoot, "ledger/events/2026"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(vaultRoot, "ledger/events/2026/2026-03.jsonl"),
+      `${JSON.stringify({
+        schemaVersion: "hb.event.v1",
+        id: eventId,
+        kind: "encounter",
+        occurredAt: "2026-03-12T12:45:00Z",
+        recordedAt: "2026-03-12T12:50:00Z",
+        source: "manual",
+        title: "Linked encounter",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      profilePayloadPath,
+      JSON.stringify({
+        source: "manual",
+        sourceAssessmentIds: [assessmentId],
+        sourceEventIds: [eventId],
+        profile: {
+          domains: ["sleep"],
+          topGoalIds: [goalId],
+        },
+      }),
+      "utf8",
+    );
+
+    const profileUpsert = await runCli<{
+      snapshotId: string;
+    }>([
+      "profile",
+      "upsert",
+      "--input",
+      `@${profilePayloadPath}`,
+      "--vault",
+      vaultRoot,
+    ]);
+    const snapshotId = requireData(profileUpsert).snapshotId;
+
+    const profileList = await runCli<{
+      count: number;
+      nextCursor: string | null;
+      items: Array<{
+        kind: string;
+        title: string | null;
+        path: string | null;
+        data: Record<string, unknown>;
+        links: Array<{ id: string }>;
+      }>;
+    }>([
+      "profile",
+      "list",
+      "--vault",
+      vaultRoot,
+    ]);
+    const currentProfile = await runCli<{
+      entity: {
+        kind: string;
+        title: string | null;
+        markdown: string | null;
+        path: string | null;
+        data: Record<string, unknown>;
+        links: Array<{ id: string }>;
+      };
+    }>([
+      "profile",
+      "show",
+      "current",
+      "--vault",
+      vaultRoot,
+    ]);
+    const genericCurrentProfile = await runCli<{
+      entity: {
+        kind: string;
+        title: string | null;
+        markdown: string | null;
+        links: Array<{ id: string }>;
+      };
+    }>([
+      "show",
+      "current",
+      "--vault",
+      vaultRoot,
+    ]);
+
+    assert.equal(profileUpsert.ok, true);
+    assert.equal(profileList.ok, true);
+    assert.equal(requireData(profileList).count, 1);
+    assert.equal(requireData(profileList).nextCursor, null);
+    assert.equal(requireData(profileList).items[0]?.kind, "profile");
+    assert.equal(requireData(profileList).items[0]?.title, snapshotId);
+    assert.equal(Boolean(requireData(profileList).items[0]?.path), true);
+    assert.deepEqual(
+      requireData(profileList).items[0]?.links.map((link) => link.id).sort(),
+      [assessmentId, eventId].sort(),
+    );
+    assert.equal("relativePath" in requireData(profileList).items[0]!.data, false);
+    assert.equal("body" in requireData(profileList).items[0]!.data, false);
+
+    assert.equal(currentProfile.ok, true);
+    assert.equal(genericCurrentProfile.ok, true);
+    assert.equal(requireData(currentProfile).entity.kind, "profile");
+    assert.equal(requireData(currentProfile).entity.title, "Current profile");
+    assert.equal(
+      requireData(currentProfile).entity.title,
+      requireData(genericCurrentProfile).entity.title,
+    );
+    assert.equal(
+      requireData(currentProfile).entity.markdown,
+      requireData(genericCurrentProfile).entity.markdown,
+    );
+    assert.equal(Boolean(requireData(currentProfile).entity.path), true);
+    assert.deepEqual(
+      requireData(currentProfile).entity.links.map((link) => link.id).sort(),
+      [assessmentId, eventId, goalId, snapshotId].sort(),
+    );
+    assert.equal("relativePath" in requireData(currentProfile).entity.data, false);
+    assert.equal("body" in requireData(currentProfile).entity.data, false);
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });
   }

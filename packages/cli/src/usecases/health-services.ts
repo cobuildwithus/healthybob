@@ -171,6 +171,10 @@ const HEALTH_ENTITY_DATA_OMIT_KEYS = new Set([
   "body",
 ])
 
+function isPlainObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 function firstString(
   record: JsonObject,
   keys: readonly string[],
@@ -220,27 +224,72 @@ function normalizeHealthEntityKind(
   return descriptor.kind
 }
 
-function toHealthEntityData(record: JsonObject) {
+function getHealthEntityDataSource(
+  descriptor: HealthQueryDescriptorEntry,
+  record: JsonObject,
+) {
+  if (descriptor.kind === "history" && isPlainObject(record.data)) {
+    return record.data
+  }
+
+  return record
+}
+
+function toHealthEntityData(
+  descriptor: HealthQueryDescriptorEntry,
+  record: JsonObject,
+) {
   return Object.fromEntries(
-    Object.entries(record).filter(
+    Object.entries(getHealthEntityDataSource(descriptor, record)).filter(
       ([key, value]) => !HEALTH_ENTITY_DATA_OMIT_KEYS.has(key) && value !== undefined,
     ),
   )
+}
+
+function resolveHealthEntityTitle(
+  descriptor: HealthQueryDescriptorEntry,
+  record: JsonObject,
+) {
+  const title = firstString(record, ["title", "summary", "name", "label"])
+  if (title) {
+    return title
+  }
+
+  if (descriptor.kind !== "profile") {
+    return null
+  }
+
+  if (firstString(record, ["id"]) === "current") {
+    return "Current profile"
+  }
+
+  return firstString(record, ["snapshotId", "id"])
+}
+
+function resolveHealthEntityMarkdown(
+  descriptor: HealthQueryDescriptorEntry,
+  record: JsonObject,
+) {
+  if (descriptor.kind === "profile") {
+    return firstRawString(record, ["body", "markdown"])
+  }
+
+  return firstRawString(record, ["markdown", "body"])
 }
 
 function toHealthReadEntity(
   descriptor: HealthQueryDescriptorEntry,
   record: JsonObject,
 ) {
-  const data = toHealthEntityData(record)
+  const data = toHealthEntityData(descriptor, record)
 
   return {
     id: firstString(record, ["id"]) ?? "",
     kind: normalizeHealthEntityKind(descriptor, record),
-    title: firstString(record, ["title", "summary", "name", "label"]),
+    title: resolveHealthEntityTitle(descriptor, record),
     occurredAt: firstString(record, ["occurredAt", "recordedAt", "capturedAt", "updatedAt", "importedAt"]),
     path: firstString(record, ["relativePath", "path"]),
-    markdown: firstRawString(record, ["markdown", "body"]),
+    markdown: resolveHealthEntityMarkdown(descriptor, record),
     data,
     links: buildEntityLinks({
       data,

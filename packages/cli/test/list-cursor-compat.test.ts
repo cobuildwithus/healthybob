@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'vitest'
-import { commandOutputFromError, repoRoot } from './cli-test-helpers.js'
+import { repoRoot } from './cli-test-helpers.js'
 
 const execFileAsync = promisify(execFile)
 const sourceBinPath = path.join(repoRoot, 'packages/cli/src/bin.ts')
@@ -45,9 +45,9 @@ async function runSourceCli<TData = Record<string, unknown>>(
 
     return JSON.parse(stdout) as CliEnvelope<TData>
   } catch (error) {
-    const output = commandOutputFromError(error)
-    if (output !== null) {
-      return JSON.parse(output) as CliEnvelope<TData>
+    const envelope = parseCliEnvelopeFromError<TData>(error)
+    if (envelope !== null) {
+      return envelope
     }
 
     throw error
@@ -64,13 +64,79 @@ async function runRawSourceCli(args: string[]): Promise<string> {
 
     return stdout.trim()
   } catch (error) {
-    const output = commandOutputFromError(error)
+    const output = outputFromError(error)
     if (output !== null) {
       return output
     }
 
     throw error
   }
+}
+
+function parseCliEnvelopeFromError<TData>(
+  error: unknown,
+): CliEnvelope<TData> | null {
+  if (!error || typeof error !== 'object') {
+    return null
+  }
+
+  const maybeOutput = error as {
+    stdout?: Buffer | string
+    stderr?: Buffer | string
+  }
+
+  return (
+    parseEnvelopeText<TData>(decodeCommandOutput(maybeOutput.stdout)) ??
+    parseEnvelopeText<TData>(decodeCommandOutput(maybeOutput.stderr))
+  )
+}
+
+function parseEnvelopeText<TData>(output: string | null): CliEnvelope<TData> | null {
+  if (output === null) {
+    return null
+  }
+
+  try {
+    return JSON.parse(output) as CliEnvelope<TData>
+  } catch {
+    const jsonStart = output.indexOf('{')
+    const jsonEnd = output.lastIndexOf('}')
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+      return null
+    }
+
+    try {
+      return JSON.parse(output.slice(jsonStart, jsonEnd + 1)) as CliEnvelope<TData>
+    } catch {
+      return null
+    }
+  }
+}
+
+function outputFromError(error: unknown): string | null {
+  if (!error || typeof error !== 'object') {
+    return null
+  }
+
+  const maybeOutput = error as {
+    stdout?: Buffer | string
+    stderr?: Buffer | string
+  }
+
+  return decodeCommandOutput(maybeOutput.stdout) ?? decodeCommandOutput(maybeOutput.stderr)
+}
+
+function decodeCommandOutput(output: Buffer | string | undefined): string | null {
+  if (typeof output === 'string') {
+    return output.trim().length > 0 ? output : null
+  }
+
+  if (Buffer.isBuffer(output)) {
+    const text = output.toString('utf8').trim()
+    return text.length > 0 ? text : null
+  }
+
+  return null
 }
 
 function requireData<TData>(result: CliEnvelope<TData>): TData {
@@ -197,6 +263,171 @@ test.sequential('list commands still run after cursor removal', async () => {
     assert.equal(goalList.meta?.command, 'goal list')
     assert.equal(requireData(goalList).count, 0)
     assert.deepEqual(requireData(goalList).items, [])
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('generic list applies date bounds and echoes renamed filter keys', async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), 'healthybob-cli-list-'))
+
+  try {
+    const initResult = await runSourceCli<{ created: boolean }>(['init', '--vault', vaultRoot])
+    assert.equal(initResult.ok, true)
+    assert.equal(requireData(initResult).created, true)
+
+    await mkdir(path.join(vaultRoot, 'ledger/events/2026'), {
+      recursive: true,
+    })
+    await writeFile(
+      path.join(vaultRoot, 'ledger/events/2026/2026-03.jsonl'),
+      [
+        JSON.stringify({
+          schemaVersion: 'hb.event.v1',
+          id: 'evt_range_out',
+          kind: 'note',
+          occurredAt: '2026-03-10T08:00:00Z',
+          recordedAt: '2026-03-10T08:05:00Z',
+          source: 'manual',
+          title: 'Outside the requested range',
+        }),
+        JSON.stringify({
+          schemaVersion: 'hb.event.v1',
+          id: 'evt_range_in',
+          kind: 'note',
+          occurredAt: '2026-03-12T09:00:00Z',
+          recordedAt: '2026-03-12T09:05:00Z',
+          source: 'manual',
+          title: 'Inside the requested range',
+        }),
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const result = await runSourceCli<{
+      count: number
+      filters: Record<string, unknown>
+      items: Array<{
+        id: string
+      }>
+    }>([
+      'list',
+      '--record-type',
+      'event',
+      '--from',
+      '2026-03-12',
+      '--to',
+      '2026-03-12',
+      '--vault',
+      vaultRoot,
+    ])
+
+    assert.equal(result.ok, true)
+    assert.equal(requireData(result).filters.from, '2026-03-12')
+    assert.equal(requireData(result).filters.to, '2026-03-12')
+    assert.equal('dateFrom' in requireData(result).filters, false)
+    assert.equal('dateTo' in requireData(result).filters, false)
+    assert.equal(requireData(result).count, 1)
+    assert.deepEqual(
+      requireData(result).items.map((item) => item.id),
+      ['evt_range_in'],
+    )
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('goal list keeps status-only filters canonical', async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), 'healthybob-cli-list-'))
+  const activeGoalPath = path.join(vaultRoot, 'goal-active.json')
+  const pausedGoalPath = path.join(vaultRoot, 'goal-paused.json')
+
+  try {
+    const initResult = await runSourceCli<{ created: boolean }>(['init', '--vault', vaultRoot])
+    assert.equal(initResult.ok, true)
+    assert.equal(requireData(initResult).created, true)
+
+    await writeFile(
+      activeGoalPath,
+      JSON.stringify({
+        title: 'Improve sleep consistency',
+        status: 'active',
+        horizon: 'long_term',
+        domains: ['sleep'],
+      }),
+      'utf8',
+    )
+    await writeFile(
+      pausedGoalPath,
+      JSON.stringify({
+        title: 'Reduce afternoon caffeine',
+        status: 'paused',
+        horizon: 'short_term',
+        domains: ['energy'],
+      }),
+      'utf8',
+    )
+
+    const activeUpsert = await runSourceCli<{ goalId: string }>([
+      'goal',
+      'upsert',
+      '--input',
+      `@${activeGoalPath}`,
+      '--vault',
+      vaultRoot,
+    ])
+    const pausedUpsert = await runSourceCli<{ goalId: string }>([
+      'goal',
+      'upsert',
+      '--input',
+      `@${pausedGoalPath}`,
+      '--vault',
+      vaultRoot,
+    ])
+    const activeGoalId = requireData(activeUpsert).goalId
+    const pausedGoalId = requireData(pausedUpsert).goalId
+
+    const result = await runSourceCli<{
+      count: number
+      filters: Record<string, unknown>
+      nextCursor: string | null
+      items: Array<{
+        id: string
+        kind: string
+        data: Record<string, unknown>
+        links: Array<{ id: string }>
+      }>
+    }>([
+      'goal',
+      'list',
+      '--status',
+      'active',
+      '--limit',
+      '5',
+      '--vault',
+      vaultRoot,
+    ])
+
+    assert.equal(result.ok, true)
+    assert.equal(requireData(result).filters.status, 'active')
+    assert.equal(requireData(result).filters.limit, 5)
+    assert.equal('from' in requireData(result).filters, false)
+    assert.equal('to' in requireData(result).filters, false)
+    assert.equal('kind' in requireData(result).filters, false)
+    assert.equal(requireData(result).count, requireData(result).items.length)
+    assert.equal(requireData(result).nextCursor, null)
+    assert.deepEqual(
+      requireData(result).items.map((item) => item.id),
+      [activeGoalId],
+    )
+    assert.equal(
+      requireData(result).items.some((item) => item.id === pausedGoalId),
+      false,
+    )
+    assert.equal(requireData(result).items[0]?.kind, 'goal')
+    assert.equal(requireData(result).items[0]?.data.status, 'active')
+    assert.deepEqual(requireData(result).items[0]?.links, [])
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }

@@ -3,7 +3,17 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
-import { requireData, runCli } from './cli-test-helpers.js'
+import { requireData, runCli, runRawCli } from './cli-test-helpers.js'
+
+test('experiment help uses generic id selectors while journal keeps date selectors', async () => {
+  const experimentShowHelp = await runRawCli(['experiment', 'show', '--help'])
+  const experimentStopHelp = await runRawCli(['experiment', 'stop', '--help'])
+  const journalShowHelp = await runRawCli(['journal', 'show', '--help'])
+
+  assert.match(experimentShowHelp, /Usage: vault-cli experiment show <id> \[options\]/u)
+  assert.match(experimentStopHelp, /Usage: vault-cli experiment stop <id> \[options\]/u)
+  assert.match(journalShowHelp, /Usage: vault-cli journal show <date> \[options\]/u)
+})
 
 test.sequential(
   'experiment create accepts richer frontmatter options and experiment reads resolve by slug or id',
@@ -81,9 +91,11 @@ test.sequential(
         filters: {
           status: string | null
         }
+        count: number
         items: Array<{
           id: string
           kind: string
+          data: Record<string, unknown>
         }>
       }>([
         'experiment',
@@ -117,6 +129,7 @@ test.sequential(
 
       assert.equal(completedList.ok, true)
       assert.equal(requireData(completedList).filters.status, 'completed')
+      assert.equal(requireData(completedList).count, 1)
       assert.deepEqual(
         requireData(completedList).items.map((item) => item.id),
         [requireData(completedExperiment).experimentId],
@@ -125,6 +138,7 @@ test.sequential(
         requireData(completedList).items.map((item) => item.kind),
         ['experiment'],
       )
+      assert.equal(requireData(completedList).items[0]?.data.status, 'completed')
     } finally {
       await rm(vaultRoot, { recursive: true, force: true })
     }
@@ -170,12 +184,14 @@ test.sequential(
       const rangedList = await runCli<{
         filters: {
           kind?: string
-          dateFrom?: string
-          dateTo?: string
+          from?: string
+          to?: string
         }
+        count: number
         items: Array<{
           id: string
           kind: string
+          data: Record<string, unknown>
         }>
       }>([
         'journal',
@@ -199,8 +215,9 @@ test.sequential(
 
       assert.equal(rangedList.ok, true)
       assert.equal(requireData(rangedList).filters.kind, 'journal_day')
-      assert.equal(requireData(rangedList).filters.dateFrom, '2026-03-11')
-      assert.equal(requireData(rangedList).filters.dateTo, '2026-03-12')
+      assert.equal(requireData(rangedList).filters.from, '2026-03-11')
+      assert.equal(requireData(rangedList).filters.to, '2026-03-12')
+      assert.equal(requireData(rangedList).count, 1)
       assert.deepEqual(
         requireData(rangedList).items.map((item) => item.id),
         ['journal:2026-03-12'],
@@ -209,6 +226,7 @@ test.sequential(
         requireData(rangedList).items.map((item) => item.kind),
         ['journal_day'],
       )
+      assert.equal(requireData(rangedList).items[0]?.data.dayKey, '2026-03-12')
     } finally {
       await rm(vaultRoot, { recursive: true, force: true })
     }
