@@ -1,5 +1,6 @@
 import { Cli, z } from "incur";
 import {
+  bindHealthCrudServices,
   createHealthCrudGroup,
   registerHealthCrudGroup,
 } from "./health-command-factory.js";
@@ -12,10 +13,9 @@ import {
   healthShowResultSchema,
   type HealthCommandDescriptorEntry,
 } from "../health-cli-descriptors.js";
+import type { HealthScaffoldResult } from "../health-cli-method-types.js";
 import { pathSchema } from "../vault-cli-contracts.js";
 import type { VaultCliServices } from "../vault-cli-services.js";
-
-type AsyncMethod = (input: unknown) => Promise<unknown>;
 
 function requireHealthCommandDescriptor(commandName: string): HealthCommandDescriptorEntry {
   const descriptor = healthEntityDescriptorByCommandName.get(commandName);
@@ -62,24 +62,17 @@ function bindCrudServices(
   services: VaultCliServices,
   descriptor: HealthCommandDescriptorEntry,
 ) {
-  const core = services.core as unknown as Record<string, AsyncMethod>;
-  const query = services.query as unknown as Record<string, AsyncMethod>;
-
-  return {
-    list(input: unknown) {
-      return query[descriptor.query.listServiceMethod](input);
-    },
-    scaffold(input: unknown) {
-      return core[descriptor.core.scaffoldServiceMethod](input);
-    },
-    show(input: unknown) {
-      return query[descriptor.query.showServiceMethod](input);
-    },
-    async upsert(input: unknown) {
-      return (await core[descriptor.core.upsertServiceMethod](input)) as object;
-    },
-  };
+  return bindHealthCrudServices(services, {
+    list: descriptor.query.listServiceMethod,
+    scaffold: descriptor.core.scaffoldServiceMethod,
+    show: descriptor.query.showServiceMethod,
+    upsert: descriptor.core.upsertServiceMethod,
+  });
 }
+
+type BoundCrudServices = ReturnType<typeof bindCrudServices>;
+type BoundCrudShowResult = Awaited<ReturnType<BoundCrudServices["show"]>>;
+type BoundCrudListResult = Awaited<ReturnType<BoundCrudServices["list"]>>;
 
 function buildCrudGroupConfig(
   services: VaultCliServices,
@@ -104,8 +97,10 @@ function buildCrudGroupConfig(
     services: bindCrudServices(services, descriptor),
     showId: {
       ...descriptor.command.showId,
-      fromUpsert(result: Record<string, unknown>) {
-        return String(result[descriptor.core.resultIdField] ?? "");
+      fromUpsert(result: object) {
+        return String(
+          (result as Record<string, unknown>)[descriptor.core.resultIdField] ?? "",
+        );
       },
     },
   };
@@ -117,7 +112,12 @@ export function registerHealthEntityCrudGroup(
   commandName: string,
 ) {
   const descriptor = requireHealthCommandDescriptor(commandName);
-  registerHealthCrudGroup(cli, buildCrudGroupConfig(services, descriptor));
+  registerHealthCrudGroup<
+    HealthScaffoldResult<string>,
+    object,
+    BoundCrudShowResult,
+    BoundCrudListResult
+  >(cli, buildCrudGroupConfig(services, descriptor));
 }
 
 export function createHealthEntityCrudGroup(
@@ -125,5 +125,10 @@ export function createHealthEntityCrudGroup(
   commandName: string,
 ) {
   const descriptor = requireHealthCommandDescriptor(commandName);
-  return createHealthCrudGroup(buildCrudGroupConfig(services, descriptor));
+  return createHealthCrudGroup<
+    HealthScaffoldResult<string>,
+    object,
+    BoundCrudShowResult,
+    BoundCrudListResult
+  >(buildCrudGroupConfig(services, descriptor));
 }
