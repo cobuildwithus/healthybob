@@ -120,7 +120,7 @@ export function registerInboxCommands(
       },
     ],
     hint:
-      'Use a stable runtime id such as `imessage:self`; cursor state stays in SQLite, not in the config file.',
+      'Use a stable runtime id such as `imessage:self`; each connector id must map to a unique source/account runtime namespace, while cursor state stays in SQLite.',
     options: withBaseOptions({
       id: z.string().min(1).describe('Runtime connector id.'),
       account: z

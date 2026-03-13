@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-13 (retrieval/search and inbox runtime docs updated earlier today; active execution-plan inventory refreshed for current simplification and integration work)
+Last verified: 2026-03-13 (retrieval/search docs, inbox runtime docs, and follow-up inbox correctness notes updated earlier today; active execution-plan inventory refreshed for current simplification and integration work)
 
 ## Purpose
 

@@ -3,7 +3,7 @@
 Source-agnostic inbox ingestion for Healthy Bob.
 
 This package keeps canonical inbox evidence in the vault and uses a local SQLite
-runtime database for cursors, dedupe, and search indexes.
+runtime database for cursors, transient dedupe caches, and search indexes.
 
 ## Runtime expectations
 
@@ -20,6 +20,8 @@ runtime database for cursors, dedupe, and search indexes.
 - raw source evidence is persisted under `raw/inbox/<source>/...`
 - append-only vault events and audits record the canonical import trail
 - SQLite runtime state lives under `<vault>/.runtime/inboxd.sqlite`
+- any idempotent promotion from inbox captures into canonical records must be
+  derivable from canonical vault evidence rather than local `.runtime` state alone
 
 ## Current scope
 

@@ -19,6 +19,7 @@ Last verified: 2026-03-12
 - Machine-facing truth lives in append-only JSONL ledgers for events, samples, and audit records.
 - Raw imported artifacts are immutable once copied into `raw/`.
 - Inbox runtime state is local-only under `.runtime/` and is rebuildable from canonical vault evidence under `raw/inbox/**`.
+- Any inbox-to-canonical promotion idempotency must be stored in or derivable from canonical vault evidence, not `.runtime/` alone.
 - Assistant/session state belongs outside the canonical vault under `assistant-state/`.
 
 ## Control Flow

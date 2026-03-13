@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
@@ -55,6 +55,7 @@ async function loadBuiltCoreRuntime() {
       event: {
         id: string
       }
+      manifestPath: string
     }>
   }
 }
@@ -68,6 +69,169 @@ function inboxPaths(vaultRoot: string) {
     configPath: path.join(vaultRoot, '.runtime', 'inboxd', 'config.json'),
     promotionsPath: path.join(vaultRoot, '.runtime', 'inboxd', 'promotions.json'),
     statePath: path.join(vaultRoot, '.runtime', 'inboxd', 'state.json'),
+  }
+}
+
+async function listMealManifestPaths(vaultRoot: string): Promise<string[]> {
+  return listNamedFiles(path.join(vaultRoot, 'raw', 'meals'), 'manifest.json')
+}
+
+async function listNamedFiles(root: string, name: string): Promise<string[]> {
+  try {
+    const matches: string[] = []
+    const stack = [root]
+
+    while (stack.length > 0) {
+      const current = stack.pop()
+      if (!current) {
+        continue
+      }
+
+      for (const entry of await readdir(current, { withFileTypes: true })) {
+        const absolutePath = path.join(current, entry.name)
+        if (entry.isDirectory()) {
+          stack.push(absolutePath)
+          continue
+        }
+        if (entry.isFile() && entry.name === name) {
+          matches.push(absolutePath)
+        }
+      }
+    }
+
+    return matches.sort((left, right) => left.localeCompare(right))
+  } catch {
+    return []
+  }
+}
+
+function createFakeInboxRuntimeModule(input?: {
+  onCreateImessageConnector?(options: {
+    id?: string
+    accountId?: string | null
+    includeOwnMessages?: boolean
+    backfillLimit?: number
+  }): void
+  onRunInboxDaemon?(payload: {
+    connectors: Array<{
+      id: string
+      source: string
+      accountId?: string | null
+    }>
+    runtime: {
+      getCursor(source: string, accountId?: string | null): Record<string, unknown> | null
+      setCursor(
+        source: string,
+        accountId: string | null | undefined,
+        cursor: Record<string, unknown> | null,
+      ): void
+    }
+    signal: AbortSignal
+  }): Promise<void> | void
+  rebuiltCaptureCount?: number
+}): any {
+  const cursorStore = new Map<string, Record<string, unknown> | null>()
+  const runtime = {
+    close() {},
+    getCursor(source: string, accountId?: string | null) {
+      return cursorStore.get(`${source}::${accountId ?? 'default'}`) ?? null
+    },
+    setCursor(
+      source: string,
+      accountId: string | null | undefined,
+      cursor: Record<string, unknown> | null,
+    ) {
+      cursorStore.set(`${source}::${accountId ?? 'default'}`, cursor)
+    },
+    listCaptures(filters?: { limit?: number }) {
+      const total = input?.rebuiltCaptureCount ?? 0
+      const limit = filters?.limit ?? total
+      return Array.from({ length: Math.min(limit, total) }, (_, index) => ({
+        captureId: `cap-${index}`,
+        eventId: `evt-${index}`,
+        source: 'imessage',
+        externalId: `ext-${index}`,
+        accountId: 'self',
+        thread: { id: 'thread-1', title: 'Thread', isDirect: true },
+        actor: { id: 'actor-1', displayName: 'Actor', isSelf: false },
+        occurredAt: '2026-03-13T08:00:00.000Z',
+        receivedAt: '2026-03-13T08:00:01.000Z',
+        text: `Capture ${index}`,
+        attachments: [],
+        raw: {},
+        envelopePath: `raw/inbox/imessage/self/${index}.json`,
+        createdAt: '2026-03-13T08:00:02.000Z',
+      }))
+    },
+    searchCaptures() {
+      return []
+    },
+    getCapture() {
+      return null
+    },
+  }
+
+  return {
+    async ensureInboxVault() {},
+    async openInboxRuntime() {
+      return runtime
+    },
+    async createInboxPipeline() {
+      return {
+        runtime,
+        async processCapture() {
+          return { deduped: false }
+        },
+        close() {},
+      }
+    },
+    createImessageConnector(options: {
+      id?: string
+      accountId?: string | null
+      includeOwnMessages?: boolean
+      backfillLimit?: number
+    }) {
+      input?.onCreateImessageConnector?.(options)
+      return {
+        id: options.id ?? 'imessage:self',
+        source: 'imessage',
+        accountId: options.accountId ?? null,
+        kind: 'poll' as const,
+        capabilities: {
+          attachments: true,
+          backfill: true,
+          ownMessages: options.includeOwnMessages,
+          watch: true,
+          webhooks: false,
+        },
+        async backfill() {
+          return null
+        },
+        async watch() {},
+        async close() {},
+      }
+    },
+    async loadImessageKitDriver() {
+      return createFakeImessageDriver({ photoPath: '' })
+    },
+    async rebuildRuntimeFromVault() {},
+    async runInboxDaemon(payload: {
+      pipeline: {
+        runtime: typeof runtime
+      }
+      connectors: Array<{
+        id: string
+        source: string
+        accountId?: string | null
+      }>
+      signal: AbortSignal
+    }) {
+      await input?.onRunInboxDaemon?.({
+        connectors: payload.connectors,
+        runtime: payload.pipeline.runtime,
+        signal: payload.signal,
+      })
+    },
   }
 }
 
@@ -613,6 +777,121 @@ test.sequential('source add defaults the iMessage account identity to self when 
       requestId: null,
     })
     assert.equal(listed.connectors[0]?.accountId, 'self')
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('source add rejects connector ids that alias the same source/account namespace', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-namespace-alias')
+  const services = createIntegratedInboxCliServices({
+    getHomeDirectory: () => fixture.homeRoot,
+    getPlatform: () => 'darwin',
+    loadCoreModule: loadBuiltCoreRuntime,
+    loadInboxModule: loadBuiltInboxRuntime,
+  })
+
+  try {
+    await services.init({
+      vault: fixture.vaultRoot,
+      requestId: null,
+    })
+    await services.sourceAdd({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      source: 'imessage',
+      id: 'imessage:self',
+      account: 'self',
+    })
+
+    await expectVaultCliError(
+      services.sourceAdd({
+        vault: fixture.vaultRoot,
+        requestId: null,
+        source: 'imessage',
+        id: 'imessage:alias',
+        account: 'self',
+      }),
+      'INBOX_SOURCE_NAMESPACE_EXISTS',
+    )
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('inbox init rebuild reports the full indexed capture count without a 200-item cap', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-rebuild-count')
+  const services = createIntegratedInboxCliServices({
+    loadInboxModule: async () =>
+      createFakeInboxRuntimeModule({
+        rebuiltCaptureCount: 425,
+      }),
+  })
+
+  try {
+    const result = await services.init({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      rebuild: true,
+    })
+    assert.equal(result.rebuiltCaptures, 425)
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('run forwards the configured connector id and account namespace into the daemon contract', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-run-namespace')
+  let createdConnectorId: string | null = null
+  let createdConnectorAccountId: string | null = null
+  let seenDaemonConnectorId: string | null = null
+  let seenDaemonConnectorAccountId: string | null = null
+  const services = createIntegratedInboxCliServices({
+    getHomeDirectory: () => fixture.homeRoot,
+    getPid: () => 4242,
+    getPlatform: () => 'darwin',
+    loadCoreModule: loadBuiltCoreRuntime,
+    loadInboxModule: async () =>
+      createFakeInboxRuntimeModule({
+        onCreateImessageConnector(options) {
+          createdConnectorId = options.id ?? null
+          createdConnectorAccountId = options.accountId ?? null
+        },
+        onRunInboxDaemon({ connectors, runtime }) {
+          seenDaemonConnectorId = connectors[0]?.id ?? null
+          seenDaemonConnectorAccountId = connectors[0]?.accountId ?? null
+          runtime.setCursor('imessage', connectors[0]?.accountId ?? null, {
+            externalId: 'daemon-cursor',
+          })
+        },
+      }),
+  })
+
+  try {
+    await services.init({
+      vault: fixture.vaultRoot,
+      requestId: null,
+    })
+    await services.sourceAdd({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      source: 'imessage',
+      id: 'imessage:work',
+      account: 'work',
+    })
+
+    await services.run({
+      vault: fixture.vaultRoot,
+      requestId: null,
+    })
+
+    assert.equal(createdConnectorId, 'imessage:work')
+    assert.equal(createdConnectorAccountId, 'work')
+    assert.equal(seenDaemonConnectorId, 'imessage:work')
+    assert.equal(seenDaemonConnectorAccountId, 'work')
   } finally {
     await rm(fixture.vaultRoot, { recursive: true, force: true })
     await rm(fixture.homeRoot, { recursive: true, force: true })
@@ -1304,6 +1583,113 @@ test.sequential('status and stop reject corrupted daemon state, and inbox operat
   }
 })
 
+test.sequential('meal promotion remains idempotent after local promotion state is deleted', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-canonical-promotion')
+  const paths = inboxPaths(fixture.vaultRoot)
+  const services = createIntegratedInboxCliServices({
+    getHomeDirectory: () => fixture.homeRoot,
+    getPlatform: () => 'darwin',
+    loadCoreModule: loadBuiltCoreRuntime,
+    loadInboxModule: loadBuiltInboxRuntime,
+    loadImessageDriver: async () =>
+      createFakeImessageDriver({ photoPath: fixture.photoPath }),
+  })
+
+  try {
+    await initializeImessageSource({
+      services,
+      vaultRoot: fixture.vaultRoot,
+    })
+    await services.backfill({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      sourceId: 'imessage:self',
+    })
+    const captureId = await captureSingleCaptureId({
+      services,
+      vaultRoot: fixture.vaultRoot,
+    })
+
+    const firstPromotion = await services.promoteMeal({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      captureId,
+    })
+    assert.equal(firstPromotion.created, true)
+    assert.equal((await listMealManifestPaths(fixture.vaultRoot)).length, 1)
+
+    await rm(paths.promotionsPath, { force: true })
+
+    const retriedPromotion = await services.promoteMeal({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      captureId,
+    })
+    assert.equal(retriedPromotion.created, false)
+    assert.equal(retriedPromotion.lookupId, firstPromotion.lookupId)
+    assert.equal(retriedPromotion.relatedId, firstPromotion.relatedId)
+    assert.equal((await listMealManifestPaths(fixture.vaultRoot)).length, 1)
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('meal promotion retries do not duplicate canonical meals after a local promotion-store write failure', async () => {
+  const fixture = await makeVaultFixture('healthybob-inbox-promotion-write-failure')
+  const paths = inboxPaths(fixture.vaultRoot)
+  const inboxRuntimeRoot = path.dirname(paths.promotionsPath)
+  const services = createIntegratedInboxCliServices({
+    getHomeDirectory: () => fixture.homeRoot,
+    getPlatform: () => 'darwin',
+    loadCoreModule: loadBuiltCoreRuntime,
+    loadInboxModule: loadBuiltInboxRuntime,
+    loadImessageDriver: async () =>
+      createFakeImessageDriver({ photoPath: fixture.photoPath }),
+  })
+
+  try {
+    await initializeImessageSource({
+      services,
+      vaultRoot: fixture.vaultRoot,
+    })
+    await services.backfill({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      sourceId: 'imessage:self',
+    })
+    const captureId = await captureSingleCaptureId({
+      services,
+      vaultRoot: fixture.vaultRoot,
+    })
+
+    await chmod(inboxRuntimeRoot, 0o555)
+    try {
+      await assert.rejects(
+        services.promoteMeal({
+          vault: fixture.vaultRoot,
+          requestId: null,
+          captureId,
+        }),
+      )
+    } finally {
+      await chmod(inboxRuntimeRoot, 0o755)
+    }
+    assert.equal((await listMealManifestPaths(fixture.vaultRoot)).length, 1)
+
+    const retriedPromotion = await services.promoteMeal({
+      vault: fixture.vaultRoot,
+      requestId: null,
+      captureId,
+    })
+    assert.equal(retriedPromotion.created, false)
+    assert.equal((await listMealManifestPaths(fixture.vaultRoot)).length, 1)
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+    await rm(fixture.homeRoot, { recursive: true, force: true })
+  }
+})
+
 test.sequential('promotion safeguards cover missing photos, invalid stored ids, and unsupported targets', async () => {
   const fixture = await makeVaultFixture('healthybob-inbox-promotion')
   const paths = inboxPaths(fixture.vaultRoot)
@@ -1343,52 +1729,81 @@ test.sequential('promotion safeguards cover missing photos, invalid stored ids, 
       'INBOX_PROMOTION_REQUIRES_PHOTO',
     )
 
-    await writeFile(
-      paths.promotionsPath,
-      `${JSON.stringify(
-        {
-          version: 1,
-          entries: [
-            {
-              captureId,
-              target: 'meal',
-              status: 'applied',
-              promotedAt: '2026-03-13T09:00:00.000Z',
-              lookupId: null,
-              relatedId: null,
-              note: 'toast',
-            },
-          ],
-        },
-        null,
-        2,
-      )}\n`,
-      'utf8',
-    )
-    await expectVaultCliError(
-      services.promoteMeal({
-        vault: fixture.vaultRoot,
+    const photoFixture = await makeVaultFixture('healthybob-inbox-promotion-state')
+    const photoServices = createIntegratedInboxCliServices({
+      getHomeDirectory: () => photoFixture.homeRoot,
+      getPlatform: () => 'darwin',
+      loadCoreModule: loadBuiltCoreRuntime,
+      loadInboxModule: loadBuiltInboxRuntime,
+      loadImessageDriver: async () =>
+        createFakeImessageDriver({ photoPath: photoFixture.photoPath }),
+    })
+
+    try {
+      await initializeImessageSource({
+        services: photoServices,
+        vaultRoot: photoFixture.vaultRoot,
+      })
+      await photoServices.backfill({
+        vault: photoFixture.vaultRoot,
         requestId: null,
-        captureId,
-      }),
-      'INBOX_PROMOTION_STATE_INVALID',
-    )
-    await expectVaultCliError(
-      services.promoteJournal({
-        vault: fixture.vaultRoot,
-        requestId: null,
-        captureId,
-      }),
-      'INBOX_PROMOTION_UNSUPPORTED',
-    )
-    await expectVaultCliError(
-      services.promoteExperimentNote({
-        vault: fixture.vaultRoot,
-        requestId: null,
-        captureId,
-      }),
-      'INBOX_PROMOTION_UNSUPPORTED',
-    )
+        sourceId: 'imessage:self',
+      })
+      const photoCaptureId = await captureSingleCaptureId({
+        services: photoServices,
+        vaultRoot: photoFixture.vaultRoot,
+      })
+
+      await writeFile(
+        inboxPaths(photoFixture.vaultRoot).promotionsPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            entries: [
+              {
+                captureId: photoCaptureId,
+                target: 'meal',
+                status: 'applied',
+                promotedAt: '2026-03-13T09:00:00.000Z',
+                lookupId: null,
+                relatedId: null,
+                note: 'toast',
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+      await expectVaultCliError(
+        photoServices.promoteMeal({
+          vault: photoFixture.vaultRoot,
+          requestId: null,
+          captureId: photoCaptureId,
+        }),
+        'INBOX_PROMOTION_STATE_INVALID',
+      )
+      await expectVaultCliError(
+        photoServices.promoteJournal({
+          vault: photoFixture.vaultRoot,
+          requestId: null,
+          captureId: photoCaptureId,
+        }),
+        'INBOX_PROMOTION_UNSUPPORTED',
+      )
+      await expectVaultCliError(
+        photoServices.promoteExperimentNote({
+          vault: photoFixture.vaultRoot,
+          requestId: null,
+          captureId: photoCaptureId,
+        }),
+        'INBOX_PROMOTION_UNSUPPORTED',
+      )
+    } finally {
+      await rm(photoFixture.vaultRoot, { recursive: true, force: true })
+      await rm(photoFixture.homeRoot, { recursive: true, force: true })
+    }
   } finally {
     await rm(fixture.vaultRoot, { recursive: true, force: true })
     await rm(fixture.homeRoot, { recursive: true, force: true })

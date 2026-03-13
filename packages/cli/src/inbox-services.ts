@@ -1,4 +1,5 @@
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { z } from 'incur'
@@ -37,6 +38,24 @@ interface RuntimeAttachmentRecord {
   fileName?: string | null
   byteSize?: number | null
   sha256?: string | null
+}
+
+function hasStoredPath(
+  attachment: RuntimeAttachmentRecord,
+): attachment is RuntimeAttachmentRecord & { storedPath: string } {
+  return typeof attachment.storedPath === 'string' && attachment.storedPath.length > 0
+}
+
+function isStoredImageAttachment(
+  attachment: RuntimeAttachmentRecord,
+): attachment is RuntimeAttachmentRecord & { kind: 'image'; storedPath: string } {
+  return attachment.kind === 'image' && hasStoredPath(attachment)
+}
+
+function isStoredAudioAttachment(
+  attachment: RuntimeAttachmentRecord,
+): attachment is RuntimeAttachmentRecord & { kind: 'audio'; storedPath: string } {
+  return attachment.kind === 'audio' && hasStoredPath(attachment)
 }
 
 interface RuntimeCaptureRecord {
@@ -104,11 +123,26 @@ interface PersistedCapture {
 }
 
 interface PollConnector {
+  id: string
   source: string
+  accountId?: string | null
+  kind: 'poll'
+  capabilities: {
+    backfill: boolean
+    watch: boolean
+    webhooks: boolean
+    attachments: boolean
+    ownMessages?: boolean
+  }
   backfill?(
     cursor: Record<string, unknown> | null,
     emit: (capture: RuntimeCaptureRecordInput) => Promise<PersistedCapture>,
   ): Promise<Record<string, unknown> | null>
+  watch?(
+    cursor: Record<string, unknown> | null,
+    emit: (capture: RuntimeCaptureRecordInput) => Promise<PersistedCapture>,
+    signal: AbortSignal,
+  ): Promise<void>
   close?(): Promise<void> | void
 }
 
@@ -144,6 +178,7 @@ interface InboxRuntimeModule {
   }): Promise<InboxPipeline>
   createImessageConnector(input: {
     driver: ImessageDriver
+    id?: string
     accountId?: string | null
     includeOwnMessages?: boolean
     backfillLimit?: number
@@ -173,6 +208,7 @@ interface CoreRuntimeModule {
     event: {
       id: string
     }
+    manifestPath: string
   }>
 }
 
@@ -267,6 +303,7 @@ const IMESSAGE_MESSAGES_DB_RELATIVE_PATH = path.join(
 )
 const CONFIG_VERSION = 1
 const PROMOTION_STORE_VERSION = 1
+const RAW_MEALS_DIRECTORY = path.posix.join('raw', 'meals')
 
 export function createIntegratedInboxCliServices(
   dependencies: InboxServicesDependencies = {},
@@ -367,6 +404,7 @@ export function createIntegratedInboxCliServices(
           backfillLimit: normalizeBackfillLimit(input.backfillLimit),
         },
       }
+      ensureConnectorNamespaceAvailable(config, connector)
 
       config.connectors.push(connector)
       sortConnectors(config)
@@ -688,10 +726,8 @@ export function createIntegratedInboxCliServices(
         })
         let importedCount = 0
         let dedupedCount = 0
-        let cursor = runtime.getCursor(
-          connector.source,
-          connectorConfig.accountId ?? null,
-        )
+        const cursorAccountId = runtimeNamespaceAccountId(connectorConfig)
+        let cursor = runtime.getCursor(connector.source, cursorAccountId)
 
         const nextCursor = await connector.backfill?.(cursor, async (capture) => {
           const persisted = await pipeline.processCapture(capture)
@@ -703,7 +739,7 @@ export function createIntegratedInboxCliServices(
           cursor = buildCaptureCursor(capture)
           runtime.setCursor(
             connector.source,
-            connectorConfig.accountId ?? capture.accountId ?? null,
+            cursorAccountId ?? capture.accountId ?? null,
             cursor,
           )
           return persisted
@@ -711,7 +747,7 @@ export function createIntegratedInboxCliServices(
 
         runtime.setCursor(
           connector.source,
-          connectorConfig.accountId ?? null,
+          cursorAccountId,
           nextCursor ?? cursor ?? null,
         )
         await connector.close?.()
@@ -721,9 +757,7 @@ export function createIntegratedInboxCliServices(
           sourceId: connectorConfig.id,
           importedCount,
           dedupedCount,
-          cursor:
-            runtime.getCursor(connector.source, connectorConfig.accountId ?? null) ??
-            null,
+          cursor: runtime.getCursor(connector.source, cursorAccountId) ?? null,
         }
       } finally {
         pipeline.close()
@@ -1025,6 +1059,55 @@ export function createIntegratedInboxCliServices(
             entry.target === 'meal' &&
             entry.status === 'applied',
         )
+
+        const photoAttachment = capture.attachments.find(isStoredImageAttachment)
+        if (!photoAttachment) {
+          throw new VaultCliError(
+            'INBOX_PROMOTION_REQUIRES_PHOTO',
+            'Meal promotion requires an image attachment on the inbox capture.',
+          )
+        }
+        const audioAttachment = capture.attachments.find(isStoredAudioAttachment)
+        const canonicalPromotion = await findCanonicalMealPromotion({
+          capture,
+          paths,
+          photoAttachment,
+          audioAttachment,
+        })
+
+        if (canonicalPromotion) {
+          if (
+            existing &&
+            existing.lookupId &&
+            existing.relatedId &&
+            (existing.lookupId !== canonicalPromotion.lookupId ||
+              existing.relatedId !== canonicalPromotion.relatedId)
+          ) {
+            throw new VaultCliError(
+              'INBOX_PROMOTION_STATE_INVALID',
+              'Local meal promotion state does not match the canonical vault record.',
+            )
+          }
+
+          upsertMealPromotionEntry(promotionStore, {
+            captureId: input.captureId,
+            lookupId: canonicalPromotion.lookupId,
+            note: capture.text ?? null,
+            promotedAt: canonicalPromotion.promotedAt,
+            relatedId: canonicalPromotion.relatedId,
+          })
+          await writePromotionStore(paths, promotionStore)
+
+          return {
+            vault: paths.absoluteVaultRoot,
+            captureId: input.captureId,
+            target: 'meal',
+            lookupId: canonicalPromotion.lookupId,
+            relatedId: canonicalPromotion.relatedId,
+            created: false,
+          }
+        }
+
         if (existing) {
           if (!existing.lookupId || !existing.relatedId) {
             throw new VaultCliError(
@@ -1032,31 +1115,12 @@ export function createIntegratedInboxCliServices(
               'Stored meal promotion state is missing canonical ids.',
             )
           }
-          return {
-            vault: paths.absoluteVaultRoot,
-            captureId: input.captureId,
-            target: 'meal',
-            lookupId: existing.lookupId,
-            relatedId: existing.relatedId,
-            created: false,
-          }
-        }
-
-        const photoAttachment = capture.attachments.find(
-          (attachment) =>
-            attachment.kind === 'image' && typeof attachment.storedPath === 'string',
-        )
-        if (!photoAttachment?.storedPath) {
           throw new VaultCliError(
-            'INBOX_PROMOTION_REQUIRES_PHOTO',
-            'Meal promotion requires an image attachment on the inbox capture.',
+            'INBOX_PROMOTION_CANONICAL_MISSING',
+            'Local meal promotion state exists, but no canonical meal record could be verified.',
           )
         }
 
-        const audioAttachment = capture.attachments.find(
-          (attachment) =>
-            attachment.kind === 'audio' && typeof attachment.storedPath === 'string',
-        )
         const result = await core.addMeal({
           vaultRoot: paths.absoluteVaultRoot,
           occurredAt: capture.occurredAt,
@@ -1069,14 +1133,12 @@ export function createIntegratedInboxCliServices(
           source: 'import',
         })
 
-        promotionStore.entries.push({
+        upsertMealPromotionEntry(promotionStore, {
           captureId: input.captureId,
-          target: 'meal',
-          status: 'applied',
-          promotedAt: clock().toISOString(),
           lookupId: result.event.id,
-          relatedId: result.mealId,
           note: capture.text ?? null,
+          promotedAt: clock().toISOString(),
+          relatedId: result.mealId,
         })
         await writePromotionStore(paths, promotionStore)
 
@@ -1195,7 +1257,7 @@ async function rebuildRuntime(
       runtime,
     })
 
-    return runtime.listCaptures({ limit: 200 }).length
+    return countRuntimeCaptures(runtime)
   } finally {
     runtime.close()
   }
@@ -1227,6 +1289,28 @@ function requireConnector(
   return connector
 }
 
+function ensureConnectorNamespaceAvailable(
+  config: InboxRuntimeConfig,
+  candidate: InboxConnectorConfig,
+): void {
+  const namespace = connectorNamespaceKey(candidate)
+  const conflict = config.connectors.find(
+    (connector) => connectorNamespaceKey(connector) === namespace,
+  )
+  if (!conflict) {
+    return
+  }
+
+  throw new VaultCliError(
+    'INBOX_SOURCE_NAMESPACE_EXISTS',
+    `Inbox source "${candidate.id}" aliases the same runtime namespace as "${conflict.id}".`,
+    {
+      accountId: candidate.accountId ?? null,
+      source: candidate.source,
+    },
+  )
+}
+
 async function instantiateConnector(input: {
   connector: InboxConnectorConfig
   inputLimit?: number
@@ -1240,6 +1324,7 @@ async function instantiateConnector(input: {
       const driver = await input.loadImessageDriver(input.connector)
       return inboxd.createImessageConnector({
         driver,
+        id: input.connector.id,
         accountId: input.connector.accountId ?? 'self',
         includeOwnMessages:
           input.connector.options.includeOwnMessages ?? true,
@@ -1316,7 +1401,7 @@ function resolveSourceFilter(
   const connector = requireConnector(config, sourceId)
   return {
     source: connector.source,
-    accountId: connector.accountId ?? null,
+    accountId: runtimeNamespaceAccountId(connector),
   }
 }
 
@@ -1361,6 +1446,152 @@ async function writePromotionStore(
     paths.promotionsPath,
     inboxPromotionStoreSchema.parse(store),
   )
+}
+
+async function findCanonicalMealPromotion(input: {
+  capture: RuntimeCaptureRecord
+  paths: InboxPaths
+  photoAttachment: RuntimeAttachmentRecord & { storedPath: string }
+  audioAttachment?: RuntimeAttachmentRecord
+}): Promise<{
+  lookupId: string
+  manifestPath: string
+  promotedAt: string
+  relatedId: string
+} | null> {
+  const photoSha256 = await resolveAttachmentSha256(
+    input.paths.absoluteVaultRoot,
+    input.photoAttachment,
+  )
+  const audioSha256 =
+    input.audioAttachment && typeof input.audioAttachment.storedPath === 'string'
+      ? await resolveAttachmentSha256(
+          input.paths.absoluteVaultRoot,
+          input.audioAttachment,
+        )
+      : null
+  const note = normalizeNullableString(input.capture.text)
+  const matches = (
+    await Promise.all(
+      (await listCanonicalMealManifestPaths(input.paths.absoluteVaultRoot)).map(
+        async (manifestPath) => {
+          const manifest = await readCanonicalMealManifest(
+            input.paths.absoluteVaultRoot,
+            manifestPath,
+          )
+          if (!manifest) {
+            return null
+          }
+
+          const manifestPhoto = manifest.artifacts.find(
+            (artifact) => artifact.role === 'photo',
+          )
+          const manifestAudio = manifest.artifacts.find(
+            (artifact) => artifact.role === 'audio',
+          )
+          if (!manifestPhoto || manifestPhoto.sha256 !== photoSha256) {
+            return null
+          }
+          if ((manifestAudio?.sha256 ?? null) !== audioSha256) {
+            return null
+          }
+          if (normalizeNullableString(manifest.source) !== 'import') {
+            return null
+          }
+
+          const occurredAt = extractCanonicalString(
+            manifest.provenance,
+            'occurredAt',
+          )
+          if (occurredAt !== input.capture.occurredAt) {
+            return null
+          }
+
+          if (
+            normalizeNullableString(extractCanonicalString(manifest.provenance, 'note')) !==
+            note
+          ) {
+            return null
+          }
+
+          const lookupId =
+            normalizeNullableString(
+              extractCanonicalString(manifest.provenance, 'lookupId'),
+            ) ??
+            normalizeNullableString(
+              extractCanonicalString(manifest.provenance, 'eventId'),
+            )
+          if (!lookupId) {
+            return null
+          }
+
+          return {
+            lookupId,
+            manifestPath,
+            promotedAt: manifest.importedAt,
+            relatedId: manifest.importId,
+          }
+        },
+      ),
+    )
+  ).filter(
+    (
+      match,
+    ): match is {
+      lookupId: string
+      manifestPath: string
+      promotedAt: string
+      relatedId: string
+    } => match !== null,
+  )
+
+  if (matches.length === 0) {
+    return null
+  }
+
+  if (matches.length > 1) {
+    throw new VaultCliError(
+      'INBOX_PROMOTION_DUPLICATE_CANONICAL',
+      'Multiple canonical meal records match this inbox capture.',
+      {
+        captureId: input.capture.captureId,
+        relatedIds: matches.map((match) => match.relatedId),
+      },
+    )
+  }
+
+  return matches[0]
+}
+
+function upsertMealPromotionEntry(
+  store: z.infer<typeof inboxPromotionStoreSchema>,
+  input: {
+    captureId: string
+    lookupId: string
+    note: string | null
+    promotedAt: string
+    relatedId: string
+  },
+): void {
+  const existingIndex = store.entries.findIndex(
+    (entry) => entry.captureId === input.captureId && entry.target === 'meal',
+  )
+  const nextEntry = {
+    captureId: input.captureId,
+    target: 'meal',
+    status: 'applied',
+    promotedAt: input.promotedAt,
+    lookupId: input.lookupId,
+    relatedId: input.relatedId,
+    note: input.note,
+  } satisfies InboxPromotionEntry
+
+  if (existingIndex === -1) {
+    store.entries.push(nextEntry)
+    return
+  }
+
+  store.entries[existingIndex] = nextEntry
 }
 
 async function normalizeDaemonState(
@@ -1510,6 +1741,18 @@ function normalizeNullableString(value: string | null | undefined): string | nul
   return normalized.length > 0 ? normalized : null
 }
 
+function runtimeNamespaceAccountId(
+  connector: Pick<InboxConnectorConfig, 'accountId'>,
+): string | null {
+  return connector.accountId ?? null
+}
+
+function connectorNamespaceKey(
+  connector: Pick<InboxConnectorConfig, 'source' | 'accountId'>,
+): string {
+  return `${connector.source}::${runtimeNamespaceAccountId(connector) ?? 'default'}`
+}
+
 function normalizeConnectorAccountId(
   source: InboxConnectorConfig['source'],
   value: string | null | undefined,
@@ -1559,6 +1802,112 @@ function normalizeLimit(
 function relativeToVault(vaultRoot: string, absolutePath: string): string {
   const relativePath = path.relative(vaultRoot, absolutePath)
   return relativePath.length > 0 ? relativePath.replace(/\\/g, '/') : '.'
+}
+
+function countRuntimeCaptures(runtime: RuntimeStore): number {
+  let limit = 200
+
+  while (true) {
+    const count = runtime.listCaptures({ limit }).length
+    if (count < limit) {
+      return count
+    }
+    limit *= 2
+  }
+}
+
+async function listCanonicalMealManifestPaths(
+  absoluteVaultRoot: string,
+): Promise<string[]> {
+  return walkRelativeFiles(
+    absoluteVaultRoot,
+    RAW_MEALS_DIRECTORY,
+    'manifest.json',
+  )
+}
+
+async function walkRelativeFiles(
+  absoluteVaultRoot: string,
+  relativeDirectory: string,
+  fileName: string,
+): Promise<string[]> {
+  const absoluteDirectory = path.join(absoluteVaultRoot, relativeDirectory)
+  if (!(await fileExists(absoluteDirectory))) {
+    return []
+  }
+
+  const matches: string[] = []
+  const stack = [absoluteDirectory]
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
+      continue
+    }
+
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const absoluteEntry = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(absoluteEntry)
+        continue
+      }
+      if (entry.isFile() && entry.name === fileName) {
+        matches.push(relativeToVault(absoluteVaultRoot, absoluteEntry))
+      }
+    }
+  }
+
+  return matches.sort((left, right) => left.localeCompare(right))
+}
+
+async function readCanonicalMealManifest(
+  absoluteVaultRoot: string,
+  relativePath: string,
+): Promise<{
+  importId: string
+  importKind: 'meal'
+  importedAt: string
+  source: string | null
+  artifacts: Array<{
+    role: string
+    sha256: string
+  }>
+  provenance: Record<string, unknown>
+} | null> {
+  try {
+    const raw = await readFile(path.join(absoluteVaultRoot, relativePath), 'utf8')
+    return canonicalMealManifestSchema.parse(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function extractCanonicalString(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key]
+  return typeof value === 'string' ? value : null
+}
+
+async function resolveAttachmentSha256(
+  absoluteVaultRoot: string,
+  attachment: RuntimeAttachmentRecord & { storedPath?: string | null },
+): Promise<string> {
+  if (typeof attachment.sha256 === 'string' && attachment.sha256.length > 0) {
+    return attachment.sha256
+  }
+  if (!attachment.storedPath) {
+    throw new VaultCliError(
+      'INBOX_ATTACHMENT_HASH_MISSING',
+      'Attachment hash could not be resolved from the stored inbox artifact.',
+    )
+  }
+
+  const content = await readFile(
+    path.join(absoluteVaultRoot, attachment.storedPath),
+  )
+  return createHash('sha256').update(content).digest('hex')
 }
 
 function errorMessage(error: unknown): string {
@@ -1614,3 +1963,17 @@ function unsupportedPromotion(target: 'journal' | 'experiment-note'): VaultCliEr
     `Canonical ${target} promotion is not available yet through a safe shared runtime boundary.`,
   )
 }
+
+const canonicalMealManifestSchema = z.object({
+  importId: z.string().min(1),
+  importKind: z.literal('meal'),
+  importedAt: z.string().min(1),
+  source: z.string().nullable(),
+  artifacts: z.array(
+    z.object({
+      role: z.string().min(1),
+      sha256: z.string().min(1),
+    }),
+  ),
+  provenance: z.record(z.string(), z.unknown()),
+})
