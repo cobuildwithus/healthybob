@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-13 (runtime-state cutover docs and the softer coordination-ledger semantics are aligned across process docs and prompt templates)
+Last verified: 2026-03-13 (runtime-state cutover docs, softer coordination-ledger semantics, and incur-specific CLI guardrails are aligned across process docs)
 
 ## Purpose
 
@@ -43,3 +43,4 @@ This index is the table of contents for durable, repository-local context that a
 - Treat `UNCONFIRMED` product/domain assumptions as temporary and replace them with concrete specs before broad implementation work.
 - For multi-file or high-risk work, add a plan in `agent-docs/exec-plans/active/`.
 - Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work, and mark rows as exclusive only when overlap is genuinely unsafe.
+- For `packages/cli` work, treat `ARCHITECTURE.md` and `agent-docs/operations/verification-and-runtime.md` as the durable home for incur-specific routing, typegen, and built-vs-source verification rules.

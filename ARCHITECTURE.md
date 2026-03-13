@@ -11,7 +11,7 @@ Last verified: 2026-03-13
 - `packages/inboxd`: inbox capture ingestion/runtime package that persists canonical raw inbox evidence while keeping inbox-only cursors, capture indexes, and attachment job state in local SQLite state
 - `packages/parsers`: local-first attachment parsing, parser-service helpers, and derived artifact publication under `derived/inbox/**`
 - `packages/query`: read helpers, export-pack generation, and the optional lexical search index over canonical vault data
-- `packages/cli`: `vault-cli`, a typed operator surface over core/importers/query/inboxd plus parser-toolchain queue controls and local setup commands
+- `packages/cli`: `vault-cli`, an incur-backed typed operator surface over core/importers/query/inboxd plus parser-toolchain queue controls and local setup commands
 - `fixtures/` and `e2e/`: deterministic fixture corpus and end-to-end smoke flows
 
 ## Trust Boundaries
@@ -34,6 +34,13 @@ Last verified: 2026-03-13
 4. Parser workers or parsed-pipeline wrappers consume those attachment jobs and publish only derived artifacts.
 5. Importers may parse and normalize external inputs but must never write canonical vault files directly.
 6. Query/export paths are read-only and must not mutate canonical vault state.
+
+## CLI Framework Notes
+
+- `packages/cli` is built on incur. Model nested verbs with real mounted sub-CLIs such as `search -> query` and `search -> index -> status|rebuild`; do not simulate nested commands with argv rewrites or positional action enums.
+- Treat output/discovery transport such as `--format`, `--json`, `--verbose`, `--schema`, `--llms`, `skills add`, and `--mcp` as incur-owned global behavior. Healthy Bob command docs should focus on domain semantics unless the repo intentionally constrains that surface.
+- Keep the root CLI default-exported from `packages/cli/src/index.ts` and keep `packages/cli/src/incur.generated.ts` aligned with command-topology changes so typed CTAs and generated skill metadata stay truthful.
+- Source-only CLI checks are useful for triage, but repo acceptance still depends on the built CLI path because package tests execute `packages/cli/dist/bin.js`.
 
 ## Source Of Truth
 
