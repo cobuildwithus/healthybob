@@ -32,7 +32,8 @@ If instructions still conflict after applying this order, ask the user before ac
 - Never print or commit full secrets, tokens, raw credentials, or full `Authorization` headers.
 - Historical plan docs under `agent-docs/exec-plans/completed/` are immutable snapshots.
 - COORDINATION_LEDGER hard gate for every coding task (single-agent and multi-agent): before any code change, add or update your active entry in `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` with scope and planned symbol add/rename/delete work; do not edit code, generate code, or apply patches until that entry exists; if you cannot update the ledger first, stop and escalate; keep the entry current as scope changes, and remove your entry when done.
-- Any spawned subagent that may review or edit code must read `COORDINATION_LEDGER.md`, follow the same hard gate before making code changes, and must not touch files or symbols owned by another active entry.
+- Ledger rows are active-work notices by default, not hard file locks. Read overlapping rows first, preserve adjacent edits, and coordinate through scope/symbol notes. Treat a row as exclusive only when it explicitly says overlap is unsafe, the lane is a large refactor, or the user gives a conflicting direction.
+- Any spawned subagent that may review or edit code must read `COORDINATION_LEDGER.md`, follow the same hard gate before making code changes, and honor any explicit exclusive/refactor notes on overlapping rows.
 - For non-doc changes that touch production code or tests, run completion workflow audit passes: `simplify` -> `test-coverage-audit` -> `task-finish-review`.
 - Docs/process-only changes skip completion workflow audit passes unless the user explicitly asks to run them.
 - Until product/runtime tooling exists, do not invent fake compatibility or deployment requirements; define them in `agent-docs/operations/verification-and-runtime.md` and `package.json` in the same change that introduces them.
@@ -43,6 +44,7 @@ If instructions still conflict after applying this order, ask the user before ac
 - Before implementation, do a quick assumptions check; ask only for high-impact clarifications.
 - Continue working in the current tree even when unrelated external dirty changes appear.
 - Never revert, delete, or rewrite existing edits you did not make unless the user explicitly asks.
+- Prefer narrow ledger rows and symbol claims. If you need temporary exclusive control of a file or symbol cluster, say so explicitly in the row notes and explain why overlap is unsafe.
 - If architecture-significant behavior changes, update matching docs in `agent-docs/` and `ARCHITECTURE.md`.
 - For multi-file or high-risk work, add an execution plan in `agent-docs/exec-plans/active/`.
 - When the first real app/service/tooling modules land, update the verification docs and package scripts in the same change so the harness stays truthful.
