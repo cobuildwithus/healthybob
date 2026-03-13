@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "GPL-3.0-only",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,7 +23,8 @@
   },
   "dependencies": {
     "@healthybob/core": "workspace:*",
-    "@healthybob/inboxd": "workspace:*"
+    "@healthybob/inboxd": "workspace:*",
+    "@healthybob/runtime-state": "workspace:*"
   },
   "engines": {
     "node": ">=22.16.0"

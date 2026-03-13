@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "GPL-3.0-only",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -18,9 +19,10 @@
   "scripts": {
     "build": "rimraf dist && tsc -b tsconfig.json",
     "typecheck": "tsc -p tsconfig.typecheck.json --pretty false",
-    "test": "pnpm --dir ../.. exec vitest run packages/importers/test/importers.test.ts --no-coverage"
+    "test": "pnpm --dir ../.. exec vitest run packages/importers/test/importers.test.ts packages/importers/test/input-validation.test.ts --no-coverage"
   },
   "dependencies": {
-    "@healthybob/core": "workspace:*"
+    "@healthybob/core": "workspace:*",
+    "zod": "^4.3.6"
   }
 }
