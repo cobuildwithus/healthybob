@@ -1,6 +1,5 @@
-import * as defaultCorePort from "@healthybob/core";
-
 import type { SamplePresetRegistry } from "./preset-registry.js";
+import { importAssessmentResponse } from "./assessment/import-assessment-response.js";
 import { importCsvSamples } from "./csv-sample-importer.js";
 import { importDocument } from "./document-importer.js";
 import { importMeal } from "./meal-importer.js";
@@ -11,9 +10,47 @@ export interface CreateImportersOptions {
   presetRegistry?: SamplePresetRegistry;
 }
 
+const dynamicImport = new Function(
+  "specifier",
+  "return import(specifier)",
+) as (specifier: string) => Promise<unknown>
+
+let defaultCorePortPromise: Promise<unknown> | null = null
+
+async function loadDefaultCorePort() {
+  if (!defaultCorePortPromise) {
+    defaultCorePortPromise = dynamicImport("@healthybob/core").catch(() =>
+      dynamicImport(new URL("../../core/dist/index.js", import.meta.url).href),
+    )
+  }
+
+  return defaultCorePortPromise
+}
+
+function createDefaultCorePortProxy() {
+  return {
+    async importDocument(payload: unknown) {
+      const corePort = await loadDefaultCorePort() as Record<string, (...args: unknown[]) => unknown>
+      return corePort.importDocument(payload)
+    },
+    async addMeal(payload: unknown) {
+      const corePort = await loadDefaultCorePort() as Record<string, (...args: unknown[]) => unknown>
+      return corePort.addMeal(payload)
+    },
+    async importSamples(payload: unknown) {
+      const corePort = await loadDefaultCorePort() as Record<string, (...args: unknown[]) => unknown>
+      return corePort.importSamples(payload)
+    },
+    async importAssessmentResponse(payload: unknown) {
+      const corePort = await loadDefaultCorePort() as Record<string, (...args: unknown[]) => unknown>
+      return corePort.importAssessmentResponse(payload)
+    },
+  }
+}
+
 export function createImporters({ corePort, presetRegistry }: CreateImportersOptions = {}) {
   const registry = presetRegistry ?? createSamplePresetRegistry();
-  const writer = corePort ?? defaultCorePort;
+  const writer = corePort ?? createDefaultCorePortProxy();
 
   return {
     presetRegistry: registry,
@@ -22,6 +59,9 @@ export function createImporters({ corePort, presetRegistry }: CreateImportersOpt
     },
     importMeal(input: unknown) {
       return importMeal(input, { corePort: writer });
+    },
+    importAssessmentResponse(input: unknown) {
+      return importAssessmentResponse(input, { corePort: writer });
     },
     importCsvSamples(input: unknown) {
       return importCsvSamples(input, {

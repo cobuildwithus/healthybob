@@ -51,20 +51,37 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
+            "allergy",
+            "assessment",
             "audit",
+            "condition",
             "document",
             "event",
             "experiment",
+            "family",
+            "goal",
             "meal",
             "pack",
+            "profileSnapshot",
             "provider",
+            "regimen",
             "sample",
             "transform",
+            "variant",
             "vault"
           ],
           "properties": {
+            "allergy": {
+              "const": "alg"
+            },
+            "assessment": {
+              "const": "asmt"
+            },
             "audit": {
               "const": "aud"
+            },
+            "condition": {
+              "const": "cond"
             },
             "document": {
               "const": "doc"
@@ -75,20 +92,35 @@
             "experiment": {
               "const": "exp"
             },
+            "family": {
+              "const": "fam"
+            },
+            "goal": {
+              "const": "goal"
+            },
             "meal": {
               "const": "meal"
             },
             "pack": {
               "const": "pack"
             },
+            "profileSnapshot": {
+              "const": "psnap"
+            },
             "provider": {
               "const": "prov"
+            },
+            "regimen": {
+              "const": "reg"
             },
             "sample": {
               "const": "smp"
             },
             "transform": {
               "const": "xfm"
+            },
+            "variant": {
+              "const": "var"
             },
             "vault": {
               "const": "vault"
@@ -101,19 +133,48 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "allergiesRoot",
+        "assessmentLedgerRoot",
+        "conditionsRoot",
         "coreDocument",
+        "familyRoot",
+        "geneticsRoot",
+        "goalsRoot",
         "journalRoot",
         "experimentsRoot",
+        "profileCurrentDocument",
+        "profileRoot",
+        "profileSnapshotsRoot",
         "providersRoot",
+        "rawAssessmentsRoot",
         "rawRoot",
         "eventsRoot",
+        "regimensRoot",
         "samplesRoot",
         "auditRoot",
         "exportsRoot"
       ],
       "properties": {
+        "allergiesRoot": {
+          "const": "bank/allergies"
+        },
+        "assessmentLedgerRoot": {
+          "const": "ledger/assessments"
+        },
+        "conditionsRoot": {
+          "const": "bank/conditions"
+        },
         "coreDocument": {
           "const": "CORE.md"
+        },
+        "familyRoot": {
+          "const": "bank/family"
+        },
+        "geneticsRoot": {
+          "const": "bank/genetics"
+        },
+        "goalsRoot": {
+          "const": "bank/goals"
         },
         "journalRoot": {
           "const": "journal"
@@ -121,14 +182,29 @@
         "experimentsRoot": {
           "const": "bank/experiments"
         },
+        "profileCurrentDocument": {
+          "const": "bank/profile/current.md"
+        },
+        "profileRoot": {
+          "const": "bank/profile"
+        },
+        "profileSnapshotsRoot": {
+          "const": "ledger/profile-snapshots"
+        },
         "providersRoot": {
           "const": "bank/providers"
+        },
+        "rawAssessmentsRoot": {
+          "const": "raw/assessments"
         },
         "rawRoot": {
           "const": "raw"
         },
         "eventsRoot": {
           "const": "ledger/events"
+        },
+        "regimensRoot": {
+          "const": "bank/regimens"
         },
         "samplesRoot": {
           "const": "ledger/samples"
@@ -145,13 +221,21 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "assessments",
         "events",
+        "profileSnapshots",
         "samples",
         "audit"
       ],
       "properties": {
+        "assessments": {
+          "const": "ledger/assessments/YYYY/YYYY-MM.jsonl"
+        },
         "events": {
           "const": "ledger/events/YYYY/YYYY-MM.jsonl"
+        },
+        "profileSnapshots": {
+          "const": "ledger/profile-snapshots/YYYY/YYYY-MM.jsonl"
         },
         "samples": {
           "const": "ledger/samples/<stream>/YYYY/YYYY-MM.jsonl"

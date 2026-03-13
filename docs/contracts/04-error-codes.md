@@ -1,8 +1,8 @@
 # Error Codes
 
-Status: frozen baseline
+Status: frozen baseline plus health extension fence
 
-These are the shared contract-level validation codes defined in `packages/contracts/src/constants.js`.
+These are the shared contract-level validation codes defined in `packages/contracts/src/constants.ts`.
 
 | Code | Meaning |
 | --- | --- |
@@ -21,5 +21,9 @@ These are the shared contract-level validation codes defined in `packages/contra
 ## Rules
 
 - Contract validation fails closed.
+- Health extensions do not add a second error-code namespace; assessment records, profile snapshots, new event kinds, and health frontmatter reuse this shared code set.
+- `HB_EVENT_INVALID` covers the health event-kind additions: `encounter`, `procedure`, `test`, `adverse_effect`, and `exposure`.
+- `HB_FRONTMATTER_INVALID` covers `bank/profile/current.md` plus goal, condition, allergy, regimen, family-member, and genetic-variant frontmatter.
+- `HB_SCHEMA_ARTIFACT_STALE` also covers the health schema artifact set once those generated files exist.
 - Baseline codes are not retryable.
 - Higher layers may add context, but they should not change the meaning of these codes.

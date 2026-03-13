@@ -1,6 +1,6 @@
 # Command Surface
 
-Status: frozen baseline for `vault-cli`
+Status: frozen baseline plus health extension fence for `vault-cli`
 
 ## Namespace
 
@@ -22,6 +22,32 @@ vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli export pack --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]
 ```
+
+## Health Noun Grammar
+
+Health nouns use one payload-first grammar with only a few explicit exceptions:
+
+```text
+vault-cli intake import <file> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli intake project <assessmentId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli <noun> scaffold --vault <path> [--format json|md] [--request-id <id>]
+vault-cli <noun> upsert --vault <path> --input @file.json [--format json|md] [--request-id <id>]
+vault-cli <noun> show <id|current> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli <noun> list --vault <path> [--status <status>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli profile current rebuild --vault <path> [--format json|md] [--request-id <id>]
+vault-cli regimen stop <regimenId> --vault <path> [--stopped-on <date>] [--format json|md] [--request-id <id>]
+```
+
+Frozen health nouns:
+
+- `profile`
+- `goal`
+- `condition`
+- `allergy`
+- `regimen`
+- `family`
+- `genetics`
+- `history`
 
 ## Root Middleware Contract
 
@@ -46,10 +72,12 @@ Every command passes through one shared middleware layer before any package call
 - Canonical ids emitted by core/import flows follow the frozen `<prefix>_<ULID>` policy in `docs/contracts/02-record-schemas.md`.
 - Commands that create or read canonical records align to the generated schemas in `packages/contracts/generated/`.
 - Write/import commands return `lookupId` or `lookupIds` when the follow-on read path should use a queryable id rather than a related or batch id.
+- `upsert --input @file.json` uses one file argument and does not expose per-field mutation flags in the public grammar.
 
 ## Lookup Rules
 
-- `show` accepts query-layer ids such as `core`, `journal:<YYYY-MM-DD>`, `exp_*`, `evt_*`, `smp_*`, and `aud_*`.
+- `show` accepts query-layer ids such as `core`, `journal:<YYYY-MM-DD>`, `exp_*`, `evt_*`, `smp_*`, `aud_*`, `asmt_*`, `psnap_*`, `goal_*`, `cond_*`, `alg_*`, `reg_*`, `fam_*`, and `var_*`.
+- `profile show current` and `profile current rebuild` target the derived `bank/profile/current.md` view rather than a standalone canonical record id.
 - `meal_*` and `doc_*` ids are stable related ids carried in event payloads, but the CLI read path expects the returned `lookupId`/`eventId` instead.
 - `xfm_*` identifies an import batch, not a query-layer record.
 - Export pack ids identify derived files under `exports/packs/`; they are not valid `show` targets.
@@ -281,7 +309,8 @@ Export packs are derived outputs and do not create canonical vault records.
 ## Boundary Rules
 
 - `init`, `validate`, `meal add`, `experiment create`, and `journal ensure` delegate to `packages/core`.
-- `document import` and `samples import-csv` delegate to `packages/importers`.
+- `document import`, `samples import-csv`, and `intake import` delegate to `packages/importers`.
+- `intake project`, health `<noun> scaffold`, health `<noun> upsert`, `profile current rebuild`, and `regimen stop` delegate to `packages/core`.
 - `show`, `list`, and `export pack` delegate to `packages/query`.
 - Contract validation errors normalize to the shared codes in `docs/contracts/04-error-codes.md`.
 - The default CLI service layer is expected to delegate to the real `core`, `importers`, and `query` package exports. If the local TypeScript or `incur` toolchain is unavailable, that is an environment blocker, not a contract excuse to return placeholder payloads.

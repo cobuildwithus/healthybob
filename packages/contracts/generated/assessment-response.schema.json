@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/assessment-response.schema.json",
+  "title": "Healthy Bob Assessment Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "assessmentType",
+    "recordedAt",
+    "source",
+    "rawPath",
+    "responses"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.assessment-response.v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^asmt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "assessmentType": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "import",
+        "manual",
+        "derived"
+      ]
+    },
+    "rawPath": {
+      "type": "string",
+      "pattern": "^raw/assessments/[A-Za-z0-9._/-]+/source\\.json$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "questionnaireSlug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "responses": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "relatedIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

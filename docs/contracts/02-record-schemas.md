@@ -1,6 +1,6 @@
 # Record Schemas
 
-Status: frozen baseline
+Status: frozen baseline plus health extension fence
 
 Schema sources live in `packages/contracts/src/`. Generated JSON Schema artifacts live in `packages/contracts/generated/`.
 
@@ -20,8 +20,16 @@ Derived export-pack directories use a path-safe pack name and are not canonical 
 | meal | `meal` | related id stored on meal events |
 | experiment | `exp` | experiment page id and related event id |
 | provider | `prov` | provider page id |
+| assessment | `asmt` | assessment response id and raw-assessment path id |
+| profile snapshot | `psnap` | append-only profile snapshot id |
+| goal | `goal` | goal Markdown record id |
+| condition | `cond` | condition Markdown record id |
+| allergy | `alg` | allergy Markdown record id |
+| regimen | `reg` | regimen Markdown record id |
+| family member | `fam` | family-member Markdown record id |
+| genetic variant | `var` | genetic-variant Markdown record id |
 
-## Baseline Record Families
+## Record Families
 
 - Vault metadata:
   `schemaVersion`, `vaultId`, `createdAt`, `title`, `timezone`, `idPolicy`, `paths`, `shards`
@@ -31,12 +39,16 @@ Derived export-pack directories use a path-safe pack name and are not canonical 
   `schemaVersion`, `id`, `stream`, `recordedAt`, `dayKey`, `source`, `quality`, plus stream-specific fields
 - Audit records:
   `schemaVersion`, `id`, `action`, `status`, `occurredAt`, `actor`, `commandName`, `summary`, `changes`
+- Assessment response records:
+  `schemaVersion`, `id`, `assessmentType`, `recordedAt`, `source`, `rawPath`, `responses`
+- Profile snapshot records:
+  `schemaVersion`, `id`, `recordedAt`, `sourceAssessmentIds`, `sourceEventIds`, `profile`
 - Markdown frontmatter:
   `CORE.md`, journal day pages, and experiment pages each use a closed frontmatter schema
 
 Baseline does not define a standalone transform record family. `xfm_*` ids are batch identifiers surfaced by import flows and raw-path layout only.
 
-## Baseline Event Kinds
+## Event Kinds
 
 | Kind | Required contract fields |
 | --- | --- |
@@ -50,10 +62,15 @@ Baseline does not define a standalone transform record family. `xfm_*` ids are b
 | `supplement_intake` | `supplementName`, `dose`, `unit` |
 | `activity_session` | `activityType`, `durationMinutes` |
 | `sleep_session` | `startAt`, `endAt`, `durationMinutes` |
+| `encounter` | `encounterType`, `location` |
+| `procedure` | `procedure`, `status` |
+| `test` | `testName`, `resultStatus` |
+| `adverse_effect` | `substance`, `effect`, `severity` |
+| `exposure` | `exposureType`, `substance` |
 
 Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `rawRefs`.
 
-## Baseline Sample Streams
+## Sample Streams
 
 | Stream | Required contract fields |
 | --- | --- |
@@ -73,8 +90,24 @@ Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `r
   `schemaVersion`, `docType`, `dayKey`, `eventIds`, `sampleStreams`
 - Experiment frontmatter:
   `schemaVersion`, `docType`, `experimentId`, `slug`, `status`, `title`, `startedOn`
+- Profile current frontmatter:
+  `schemaVersion`, `docType`, `snapshotId`, `updatedAt`
+- Goal frontmatter:
+  `schemaVersion`, `docType`, `goalId`, `slug`, `status`, `title`
+- Condition frontmatter:
+  `schemaVersion`, `docType`, `conditionId`, `slug`, `clinicalStatus`, `title`
+- Allergy frontmatter:
+  `schemaVersion`, `docType`, `allergyId`, `slug`, `substance`, `status`
+- Regimen frontmatter:
+  `schemaVersion`, `docType`, `regimenId`, `slug`, `status`, `title`, `startedOn`
+- Family-member frontmatter:
+  `schemaVersion`, `docType`, `familyMemberId`, `slug`, `relationship`, `title`
+- Genetic-variant frontmatter:
+  `schemaVersion`, `docType`, `variantId`, `slug`, `gene`, `title`
 
 ## Generated Artifact Set
+
+Health artifact filenames are reserved here. They do not become valid generated artifacts until `packages/contracts/src/` exports matching source schemas.
 
 - `vault-metadata.schema.json`
 - `event-record.schema.json`
@@ -83,3 +116,12 @@ Shared optional event fields are limited to `note`, `tags`, `relatedIds`, and `r
 - `frontmatter-core.schema.json`
 - `frontmatter-journal-day.schema.json`
 - `frontmatter-experiment.schema.json`
+- `assessment-response.schema.json`
+- `profile-snapshot.schema.json`
+- `frontmatter-profile-current.schema.json`
+- `frontmatter-goal.schema.json`
+- `frontmatter-condition.schema.json`
+- `frontmatter-allergy.schema.json`
+- `frontmatter-regimen.schema.json`
+- `frontmatter-family-member.schema.json`
+- `frontmatter-genetic-variant.schema.json`

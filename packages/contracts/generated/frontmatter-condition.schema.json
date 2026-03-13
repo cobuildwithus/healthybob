@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-condition.schema.json",
+  "title": "Healthy Bob Condition Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "conditionId",
+    "slug",
+    "title",
+    "clinicalStatus"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.condition.v1"
+    },
+    "docType": {
+      "const": "condition"
+    },
+    "conditionId": {
+      "type": "string",
+      "pattern": "^cond_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "clinicalStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "resolved"
+      ]
+    },
+    "verificationStatus": {
+      "type": "string",
+      "enum": [
+        "unconfirmed",
+        "provisional",
+        "confirmed",
+        "refuted"
+      ]
+    },
+    "assertedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "resolvedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "mild",
+        "moderate",
+        "severe"
+      ]
+    },
+    "bodySites": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "uniqueItems": true
+    },
+    "relatedGoalIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^goal_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "relatedRegimenIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^reg_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  }
+}

@@ -73,7 +73,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -97,6 +97,102 @@
           "type": "string",
           "minLength": 3,
           "maxLength": 120
+        },
+        "providerId": {
+          "type": "string",
+          "pattern": "^prov_[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "encounterType"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "encounter"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "encounterType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
         },
         "providerId": {
           "type": "string",
@@ -174,7 +270,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -276,7 +372,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -373,7 +469,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -457,7 +553,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -552,7 +648,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -652,7 +748,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -676,6 +772,99 @@
         "unit": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._/%-]+$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "procedure",
+        "status"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "procedure"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "procedure": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },
@@ -749,7 +938,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -773,6 +962,109 @@
         "unit": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._/%-]+$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "testName",
+        "resultStatus"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "test"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "testName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "resultStatus": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "normal",
+            "abnormal",
+            "mixed",
+            "unknown"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         }
       }
     },
@@ -845,7 +1137,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -941,7 +1233,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^(?:aud|doc|evt|exp|meal|pack|prov|smp|xfm|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "uniqueItems": true
         },
@@ -964,6 +1256,206 @@
         "durationMinutes": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "substance",
+        "effect",
+        "severity"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "adverse_effect"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "substance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "mild",
+            "moderate",
+            "severe"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "kind",
+        "occurredAt",
+        "recordedAt",
+        "dayKey",
+        "source",
+        "title",
+        "exposureType",
+        "substance"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hb.event.v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "kind": {
+          "const": "exposure"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "import",
+            "device",
+            "derived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        },
+        "relatedIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:alg|asmt|aud|cond|doc|evt|exp|fam|goal|meal|pack|psnap|prov|reg|smp|xfm|var|vault)_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "uniqueItems": true
+        },
+        "rawRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^raw/[A-Za-z0-9._/-]+$"
+          },
+          "uniqueItems": true
+        },
+        "exposureType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "substance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "duration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
         }
       }
     }

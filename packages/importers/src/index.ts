@@ -1,4 +1,11 @@
 export {
+  importAssessmentResponse,
+  prepareAssessmentResponseImport,
+  type AssessmentImporterExecutionOptions,
+  type AssessmentResponseImportInput,
+} from "./assessment/index.js";
+export type { AssessmentImportPort, AssessmentResponseImportPayload } from "./assessment/core-port.js";
+export {
   importCsvSamples,
   parseDelimitedRows,
   prepareCsvSampleImport,

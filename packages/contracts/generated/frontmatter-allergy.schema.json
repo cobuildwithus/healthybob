@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-allergy.schema.json",
+  "title": "Healthy Bob Allergy Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "allergyId",
+    "slug",
+    "title",
+    "substance",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.allergy.v1"
+    },
+    "docType": {
+      "const": "allergy"
+    },
+    "allergyId": {
+      "type": "string",
+      "pattern": "^alg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "substance": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "resolved"
+      ]
+    },
+    "criticality": {
+      "type": "string",
+      "enum": [
+        "low",
+        "high",
+        "unable_to_assess"
+      ]
+    },
+    "reaction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "recordedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "relatedConditionIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^cond_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  }
+}

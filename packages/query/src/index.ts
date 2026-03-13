@@ -9,3 +9,4 @@ export {
 } from "./model.js";
 export { summarizeDailySamples } from "./summaries.js";
 export { buildExportPack } from "./export-pack.js";
+export * from "./health/index.js";

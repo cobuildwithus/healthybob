@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-goal.schema.json",
+  "title": "Healthy Bob Goal Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "goalId",
+    "slug",
+    "title",
+    "status",
+    "horizon",
+    "priority",
+    "window"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.goal.v1"
+    },
+    "docType": {
+      "const": "goal"
+    },
+    "goalId": {
+      "type": "string",
+      "pattern": "^goal_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "completed",
+        "abandoned"
+      ]
+    },
+    "horizon": {
+      "type": "string",
+      "enum": [
+        "short_term",
+        "medium_term",
+        "long_term",
+        "ongoing"
+      ]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startAt"
+      ],
+      "properties": {
+        "startAt": {
+          "type": "string",
+          "format": "date"
+        },
+        "targetAt": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "parentGoalId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^goal_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "relatedGoalIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^goal_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "relatedExperimentIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^exp_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

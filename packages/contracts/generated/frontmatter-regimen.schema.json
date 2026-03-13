@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-regimen.schema.json",
+  "title": "Healthy Bob Regimen Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "regimenId",
+    "slug",
+    "title",
+    "kind",
+    "status",
+    "startedOn"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.regimen.v1"
+    },
+    "docType": {
+      "const": "regimen"
+    },
+    "regimenId": {
+      "type": "string",
+      "pattern": "^reg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "medication",
+        "supplement",
+        "therapy",
+        "habit"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "completed",
+        "stopped"
+      ]
+    },
+    "startedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "stoppedOn": {
+      "type": "string",
+      "format": "date"
+    },
+    "substance": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "dose": {
+      "type": "number",
+      "minimum": 0
+    },
+    "unit": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._/%-]+$"
+    },
+    "schedule": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "relatedGoalIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^goal_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "relatedConditionIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^cond_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

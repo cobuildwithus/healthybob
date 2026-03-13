@@ -1,0 +1,17 @@
+{
+  "id": "health-extensions-noun-list",
+  "command": "vault-cli <noun> list --vault <path> [--status <status>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/health-extensions/vault-overlay/ledger/profile-snapshots/2026/2026-03.jsonl",
+    "fixtures/health-extensions/vault-overlay/ledger/events/2026/2026-03.jsonl",
+    "fixtures/health-extensions/vault-overlay/bank/goals/improve-sleep.md",
+    "fixtures/health-extensions/vault-overlay/bank/conditions/insomnia-symptoms.md",
+    "fixtures/health-extensions/vault-overlay/bank/allergies/penicillin.md",
+    "fixtures/health-extensions/vault-overlay/bank/regimens/sleep/magnesium-glycinate.md",
+    "fixtures/health-extensions/vault-overlay/bank/family/mother.md",
+    "fixtures/health-extensions/vault-overlay/bank/genetics/mthfr-c677t.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/list",
+  "purpose": "Documents list coverage for profile snapshots, history events, and the Markdown health registries behind the noun commands."
+}

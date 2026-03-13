@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/frontmatter-genetic-variant.schema.json",
+  "title": "Healthy Bob Genetic Variant Frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "docType",
+    "variantId",
+    "slug",
+    "title",
+    "gene"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.frontmatter.genetic-variant.v1"
+    },
+    "docType": {
+      "const": "genetic_variant"
+    },
+    "variantId": {
+      "type": "string",
+      "pattern": "^var_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "gene": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "zygosity": {
+      "type": "string",
+      "enum": [
+        "heterozygous",
+        "homozygous",
+        "compound_heterozygous",
+        "unknown"
+      ]
+    },
+    "significance": {
+      "type": "string",
+      "enum": [
+        "pathogenic",
+        "likely_pathogenic",
+        "risk_factor",
+        "vus",
+        "benign",
+        "unknown"
+      ]
+    },
+    "inheritance": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "sourceFamilyMemberIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^fam_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  }
+}

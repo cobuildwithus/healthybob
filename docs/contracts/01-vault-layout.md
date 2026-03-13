@@ -1,6 +1,6 @@
 # Vault Layout
 
-Status: frozen baseline
+Status: frozen baseline plus health extension fence
 
 ## Baseline Root
 
@@ -11,10 +11,20 @@ vault/
   journal/YYYY/YYYY-MM-DD.md
   bank/experiments/<slug>.md
   bank/providers/<provider-slug>.md
+  bank/profile/current.md
+  bank/goals/<slug>.md
+  bank/conditions/<slug>.md
+  bank/allergies/<slug>.md
+  bank/regimens/<group>/<slug>.md
+  bank/family/<slug>.md
+  bank/genetics/<slug>.md
   raw/documents/YYYY/MM/<documentId>/<filename>
+  raw/assessments/YYYY/MM/<assessmentId>/source.json
   raw/meals/YYYY/MM/<mealId>/<slot>-<filename>
   raw/samples/<stream>/YYYY/MM/<transformId>/<filename>.csv
+  ledger/assessments/YYYY/YYYY-MM.jsonl
   ledger/events/YYYY/YYYY-MM.jsonl
+  ledger/profile-snapshots/YYYY/YYYY-MM.jsonl
   ledger/samples/<stream>/YYYY/YYYY-MM.jsonl
   audit/YYYY/YYYY-MM.jsonl
   exports/packs/<packId>/
@@ -33,7 +43,7 @@ vault/
 - `paths`
 - `shards`
 
-Source contract: `packages/contracts/src/schemas.js`
+Source contract: `packages/contracts/src/schemas.ts`
 Generated artifact: `packages/contracts/generated/vault-metadata.schema.json`
 
 ## Path Rules
@@ -42,15 +52,22 @@ Generated artifact: `packages/contracts/generated/vault-metadata.schema.json`
 - Stored paths may not start with `/` or contain `..`.
 - Markdown docs remain human-readable and reviewable in place.
 - Raw imports are copied under stable type-specific folders in `raw/` and remain immutable in place.
+- Assessment source payloads are copied to `raw/assessments/YYYY/MM/<assessmentId>/source.json` and remain immutable in place.
 - `raw/samples/<stream>/YYYY/MM/<transformId>/` uses an import-batch identifier returned from `samples import-csv`; baseline does not write a standalone transform record.
+- Assessment shards use `recordedAt`: `ledger/assessments/YYYY/YYYY-MM.jsonl`.
 - Event shards use `occurredAt`: `ledger/events/YYYY/YYYY-MM.jsonl`.
+- Profile snapshot shards use `recordedAt`: `ledger/profile-snapshots/YYYY/YYYY-MM.jsonl`.
 - Sample shards use `recordedAt`: `ledger/samples/<stream>/YYYY/YYYY-MM.jsonl`.
 - Audit shards use `occurredAt`: `audit/YYYY/YYYY-MM.jsonl`.
 - Export-pack directories under `exports/packs/<packId>/` are derived, read-only outputs. Current pack ids are path-safe names derived from scope rather than canonical record ids.
+- `bank/profile/current.md` is a derived current-state document rebuilt from profile snapshots; append-only truth remains in `ledger/profile-snapshots/`.
+- `bank/goals`, `bank/conditions`, `bank/allergies`, `bank/family`, and `bank/genetics` store one Markdown document per canonical record id or slug-safe alias.
+- `bank/regimens/**/*.md` allows nested regimen group folders, but every path segment must remain slug-safe ASCII.
 
 ## Attachment Conventions
 
 - Document imports use `raw/documents/YYYY/MM/<documentId>/<filename>`.
+- Assessment imports use `raw/assessments/YYYY/MM/<assessmentId>/source.json`.
 - Meal attachments use `raw/meals/YYYY/MM/<mealId>/<slot>-<filename>`.
 - Sample CSV imports use `raw/samples/<stream>/YYYY/MM/<transformId>/<filename>.csv`, where `transformId` is the returned import-batch id.
 - File names are slug-safe ASCII and preserve the original extension.

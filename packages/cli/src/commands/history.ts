@@ -1,0 +1,165 @@
+import { Cli, z } from 'incur'
+import { defineCommand, withBaseOptions } from '../command-helpers.js'
+import { pathSchema } from '../vault-cli-contracts.js'
+import type { VaultCliServices } from '../vault-cli-services.js'
+
+const payloadSchema = z.record(z.string(), z.unknown())
+const inputFileSchema = z
+  .string()
+  .regex(/^@.+/u, 'Expected an @file.json payload reference.')
+
+const scaffoldResultSchema = z.object({
+  vault: pathSchema,
+  noun: z.literal('history'),
+  payload: payloadSchema,
+})
+
+const upsertResultSchema = z.object({
+  vault: pathSchema,
+  eventId: z.string().min(1),
+  lookupId: z.string().min(1),
+  ledgerFile: pathSchema.optional(),
+  created: z.boolean(),
+})
+
+const showResultSchema = z.object({
+  vault: pathSchema,
+  entity: payloadSchema,
+})
+
+const listResultSchema = z.object({
+  vault: pathSchema,
+  items: z.array(payloadSchema),
+  count: z.number().int().nonnegative(),
+})
+
+interface HistoryServices extends VaultCliServices {
+  core: VaultCliServices['core'] & {
+    scaffoldHistoryEvent(input: {
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof scaffoldResultSchema>>
+    upsertHistoryEvent(input: {
+      input: string
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof upsertResultSchema>>
+  }
+  query: VaultCliServices['query'] & {
+    showHistoryEvent(input: {
+      id: string
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof showResultSchema>>
+    listHistoryEvents(input: {
+      vault: string
+      requestId: string | null
+      status?: string
+      cursor?: string
+      limit?: number
+    }): Promise<z.infer<typeof listResultSchema>>
+  }
+}
+
+function stripAtPrefix(input: string) {
+  return input.slice(1)
+}
+
+export function registerHistoryCommands(cli: Cli.Cli, services: VaultCliServices) {
+  const healthServices = services as HistoryServices
+  const history = Cli.create('history', {
+    description: 'Timed health history commands for the extension surface.',
+  })
+
+  history.command(
+    'scaffold',
+    defineCommand({
+      command: 'history scaffold',
+      description: 'Emit a payload template for timed history events.',
+      args: z.object({}),
+      options: withBaseOptions(),
+      data: scaffoldResultSchema,
+      async run({ vault, requestId }) {
+        return healthServices.core.scaffoldHistoryEvent({ vault, requestId })
+      },
+      renderMarkdown({ data }) {
+        return `# History Scaffold\n\n- payloadKeys: ${Object.keys(data.payload).length}`
+      },
+    }),
+  )
+
+  history.command(
+    'upsert',
+    defineCommand({
+      command: 'history upsert',
+      description: 'Append one timed history event from an @file.json payload.',
+      args: z.object({}),
+      options: withBaseOptions({
+        input: inputFileSchema,
+      }),
+      data: upsertResultSchema,
+      async run({ options, vault, requestId }) {
+        return healthServices.core.upsertHistoryEvent({
+          input: stripAtPrefix(options.input),
+          vault,
+          requestId,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# History Event Upserted\n\n- eventId: ${data.eventId}\n- lookupId: ${data.lookupId}\n- created: ${data.created}`
+      },
+    }),
+  )
+
+  history.command(
+    'show',
+    defineCommand({
+      command: 'history show',
+      description: 'Show one timed history event.',
+      args: z.object({
+        id: z.string().min(1),
+      }),
+      options: withBaseOptions(),
+      data: showResultSchema,
+      async run({ args, vault, requestId }) {
+        return healthServices.query.showHistoryEvent({
+          id: args.id,
+          vault,
+          requestId,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# History Event\n\n- keys: ${Object.keys(data.entity).length}`
+      },
+    }),
+  )
+
+  history.command(
+    'list',
+    defineCommand({
+      command: 'history list',
+      description: 'List timed history events through the health read model.',
+      args: z.object({}),
+      options: withBaseOptions({
+        status: z.string().min(1).optional(),
+        cursor: z.string().min(1).optional(),
+        limit: z.number().int().positive().max(200).default(50),
+      }),
+      data: listResultSchema,
+      async run({ options, vault, requestId }) {
+        return healthServices.query.listHistoryEvents({
+          vault,
+          requestId,
+          status: options.status,
+          cursor: options.cursor,
+          limit: options.limit,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# History\n\n- count: ${data.count}`
+      },
+    }),
+  )
+
+  cli.command(history)
+}

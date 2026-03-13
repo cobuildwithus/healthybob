@@ -24,7 +24,7 @@ Established the Healthy Bob baseline scaffold for the file-native vault architec
 
 - `pnpm typecheck:packages`
 - `pnpm test:packages`
-- `node e2e/smoke/verify-fixtures.mjs --coverage`
+- `node --import=tsx e2e/smoke/verify-fixtures.ts --coverage`
 
 ## Follow-up
 

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "@healthybob/contracts/profile-snapshot.schema.json",
+  "title": "Healthy Bob Profile Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "recordedAt",
+    "source",
+    "profile"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hb.profile-snapshot.v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^psnap_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "assessment_projection",
+        "manual",
+        "derived"
+      ]
+    },
+    "sourceAssessmentIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^asmt_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "sourceEventIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "uniqueItems": true
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

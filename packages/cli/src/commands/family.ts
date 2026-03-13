@@ -1,0 +1,165 @@
+import { Cli, z } from 'incur'
+import { defineCommand, withBaseOptions } from '../command-helpers.js'
+import { pathSchema } from '../vault-cli-contracts.js'
+import type { VaultCliServices } from '../vault-cli-services.js'
+
+const payloadSchema = z.record(z.string(), z.unknown())
+const inputFileSchema = z
+  .string()
+  .regex(/^@.+/u, 'Expected an @file.json payload reference.')
+
+const scaffoldResultSchema = z.object({
+  vault: pathSchema,
+  noun: z.literal('family'),
+  payload: payloadSchema,
+})
+
+const upsertResultSchema = z.object({
+  vault: pathSchema,
+  familyMemberId: z.string().min(1),
+  lookupId: z.string().min(1),
+  path: pathSchema.optional(),
+  created: z.boolean(),
+})
+
+const showResultSchema = z.object({
+  vault: pathSchema,
+  entity: payloadSchema,
+})
+
+const listResultSchema = z.object({
+  vault: pathSchema,
+  items: z.array(payloadSchema),
+  count: z.number().int().nonnegative(),
+})
+
+interface FamilyServices extends VaultCliServices {
+  core: VaultCliServices['core'] & {
+    scaffoldFamilyMember(input: {
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof scaffoldResultSchema>>
+    upsertFamilyMember(input: {
+      input: string
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof upsertResultSchema>>
+  }
+  query: VaultCliServices['query'] & {
+    showFamilyMember(input: {
+      id: string
+      vault: string
+      requestId: string | null
+    }): Promise<z.infer<typeof showResultSchema>>
+    listFamilyMembers(input: {
+      vault: string
+      requestId: string | null
+      status?: string
+      cursor?: string
+      limit?: number
+    }): Promise<z.infer<typeof listResultSchema>>
+  }
+}
+
+function stripAtPrefix(input: string) {
+  return input.slice(1)
+}
+
+export function registerFamilyCommands(cli: Cli.Cli, services: VaultCliServices) {
+  const healthServices = services as FamilyServices
+  const family = Cli.create('family', {
+    description: 'Family registry commands for the health extension surface.',
+  })
+
+  family.command(
+    'scaffold',
+    defineCommand({
+      command: 'family scaffold',
+      description: 'Emit a payload template for family member upserts.',
+      args: z.object({}),
+      options: withBaseOptions(),
+      data: scaffoldResultSchema,
+      async run({ vault, requestId }) {
+        return healthServices.core.scaffoldFamilyMember({ vault, requestId })
+      },
+      renderMarkdown({ data }) {
+        return `# Family Scaffold\n\n- payloadKeys: ${Object.keys(data.payload).length}`
+      },
+    }),
+  )
+
+  family.command(
+    'upsert',
+    defineCommand({
+      command: 'family upsert',
+      description: 'Upsert one family member from an @file.json payload.',
+      args: z.object({}),
+      options: withBaseOptions({
+        input: inputFileSchema,
+      }),
+      data: upsertResultSchema,
+      async run({ options, vault, requestId }) {
+        return healthServices.core.upsertFamilyMember({
+          input: stripAtPrefix(options.input),
+          vault,
+          requestId,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# Family Member Upserted\n\n- familyMemberId: ${data.familyMemberId}\n- lookupId: ${data.lookupId}\n- created: ${data.created}`
+      },
+    }),
+  )
+
+  family.command(
+    'show',
+    defineCommand({
+      command: 'family show',
+      description: 'Show one family member by canonical id or slug.',
+      args: z.object({
+        id: z.string().min(1),
+      }),
+      options: withBaseOptions(),
+      data: showResultSchema,
+      async run({ args, vault, requestId }) {
+        return healthServices.query.showFamilyMember({
+          id: args.id,
+          vault,
+          requestId,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# Family Member\n\n- keys: ${Object.keys(data.entity).length}`
+      },
+    }),
+  )
+
+  family.command(
+    'list',
+    defineCommand({
+      command: 'family list',
+      description: 'List family members through the health read model.',
+      args: z.object({}),
+      options: withBaseOptions({
+        status: z.string().min(1).optional(),
+        cursor: z.string().min(1).optional(),
+        limit: z.number().int().positive().max(200).default(50),
+      }),
+      data: listResultSchema,
+      async run({ options, vault, requestId }) {
+        return healthServices.query.listFamilyMembers({
+          vault,
+          requestId,
+          status: options.status,
+          cursor: options.cursor,
+          limit: options.limit,
+        })
+      },
+      renderMarkdown({ data }) {
+        return `# Family\n\n- count: ${data.count}`
+      },
+    }),
+  )
+
+  cli.command(family)
+}

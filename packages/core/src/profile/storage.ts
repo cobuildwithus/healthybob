@@ -1,0 +1,329 @@
+import { stringifyFrontmatterDocument } from "../frontmatter.js";
+import { pathExists, readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
+import { generateRecordId } from "../ids.js";
+import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
+import { resolveVaultPath } from "../path-safety.js";
+import { toIsoTimestamp } from "../time.js";
+import { VaultError } from "../errors.js";
+import { isPlainRecord } from "../types.js";
+
+import type { FrontmatterObject, UnknownRecord } from "../types.js";
+import type {
+  AppendProfileSnapshotInput,
+  CurrentProfileState,
+  ProfileSnapshotRecord,
+  RebuiltCurrentProfile,
+} from "./types.js";
+import {
+  PROFILE_CURRENT_DOC_TYPE,
+  PROFILE_CURRENT_DOCUMENT_PATH,
+  PROFILE_CURRENT_SCHEMA_VERSION,
+  PROFILE_SNAPSHOT_LEDGER_DIRECTORY,
+  PROFILE_SNAPSHOT_SOURCES,
+  PROFILE_SNAPSHOT_SCHEMA_VERSION,
+} from "./types.js";
+
+interface ListProfileSnapshotsInput {
+  vaultRoot: string;
+}
+
+interface ReadCurrentProfileInput {
+  vaultRoot: string;
+}
+
+interface RebuildCurrentProfileInput {
+  vaultRoot: string;
+}
+
+function assertProfile(value: unknown): asserts value is UnknownRecord {
+  if (!isPlainRecord(value)) {
+    throw new VaultError("PROFILE_INVALID", "Profile snapshots require a plain-object profile payload.");
+  }
+}
+
+function isProfileSnapshotSource(value: unknown): value is ProfileSnapshotRecord["source"] {
+  return PROFILE_SNAPSHOT_SOURCES.includes(value as (typeof PROFILE_SNAPSHOT_SOURCES)[number]);
+}
+
+function toProfileSnapshotRecord(value: unknown): ProfileSnapshotRecord {
+  if (!isPlainRecord(value)) {
+    throw new VaultError("PROFILE_SNAPSHOT_INVALID", "Profile snapshot record must be an object.");
+  }
+
+  const {
+    schemaVersion,
+    id,
+    recordedAt,
+    source,
+    sourceAssessmentIds,
+    sourceEventIds,
+    profile,
+  } = value;
+
+  if (schemaVersion !== PROFILE_SNAPSHOT_SCHEMA_VERSION) {
+    throw new VaultError("PROFILE_SNAPSHOT_INVALID", "Profile snapshot schemaVersion is invalid.", {
+      schemaVersion,
+    });
+  }
+
+  if (typeof id !== "string" || !id.startsWith("psnap_")) {
+    throw new VaultError("PROFILE_SNAPSHOT_INVALID", "Profile snapshot id is invalid.", {
+      id,
+    });
+  }
+
+  if (typeof recordedAt !== "string" || !isProfileSnapshotSource(source)) {
+    throw new VaultError("PROFILE_SNAPSHOT_INVALID", "Profile snapshot fields are invalid.", {
+      recordedAt,
+      source,
+    });
+  }
+
+  assertProfile(profile);
+
+  if (
+    sourceAssessmentIds !== undefined &&
+    (!Array.isArray(sourceAssessmentIds) || sourceAssessmentIds.some((entry) => typeof entry !== "string"))
+  ) {
+    throw new VaultError(
+      "PROFILE_SNAPSHOT_INVALID",
+      "Profile snapshot sourceAssessmentIds must be a string array when provided.",
+    );
+  }
+
+  if (
+    sourceEventIds !== undefined &&
+    (!Array.isArray(sourceEventIds) || sourceEventIds.some((entry) => typeof entry !== "string"))
+  ) {
+    throw new VaultError(
+      "PROFILE_SNAPSHOT_INVALID",
+      "Profile snapshot sourceEventIds must be a string array when provided.",
+    );
+  }
+
+  return {
+    schemaVersion: PROFILE_SNAPSHOT_SCHEMA_VERSION,
+    id,
+    recordedAt: recordedAt as string,
+    source: source as ProfileSnapshotRecord["source"],
+    sourceAssessmentIds: sourceAssessmentIds as string[] | undefined,
+    sourceEventIds: sourceEventIds as string[] | undefined,
+    profile,
+  };
+}
+
+function sortProfileSnapshots(records: readonly ProfileSnapshotRecord[]): ProfileSnapshotRecord[] {
+  return [...records].sort((left, right) => {
+    if (left.recordedAt !== right.recordedAt) {
+      return left.recordedAt.localeCompare(right.recordedAt);
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function findLatestAcceptedProfileSnapshot(
+  records: readonly ProfileSnapshotRecord[],
+): ProfileSnapshotRecord | null {
+  return records.length === 0 ? null : records.at(-1) ?? null;
+}
+
+function renderProfileValue(
+  value: unknown,
+  depth = 0,
+): string[] {
+  const indent = "  ".repeat(depth);
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [`${indent}[]`];
+    }
+
+    return value.flatMap((entry) => {
+      if (isPlainRecord(entry) || Array.isArray(entry)) {
+        return [`${indent}-`, ...renderProfileValue(entry, depth + 1)];
+      }
+
+      return [`${indent}- ${String(entry)}`];
+    });
+  }
+
+  if (isPlainRecord(value)) {
+    const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+
+    if (entries.length === 0) {
+      return [`${indent}{}`];
+    }
+
+    return entries.flatMap(([key, entry]) => {
+      if (isPlainRecord(entry) || Array.isArray(entry)) {
+        return [`${indent}- ${key}:`, ...renderProfileValue(entry, depth + 1)];
+      }
+
+      return [`${indent}- ${key}: ${String(entry)}`];
+    });
+  }
+
+  return [`${indent}${String(value)}`];
+}
+
+function buildCurrentProfileMarkdown(snapshot: ProfileSnapshotRecord): string {
+  const topGoalIds = Array.isArray(snapshot.profile.topGoalIds)
+    ? snapshot.profile.topGoalIds.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  return stringifyFrontmatterDocument({
+    attributes: Object.fromEntries(
+      Object.entries({
+        schemaVersion: PROFILE_CURRENT_SCHEMA_VERSION,
+        docType: PROFILE_CURRENT_DOC_TYPE,
+        snapshotId: snapshot.id,
+        updatedAt: snapshot.recordedAt,
+        sourceAssessmentIds: snapshot.sourceAssessmentIds,
+        sourceEventIds: snapshot.sourceEventIds,
+        topGoalIds: topGoalIds.length > 0 ? topGoalIds : undefined,
+      }).filter(([, value]) => value !== undefined),
+    ) as FrontmatterObject,
+    body: [
+      "# Current Profile",
+      "",
+      `Snapshot ID: \`${snapshot.id}\``,
+      `Recorded At: ${snapshot.recordedAt}`,
+      `Source: ${snapshot.source}`,
+      "",
+      "## Structured Profile",
+      "",
+      ...renderProfileValue(snapshot.profile),
+      "",
+      "## JSON",
+      "",
+      "```json",
+      JSON.stringify(snapshot.profile, null, 2),
+      "```",
+      "",
+    ].join("\n"),
+  });
+}
+
+export async function appendProfileSnapshot({
+  vaultRoot,
+  recordedAt = new Date(),
+  source = "manual",
+  sourceAssessmentIds,
+  sourceEventIds,
+  profile,
+}: AppendProfileSnapshotInput): Promise<{
+  snapshot: ProfileSnapshotRecord;
+  ledgerPath: string;
+  currentProfile: RebuiltCurrentProfile;
+}> {
+  assertProfile(profile);
+
+  const recordedTimestamp = toIsoTimestamp(recordedAt, "recordedAt");
+  const snapshot: ProfileSnapshotRecord = {
+    schemaVersion: PROFILE_SNAPSHOT_SCHEMA_VERSION,
+    id: generateRecordId("psnap"),
+    recordedAt: recordedTimestamp,
+    source: isProfileSnapshotSource(source) ? source : "manual",
+    sourceAssessmentIds:
+      sourceAssessmentIds && sourceAssessmentIds.length > 0 ? [...new Set(sourceAssessmentIds)] : undefined,
+    sourceEventIds:
+      sourceEventIds && sourceEventIds.length > 0 ? [...new Set(sourceEventIds)] : undefined,
+    profile,
+  };
+
+  const ledgerPath = toMonthlyShardRelativePath(
+    PROFILE_SNAPSHOT_LEDGER_DIRECTORY,
+    recordedTimestamp,
+    "recordedAt",
+  );
+
+  await appendJsonlRecord({
+    vaultRoot,
+    relativePath: ledgerPath,
+    record: snapshot,
+  });
+
+  const currentProfile = await rebuildCurrentProfile({ vaultRoot });
+
+  return {
+    snapshot,
+    ledgerPath,
+    currentProfile,
+  };
+}
+
+export async function listProfileSnapshots({
+  vaultRoot,
+}: ListProfileSnapshotsInput): Promise<ProfileSnapshotRecord[]> {
+  const shardPaths = await walkVaultFiles(vaultRoot, PROFILE_SNAPSHOT_LEDGER_DIRECTORY, {
+    extension: ".jsonl",
+  });
+
+  const records: ProfileSnapshotRecord[] = [];
+
+  for (const shardPath of shardPaths) {
+    const shardRecords = await readJsonlRecords({
+      vaultRoot,
+      relativePath: shardPath,
+    });
+
+    records.push(...shardRecords.map((record) => toProfileSnapshotRecord(record)));
+  }
+
+  return sortProfileSnapshots(records);
+}
+
+export async function readCurrentProfile({
+  vaultRoot,
+}: ReadCurrentProfileInput): Promise<CurrentProfileState> {
+  const snapshots = await listProfileSnapshots({ vaultRoot });
+  const snapshot = findLatestAcceptedProfileSnapshot(snapshots);
+  const currentPath = resolveVaultPath(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH);
+  const exists = await pathExists(currentPath.absolutePath);
+
+  return {
+    relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
+    exists,
+    markdown: exists ? await readUtf8File(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH) : null,
+    snapshot,
+    profile: snapshot?.profile ?? null,
+  };
+}
+
+export async function rebuildCurrentProfile({
+  vaultRoot,
+}: RebuildCurrentProfileInput): Promise<RebuiltCurrentProfile> {
+  const snapshots = await listProfileSnapshots({ vaultRoot });
+  const snapshot = findLatestAcceptedProfileSnapshot(snapshots);
+
+  if (!snapshot) {
+    return {
+      relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
+      exists: false,
+      markdown: null,
+      snapshot: null,
+      profile: null,
+      updated: false,
+    };
+  }
+
+  const markdown = buildCurrentProfileMarkdown(snapshot);
+  const resolved = resolveVaultPath(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH);
+  const exists = await pathExists(resolved.absolutePath);
+  const previous = exists ? await readUtf8File(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH) : null;
+  const updated = previous !== markdown;
+
+  if (updated) {
+    await writeVaultTextFile(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH, markdown, { overwrite: true });
+  }
+
+  return {
+    relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
+    exists: true,
+    markdown,
+    snapshot,
+    profile: snapshot.profile,
+    updated,
+  };
+}
