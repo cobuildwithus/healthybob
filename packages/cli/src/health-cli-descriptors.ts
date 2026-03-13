@@ -1,4 +1,9 @@
-import { z } from "incur"
+import {
+  healthEntityDefinitions,
+  type HealthEntityDefinition,
+  type HealthEntityKind,
+} from "@healthybob/contracts";
+import { z } from "incur";
 import type {
   HealthCoreRuntimeMethodName,
   HealthCoreScaffoldServiceMethodName,
@@ -8,78 +13,111 @@ import type {
   HealthQueryRuntimeShowMethodName,
   HealthQueryShowServiceMethodName,
   JsonObject,
-} from "./health-cli-method-types.js"
-import { pathSchema } from "./vault-cli-contracts.js"
+} from "./health-cli-method-types.js";
+import { pathSchema } from "./vault-cli-contracts.js";
 
-export type { JsonObject } from "./health-cli-method-types.js"
+export type { JsonObject } from "./health-cli-method-types.js";
 
-type GenericListMode = "date-range-limit" | "history-kind-date-range-limit" | "limit-only"
-type ServiceListMode = "status-limit"
-type HealthUpsertMode = "profile-snapshot" | "record-payload"
-type HealthResultMode = "profile-snapshot" | "record-path" | "history-ledger"
+type GenericListMode = "date-range-limit" | "history-kind-date-range-limit" | "limit-only";
+type ServiceListMode = "status-limit";
+type HealthUpsertMode = "profile-snapshot" | "record-payload";
+type HealthResultMode = "profile-snapshot" | "record-path" | "history-ledger";
 
 export interface HealthCoreDescriptor {
-  payloadTemplate: JsonObject
-  resultIdField: string
-  resultMode: HealthResultMode
-  runtimeMethod: HealthCoreRuntimeMethodName
-  scaffoldNoun: string
-  scaffoldServiceMethod: HealthCoreScaffoldServiceMethodName
-  upsertMode: HealthUpsertMode
-  upsertServiceMethod: HealthCoreUpsertServiceMethodName
+  payloadTemplate: JsonObject;
+  resultIdField: string;
+  resultMode: HealthResultMode;
+  runtimeMethod: HealthCoreRuntimeMethodName;
+  scaffoldNoun: string;
+  scaffoldServiceMethod: HealthCoreScaffoldServiceMethodName;
+  upsertMode: HealthUpsertMode;
+  upsertServiceMethod: HealthCoreUpsertServiceMethodName;
 }
 
 export interface HealthQueryDescriptor {
-  genericListKinds?: readonly string[]
-  genericListMode?: GenericListMode
-  genericLookupPrefixes?: readonly string[]
-  genericLookupValues?: readonly string[]
-  listServiceMethod: HealthQueryListServiceMethodName
-  notFoundLabel: string
-  runtimeListMethod: HealthQueryRuntimeListMethodName
-  runtimeShowMethod: HealthQueryRuntimeShowMethodName
-  serviceListMode: ServiceListMode
-  showServiceMethod: HealthQueryShowServiceMethodName
+  genericListKinds?: readonly string[];
+  genericListMode?: GenericListMode;
+  genericLookupPrefixes?: readonly string[];
+  genericLookupValues?: readonly string[];
+  listServiceMethod: HealthQueryListServiceMethodName;
+  notFoundLabel: string;
+  runtimeListMethod: HealthQueryRuntimeListMethodName;
+  runtimeShowMethod: HealthQueryRuntimeShowMethodName;
+  serviceListMode: ServiceListMode;
+  showServiceMethod: HealthQueryShowServiceMethodName;
 }
 
-export interface HealthEntityDescriptor {
-  core?: HealthCoreDescriptor
-  kind: string
-  noun: string
-  prefixes?: readonly string[]
-  query?: HealthQueryDescriptor
+export interface HealthEntityCommandDescriptor {
+  commandName: string;
+  description: string;
+  descriptions: {
+    list: string;
+    scaffold: string;
+    show: string;
+    upsert: string;
+  };
+  examples?: {
+    list?: Array<Record<string, unknown>>;
+    scaffold?: Array<Record<string, unknown>>;
+    show?: Array<Record<string, unknown>>;
+    upsert?: Array<Record<string, unknown>>;
+  };
+  hints?: {
+    list?: string;
+    scaffold?: string;
+    show?: string;
+    upsert?: string;
+  };
+  listStatusDescription?: string;
+  noun: string;
+  payloadFile: string;
+  pluralNoun: string;
+  showId: {
+    description: string;
+    example: string;
+  };
 }
 
-export const healthPayloadSchema = z.object({}).catchall(z.unknown())
+export interface HealthEntityDescriptor extends HealthEntityDefinition {
+  command?: HealthEntityCommandDescriptor;
+  core?: HealthCoreDescriptor;
+  query?: HealthQueryDescriptor;
+}
+
+interface HealthEntityDescriptorExtension {
+  command?: HealthEntityCommandDescriptor;
+  core?: Omit<HealthCoreDescriptor, "payloadTemplate">;
+  query?: Omit<
+    HealthQueryDescriptor,
+    "genericListKinds" | "genericLookupPrefixes" | "genericLookupValues"
+  >;
+}
+
+export const healthPayloadSchema = z.object({}).catchall(z.unknown());
 
 export function createHealthScaffoldResultSchema<TNoun extends string>(noun: TNoun) {
   return z.object({
     vault: pathSchema,
     noun: z.literal(noun),
     payload: healthPayloadSchema,
-  })
+  });
 }
 
 export const healthShowResultSchema = z.object({
   vault: pathSchema,
   entity: healthPayloadSchema,
-})
+});
 
 export const healthListResultSchema = z.object({
   vault: pathSchema,
   items: z.array(healthPayloadSchema),
   count: z.number().int().nonnegative(),
-})
+});
 
-const checkedHealthEntityDescriptors = [
-  {
-    kind: "assessment",
-    noun: "assessment",
-    prefixes: ["asmt_"],
+const checkedHealthEntityDescriptorExtensions = {
+  assessment: {
     query: {
-      genericListKinds: ["assessment"],
       genericListMode: "date-range-limit",
-      genericLookupPrefixes: ["asmt_"],
       listServiceMethod: "listAssessments",
       notFoundLabel: "assessment",
       runtimeListMethod: "listAssessments",
@@ -88,15 +126,59 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showAssessment",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        source: "manual",
-        profile: {
-          domains: [],
-          topGoalIds: [],
-        },
+  profile: {
+    command: {
+      commandName: "profile",
+      description: "Profile snapshot commands for the health extension surface.",
+      descriptions: {
+        list: "List profile snapshots through the health read model.",
+        scaffold: "Emit a payload template for a profile snapshot upsert.",
+        show: "Show one profile snapshot or the derived current profile.",
+        upsert: "Upsert one profile snapshot from an @file.json payload.",
       },
+      examples: {
+        show: [
+          {
+            args: {
+              id: "current",
+            },
+            description: "Show the derived current profile.",
+            options: {
+              vault: "./vault",
+            },
+          },
+          {
+            args: {
+              id: "<snapshot-id>",
+            },
+            description: "Show one saved profile snapshot.",
+            options: {
+              vault: "./vault",
+            },
+          },
+        ],
+        upsert: [
+          {
+            description: "Upsert one profile snapshot from a JSON payload file.",
+            options: {
+              input: "@profile-snapshot.json",
+              vault: "./vault",
+            },
+          },
+        ],
+      },
+      hints: {
+        show: "Use `current` to read the derived profile or pass a snapshot id to inspect one saved payload.",
+      },
+      noun: "profile snapshot",
+      payloadFile: "profile-snapshot.json",
+      pluralNoun: "profile snapshots",
+      showId: {
+        description: "Snapshot id or `current`.",
+        example: "current",
+      },
+    },
+    core: {
       resultIdField: "snapshotId",
       resultMode: "profile-snapshot",
       runtimeMethod: "appendProfileSnapshot",
@@ -105,14 +187,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "profile-snapshot",
       upsertServiceMethod: "upsertProfileSnapshot",
     },
-    kind: "profile",
-    noun: "profile",
-    prefixes: ["psnap_"],
     query: {
-      genericListKinds: ["profile"],
       genericListMode: "date-range-limit",
-      genericLookupPrefixes: ["psnap_"],
-      genericLookupValues: ["current"],
       listServiceMethod: "listProfileSnapshots",
       notFoundLabel: "profile",
       runtimeListMethod: "listProfileSnapshots",
@@ -121,19 +197,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showProfile",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "Improve sleep quality and duration",
-        status: "active",
-        horizon: "long_term",
-        priority: 1,
-        window: {
-          startAt: "2026-03-12",
-          targetAt: "2026-06-01",
-        },
-        domains: ["sleep"],
+  goal: {
+    command: {
+      commandName: "goal",
+      description: "Goal registry commands for the health extension surface.",
+      descriptions: {
+        list: "List goals through the health read model.",
+        scaffold: "Emit a payload template for goal upserts.",
+        show: "Show one goal by canonical id or slug.",
+        upsert: "Upsert one goal from an @file.json payload.",
       },
+      listStatusDescription: "Optional goal status to filter by.",
+      noun: "goal",
+      payloadFile: "goal.json",
+      pluralNoun: "goals",
+      showId: {
+        description: "Goal id or slug to show.",
+        example: "<goal-id>",
+      },
+    },
+    core: {
       resultIdField: "goalId",
       resultMode: "record-path",
       runtimeMethod: "upsertGoal",
@@ -142,13 +225,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertGoal",
     },
-    kind: "goal",
-    noun: "goal",
-    prefixes: ["goal_"],
     query: {
-      genericListKinds: ["goal"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["goal_"],
       listServiceMethod: "listGoals",
       notFoundLabel: "goal",
       runtimeListMethod: "listGoals",
@@ -157,14 +235,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showGoal",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "Insomnia symptoms",
-        clinicalStatus: "active",
-        verificationStatus: "provisional",
-        assertedOn: "2026-03-12",
+  condition: {
+    command: {
+      commandName: "condition",
+      description: "Condition registry commands for the health extension surface.",
+      descriptions: {
+        list: "List conditions through the health read model.",
+        scaffold: "Emit a payload template for condition upserts.",
+        show: "Show one condition by canonical id or slug.",
+        upsert: "Upsert one condition from an @file.json payload.",
       },
+      listStatusDescription: "Optional condition status to filter by.",
+      noun: "condition",
+      payloadFile: "condition.json",
+      pluralNoun: "conditions",
+      showId: {
+        description: "Condition id or slug to show.",
+        example: "<condition-id>",
+      },
+    },
+    core: {
       resultIdField: "conditionId",
       resultMode: "record-path",
       runtimeMethod: "upsertCondition",
@@ -173,13 +263,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertCondition",
     },
-    kind: "condition",
-    noun: "condition",
-    prefixes: ["cond_"],
     query: {
-      genericListKinds: ["condition"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["cond_"],
       listServiceMethod: "listConditions",
       notFoundLabel: "condition",
       runtimeListMethod: "listConditions",
@@ -188,13 +273,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showCondition",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "Penicillin intolerance",
-        substance: "Penicillin",
-        status: "active",
+  allergy: {
+    command: {
+      commandName: "allergy",
+      description: "Allergy registry commands for the health extension surface.",
+      descriptions: {
+        list: "List allergies through the health read model.",
+        scaffold: "Emit a payload template for allergy upserts.",
+        show: "Show one allergy by canonical id or slug.",
+        upsert: "Upsert one allergy from an @file.json payload.",
       },
+      listStatusDescription: "Optional allergy status to filter by.",
+      noun: "allergy",
+      payloadFile: "allergy.json",
+      pluralNoun: "allergies",
+      showId: {
+        description: "Allergy id or slug to show.",
+        example: "<allergy-id>",
+      },
+    },
+    core: {
       resultIdField: "allergyId",
       resultMode: "record-path",
       runtimeMethod: "upsertAllergy",
@@ -203,13 +301,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertAllergy",
     },
-    kind: "allergy",
-    noun: "allergy",
-    prefixes: ["alg_"],
     query: {
-      genericListKinds: ["allergy"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["alg_"],
       listServiceMethod: "listAllergies",
       notFoundLabel: "allergy",
       runtimeListMethod: "listAllergies",
@@ -218,15 +311,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showAllergy",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "Magnesium glycinate",
-        kind: "supplement",
-        status: "active",
-        startedOn: "2026-03-12",
-        group: "sleep",
+  regimen: {
+    command: {
+      commandName: "regimen",
+      description: "Regimen registry commands for the health extension surface.",
+      descriptions: {
+        list: "List regimens through the health read model.",
+        scaffold: "Emit a payload template for regimen upserts.",
+        show: "Show one regimen by canonical id or slug.",
+        upsert: "Upsert one regimen from an @file.json payload.",
       },
+      listStatusDescription: "Optional regimen status to filter by.",
+      noun: "regimen",
+      payloadFile: "regimen.json",
+      pluralNoun: "regimens",
+      showId: {
+        description: "Regimen id or slug to show.",
+        example: "<regimen-id>",
+      },
+    },
+    core: {
       resultIdField: "regimenId",
       resultMode: "record-path",
       runtimeMethod: "upsertRegimenItem",
@@ -235,13 +339,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertRegimen",
     },
-    kind: "regimen",
-    noun: "regimen",
-    prefixes: ["reg_"],
     query: {
-      genericListKinds: ["regimen"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["reg_"],
       listServiceMethod: "listRegimens",
       notFoundLabel: "regimen",
       runtimeListMethod: "listRegimens",
@@ -250,15 +349,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showRegimen",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        kind: "encounter",
-        occurredAt: "2026-03-12T09:00:00.000Z",
-        title: "Primary care visit",
-        encounterType: "office_visit",
-        location: "Primary care clinic",
+  history: {
+    command: {
+      commandName: "history",
+      description: "Timed health history commands for the extension surface.",
+      descriptions: {
+        list: "List timed history events through the health read model.",
+        scaffold: "Emit a payload template for timed history events.",
+        show: "Show one timed history event.",
+        upsert: "Append one timed history event from an @file.json payload.",
       },
+      listStatusDescription: "Optional health-event status to filter by.",
+      noun: "history event",
+      payloadFile: "history.json",
+      pluralNoun: "history events",
+      showId: {
+        description: "Timed history event id to show.",
+        example: "<history-event-id>",
+      },
+    },
+    core: {
       resultIdField: "eventId",
       resultMode: "history-ledger",
       runtimeMethod: "appendHistoryEvent",
@@ -267,10 +377,7 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertHistoryEvent",
     },
-    kind: "history",
-    noun: "history",
     query: {
-      genericListKinds: ["encounter", "procedure", "test", "adverse_effect", "exposure"],
       genericListMode: "history-kind-date-range-limit",
       listServiceMethod: "listHistoryEvents",
       notFoundLabel: "history event",
@@ -280,13 +387,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showHistoryEvent",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "Mother",
-        relationship: "mother",
-        conditions: ["hypertension"],
+  family: {
+    command: {
+      commandName: "family",
+      description: "Family registry commands for the health extension surface.",
+      descriptions: {
+        list: "List family members through the health read model.",
+        scaffold: "Emit a payload template for family member upserts.",
+        show: "Show one family member by canonical id or slug.",
+        upsert: "Upsert one family member from an @file.json payload.",
       },
+      listStatusDescription: "Optional family-member status to filter by.",
+      noun: "family member",
+      payloadFile: "family.json",
+      pluralNoun: "family members",
+      showId: {
+        description: "Family member id or slug to show.",
+        example: "<family-member-id>",
+      },
+    },
+    core: {
       resultIdField: "familyMemberId",
       resultMode: "record-path",
       runtimeMethod: "upsertFamilyMember",
@@ -295,13 +415,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertFamilyMember",
     },
-    kind: "family",
-    noun: "family",
-    prefixes: ["fam_"],
     query: {
-      genericListKinds: ["family"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["fam_"],
       listServiceMethod: "listFamilyMembers",
       notFoundLabel: "family member",
       runtimeListMethod: "listFamilyMembers",
@@ -310,13 +425,26 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showFamilyMember",
     },
   },
-  {
-    core: {
-      payloadTemplate: {
-        title: "MTHFR C677T",
-        gene: "MTHFR",
-        significance: "risk_factor",
+  genetics: {
+    command: {
+      commandName: "genetics",
+      description: "Genetic variant commands for the health extension surface.",
+      descriptions: {
+        list: "List genetic variants through the health read model.",
+        scaffold: "Emit a payload template for genetic variant upserts.",
+        show: "Show one genetic variant by canonical id or slug.",
+        upsert: "Upsert one genetic variant from an @file.json payload.",
       },
+      listStatusDescription: "Optional genetic-variant status to filter by.",
+      noun: "genetic variant",
+      payloadFile: "genetics.json",
+      pluralNoun: "genetic variants",
+      showId: {
+        description: "Genetic variant id or slug to show.",
+        example: "<genetic-variant-id>",
+      },
+    },
+    core: {
       resultIdField: "variantId",
       resultMode: "record-path",
       runtimeMethod: "upsertGeneticVariant",
@@ -325,13 +453,8 @@ const checkedHealthEntityDescriptors = [
       upsertMode: "record-payload",
       upsertServiceMethod: "upsertGeneticVariant",
     },
-    kind: "genetics",
-    noun: "genetics",
-    prefixes: ["var_"],
     query: {
-      genericListKinds: ["genetics"],
       genericListMode: "limit-only",
-      genericLookupPrefixes: ["var_"],
       listServiceMethod: "listGeneticVariants",
       notFoundLabel: "genetic variant",
       runtimeListMethod: "listGeneticVariants",
@@ -340,75 +463,130 @@ const checkedHealthEntityDescriptors = [
       showServiceMethod: "showGeneticVariant",
     },
   },
-] as const satisfies readonly HealthEntityDescriptor[]
+} as const satisfies Record<HealthEntityKind, HealthEntityDescriptorExtension>;
+
+function requireScaffoldTemplate(definition: HealthEntityDefinition): JsonObject {
+  if (!definition.scaffoldTemplate) {
+    throw new Error(`Health entity "${definition.kind}" does not define a scaffold template.`);
+  }
+
+  return definition.scaffoldTemplate;
+}
+
+function buildHealthEntityDescriptor(
+  definition: HealthEntityDefinition,
+): HealthEntityDescriptor {
+  const extension = checkedHealthEntityDescriptorExtensions[
+    definition.kind
+  ] as HealthEntityDescriptorExtension;
+
+  return {
+    ...definition,
+    command: extension.command,
+    core: extension.core
+      ? {
+          ...extension.core,
+          payloadTemplate: requireScaffoldTemplate(definition),
+        }
+      : undefined,
+    query: extension.query
+      ? {
+          ...extension.query,
+          genericListKinds: definition.listKinds,
+          genericLookupPrefixes: definition.prefixes,
+          genericLookupValues: definition.lookupAliases,
+        }
+      : undefined,
+  };
+}
 
 export const healthEntityDescriptors: readonly HealthEntityDescriptor[] =
-  checkedHealthEntityDescriptors
+  healthEntityDefinitions.map(buildHealthEntityDescriptor);
 
 export type HealthCoreDescriptorEntry = HealthEntityDescriptor & {
-  core: HealthCoreDescriptor
-}
+  core: HealthCoreDescriptor;
+};
 
 export type HealthQueryDescriptorEntry = HealthEntityDescriptor & {
-  query: HealthQueryDescriptor
-}
+  query: HealthQueryDescriptor;
+};
+
+export type HealthCommandDescriptorEntry = HealthEntityDescriptor & {
+  command: HealthEntityCommandDescriptor;
+  core: HealthCoreDescriptor;
+  query: HealthQueryDescriptor;
+};
+
+export const healthEntityDescriptorByKind = new Map<HealthEntityKind, HealthEntityDescriptor>(
+  healthEntityDescriptors.map((descriptor) => [descriptor.kind, descriptor]),
+);
 
 export const healthEntityDescriptorByNoun = new Map<string, HealthEntityDescriptor>(
   healthEntityDescriptors.map((descriptor) => [descriptor.noun, descriptor]),
-)
+);
+
+export const healthEntityDescriptorByCommandName = new Map<string, HealthEntityDescriptor>(
+  healthEntityDescriptors.flatMap((descriptor) =>
+    descriptor.command ? [[descriptor.command.commandName, descriptor] as const] : [],
+  ),
+);
 
 export function hasHealthCoreDescriptor(
   descriptor: HealthEntityDescriptor,
 ): descriptor is HealthCoreDescriptorEntry {
-  return Boolean(descriptor.core)
+  return Boolean(descriptor.core);
 }
 
 export function hasHealthQueryDescriptor(
   descriptor: HealthEntityDescriptor,
 ): descriptor is HealthQueryDescriptorEntry {
-  return Boolean(descriptor.query)
+  return Boolean(descriptor.query);
+}
+
+export function hasHealthCommandDescriptor(
+  descriptor: HealthEntityDescriptor,
+): descriptor is HealthCommandDescriptorEntry {
+  return Boolean(descriptor.command && descriptor.core && descriptor.query);
 }
 
 const queryHealthDescriptors = healthEntityDescriptors.filter(hasHealthQueryDescriptor);
 
 const genericLookupDescriptors = queryHealthDescriptors.filter((descriptor) => {
-  const query = descriptor.query
+  const query = descriptor.query;
   return Boolean(
-    query &&
-      ((query.genericLookupPrefixes?.length ?? 0) > 0 ||
-        (query.genericLookupValues?.length ?? 0) > 0),
-  )
-})
+    (query.genericLookupPrefixes?.length ?? 0) > 0 ||
+      (query.genericLookupValues?.length ?? 0) > 0,
+  );
+});
 
 const genericListDescriptors = queryHealthDescriptors.filter(
   (descriptor) => Boolean(descriptor.query.genericListKinds?.length),
-)
+);
 
 export function findHealthDescriptorForLookup(id: string): HealthQueryDescriptorEntry | null {
   return (
     genericLookupDescriptors.find((descriptor) => {
-      const genericLookupValues = descriptor.query.genericLookupValues ?? []
-      const genericLookupPrefixes = descriptor.query.genericLookupPrefixes ?? []
+      const genericLookupValues = descriptor.query.genericLookupValues ?? [];
+      const genericLookupPrefixes = descriptor.query.genericLookupPrefixes ?? [];
 
       return (
         genericLookupValues.includes(id) ||
         genericLookupPrefixes.some((prefix) => id.startsWith(prefix))
-      )
+      );
     })
-  ) ?? null
+  ) ?? null;
 }
 
 export function findHealthDescriptorForListKind(kind?: string): HealthQueryDescriptorEntry | null {
   if (!kind) {
-    return null
+    return null;
   }
 
   return (
     genericListDescriptors.find((descriptor) =>
       descriptor.query.genericListKinds?.includes(kind),
     )
-  )
-    ?? null
+  ) ?? null;
 }
 
 export function inferHealthEntityKind(id: string) {
@@ -416,16 +594,16 @@ export function inferHealthEntityKind(id: string) {
     healthEntityDescriptors.find((descriptor) =>
       (descriptor.prefixes ?? []).some((prefix) => id.startsWith(prefix)),
     )?.kind ?? null
-  )
+  );
 }
 
 export function isHealthQueryableRecordId(id: string) {
-  return Boolean(findHealthDescriptorForLookup(id))
+  return Boolean(findHealthDescriptorForLookup(id));
 }
 
 export const healthCoreRuntimeMethodNames: readonly HealthCoreRuntimeMethodName[] = healthEntityDescriptors
   .filter(hasHealthCoreDescriptor)
-  .map((descriptor) => descriptor.core.runtimeMethod)
+  .map((descriptor) => descriptor.core.runtimeMethod);
 
 export const healthQueryRuntimeMethodNames: ReadonlyArray<
   HealthQueryRuntimeShowMethodName | HealthQueryRuntimeListMethodName
@@ -433,7 +611,7 @@ export const healthQueryRuntimeMethodNames: ReadonlyArray<
   descriptor.query
     ? [descriptor.query.runtimeShowMethod, descriptor.query.runtimeListMethod]
     : [],
-)
+);
 
 export const healthCoreServiceMethodNames: ReadonlyArray<
   HealthCoreScaffoldServiceMethodName | HealthCoreUpsertServiceMethodName
@@ -442,7 +620,7 @@ export const healthCoreServiceMethodNames: ReadonlyArray<
   .flatMap((descriptor) => [
     descriptor.core.scaffoldServiceMethod,
     descriptor.core.upsertServiceMethod,
-  ])
+  ]);
 
 export const healthQueryServiceMethodNames: ReadonlyArray<
   HealthQueryShowServiceMethodName | HealthQueryListServiceMethodName
@@ -450,4 +628,4 @@ export const healthQueryServiceMethodNames: ReadonlyArray<
   descriptor.query
     ? [descriptor.query.showServiceMethod, descriptor.query.listServiceMethod]
     : [],
-)
+);

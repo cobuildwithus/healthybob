@@ -23,6 +23,10 @@
       "types": "./dist/examples.d.ts",
       "default": "./dist/examples.js"
     },
+    "./health-entities": {
+      "types": "./dist/health-entities.d.ts",
+      "default": "./dist/health-entities.js"
+    },
     "./ids": {
       "types": "./dist/ids.d.ts",
       "default": "./dist/ids.js"

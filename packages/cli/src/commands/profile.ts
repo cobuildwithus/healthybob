@@ -1,30 +1,11 @@
-import { Cli, z } from 'incur'
-import { requestIdFromOptions, withBaseOptions } from '../command-helpers.js'
+import { Cli, z } from "incur";
+import { requestIdFromOptions, withBaseOptions } from "../command-helpers.js";
+import { pathSchema } from "../vault-cli-contracts.js";
+import type { VaultCliServices } from "../vault-cli-services.js";
 import {
-  createHealthScaffoldResultSchema,
-  healthListResultSchema,
-  healthPayloadSchema,
-  healthShowResultSchema,
-} from '../health-cli-descriptors.js'
-import { pathSchema } from '../vault-cli-contracts.js'
-import type { VaultCliServices } from '../vault-cli-services.js'
-import {
-  bindHealthCrudServices,
-  createHealthCrudGroup,
-  suggestedCommandsCta,
-} from './health-command-factory.js'
-
-const scaffoldResultSchema = createHealthScaffoldResultSchema('profile')
-
-const upsertResultSchema = z.object({
-  vault: pathSchema,
-  snapshotId: z.string().min(1),
-  lookupId: z.string().min(1),
-  ledgerFile: pathSchema.optional(),
-  currentProfilePath: pathSchema.optional(),
-  created: z.boolean(),
-  profile: healthPayloadSchema.optional(),
-})
+  createHealthEntityCrudGroup,
+} from "./health-entity-command-registry.js";
+import { suggestedCommandsCta } from "./health-command-factory.js";
 
 const rebuildResultSchema = z.object({
   vault: pathSchema,
@@ -37,120 +18,55 @@ export function registerProfileCommands(
   cli: Cli.Cli,
   services: VaultCliServices,
 ) {
-  const profile = createHealthCrudGroup({
-    commandName: 'profile',
-    description: 'Profile snapshot commands for the health extension surface.',
-    descriptions: {
-      list: 'List profile snapshots through the health read model.',
-      scaffold: 'Emit a payload template for a profile snapshot upsert.',
-      show: 'Show one profile snapshot or the derived current profile.',
-      upsert: 'Upsert one profile snapshot from an @file.json payload.',
-    },
-    examples: {
-      show: [
-        {
-          args: {
-            id: 'current',
-          },
-          description: 'Show the derived current profile.',
-          options: {
-            vault: './vault',
-          },
-        },
-        {
-          args: {
-            id: '<snapshot-id>',
-          },
-          description: 'Show one saved profile snapshot.',
-          options: {
-            vault: './vault',
-          },
-        },
-      ],
-      upsert: [
-        {
-          description: 'Upsert one profile snapshot from a JSON payload file.',
-          options: {
-            input: '@profile-snapshot.json',
-            vault: './vault',
-          },
-        },
-      ],
-    },
-    hints: {
-      show: 'Use `current` to read the derived profile or pass a snapshot id to inspect one saved payload.',
-    },
-    noun: 'profile snapshot',
-    outputs: {
-      list: healthListResultSchema,
-      scaffold: scaffoldResultSchema,
-      show: healthShowResultSchema,
-      upsert: upsertResultSchema,
-    },
-    payloadFile: 'profile-snapshot.json',
-    pluralNoun: 'profile snapshots',
-    services: bindHealthCrudServices(services, {
-      list: 'listProfileSnapshots',
-      scaffold: 'scaffoldProfileSnapshot',
-      show: 'showProfile',
-      upsert: 'upsertProfileSnapshot',
-    }),
-    showId: {
-      description: 'Snapshot id or `current`.',
-      example: 'current',
-      fromUpsert(result) {
-        return result.snapshotId
-      },
-    },
-  })
-  const current = Cli.create('current', {
-    description: 'Derived current-profile commands.',
-  })
+  const profile = createHealthEntityCrudGroup(services, "profile");
+  const current = Cli.create("current", {
+    description: "Derived current-profile commands.",
+  });
 
-  current.command('rebuild', {
+  current.command("rebuild", {
     args: z.object({}),
-    description: 'Rebuild bank/profile/current.md from the latest accepted profile snapshot.',
+    description: "Rebuild bank/profile/current.md from the latest accepted profile snapshot.",
     examples: [
       {
-        description: 'Regenerate the derived current profile after editing snapshots.',
+        description: "Regenerate the derived current profile after editing snapshots.",
         options: {
-          vault: './vault',
+          vault: "./vault",
         },
       },
     ],
-    hint: 'Run this after accepting a snapshot if you need to refresh the derived current profile document immediately.',
+    hint: "Run this after accepting a snapshot if you need to refresh the derived current profile document immediately.",
     options: withBaseOptions(),
     output: rebuildResultSchema,
     async run(context) {
       const result = await services.core.rebuildCurrentProfile({
         vault: context.options.vault,
         requestId: requestIdFromOptions(context.options),
-      })
+      });
 
       return context.ok(result, {
         cta: suggestedCommandsCta([
           {
-            command: 'profile show',
+            command: "profile show",
             args: {
-              id: 'current',
+              id: "current",
             },
-            description: 'Show the rebuilt derived current profile.',
+            description: "Show the rebuilt derived current profile.",
             options: {
               vault: true,
             },
           },
           {
-            command: 'profile list',
-            description: 'List saved profile snapshots.',
+            command: "profile list",
+            description: "List saved profile snapshots.",
             options: {
               vault: true,
             },
           },
         ]),
-      })
+      });
     },
-  })
+  });
 
-  profile.command(current)
-  cli.command(profile)
+  profile.command(current);
+  cli.command(profile);
 }

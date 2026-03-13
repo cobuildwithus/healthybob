@@ -1,11 +1,37 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "disableSourceOfProjectReferenceRedirect": true,
     "noEmit": true,
+    "paths": {
+      "@healthybob/contracts": [
+        "packages/contracts/dist/index.d.ts"
+      ],
+      "@healthybob/contracts/*": [
+        "packages/contracts/dist/*"
+      ]
+    },
     "rootDir": ".",
     "composite": false,
     "incremental": false
   },
+  "references": [
+    {
+      "path": "../contracts/tsconfig.build.json"
+    },
+    {
+      "path": "../core/tsconfig.build.json"
+    },
+    {
+      "path": "../importers"
+    },
+    {
+      "path": "../inboxd"
+    },
+    {
+      "path": "../query"
+    }
+  ],
   "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
   "exclude": ["dist"]
 }

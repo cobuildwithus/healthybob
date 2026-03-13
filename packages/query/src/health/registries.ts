@@ -1,7 +1,18 @@
 import {
+  deriveRegimenGroupFromRelativePath,
+  healthEntityDefinitionByKind,
+  hasHealthEntityRegistry,
+  type HealthEntityDefinitionWithRegistry,
+  type HealthEntityKind,
+  type HealthEntityRegistryProjectionHelpers,
+  type HealthEntitySortBehavior,
+} from "@healthybob/contracts";
+import {
   applyLimit,
   compareNullableStrings,
+  firstBoolean,
   firstNumber,
+  firstObject,
   firstString,
   firstStringArray,
   matchesLookup,
@@ -9,6 +20,10 @@ import {
   matchesText,
   pathSlug,
 } from "./shared.js";
+import {
+  projectRegistryEntity,
+  type CanonicalEntityFamily,
+} from "../canonical-entities.js";
 import {
   readMarkdownDocument,
   walkRelativeFiles,
@@ -18,6 +33,7 @@ import type {
   FrontmatterObject,
   MarkdownDocumentRecord,
 } from "./shared.js";
+import type { CanonicalEntity } from "../canonical-entities.js";
 
 export interface RegistryMarkdownRecord {
   id: string;
@@ -36,6 +52,11 @@ export interface RegistryListOptions {
   limit?: number;
 }
 
+type ProjectedRegistryFamily = Extract<
+  CanonicalEntityFamily,
+  "allergy" | "condition" | "family" | "genetics" | "goal" | "regimen"
+>;
+
 interface RegistryDefinition<TRecord extends RegistryMarkdownRecord> {
   directory: string;
   idKeys: readonly string[];
@@ -47,6 +68,14 @@ interface RegistryDefinition<TRecord extends RegistryMarkdownRecord> {
     attributes: FrontmatterObject,
   ): TRecord;
 }
+
+const registryProjectionHelpers: HealthEntityRegistryProjectionHelpers = {
+  firstBoolean,
+  firstNumber,
+  firstObject,
+  firstString,
+  firstStringArray,
+};
 
 export function buildPriorityTitleComparator<TRecord extends RegistryMarkdownRecord & { priority: number | null }>(
   left: TRecord,
@@ -74,6 +103,53 @@ export function readRegistryStrings(
   keys: readonly string[],
 ): string[] {
   return firstStringArray(attributes, keys);
+}
+
+function requireRegistryEntityDefinition(
+  kind: HealthEntityKind,
+): HealthEntityDefinitionWithRegistry {
+  const definition = healthEntityDefinitionByKind.get(kind);
+
+  if (!definition || !hasHealthEntityRegistry(definition)) {
+    throw new Error(`Health entity "${kind}" does not define a registry projection.`);
+  }
+
+  return definition;
+}
+
+function compareRegistryRecords<TRecord extends RegistryMarkdownRecord>(
+  sortBehavior: HealthEntitySortBehavior | undefined,
+): ((left: TRecord, right: TRecord) => number) | undefined {
+  if (sortBehavior === "priority-title") {
+    return buildPriorityTitleComparator as (left: TRecord, right: TRecord) => number;
+  }
+
+  return undefined;
+}
+
+function createHealthEntityRegistryDefinition<TRecord extends RegistryMarkdownRecord>(
+  kind: HealthEntityKind,
+): RegistryDefinition<TRecord> {
+  const definition = requireRegistryEntityDefinition(kind);
+  const { registry } = definition;
+
+  return {
+    directory: registry.directory,
+    idKeys: registry.idKeys,
+    titleKeys: registry.titleKeys,
+    statusKeys: registry.statusKeys,
+    compare: compareRegistryRecords(registry.sortBehavior),
+    transform(base, attributes) {
+      return {
+        ...base,
+        ...(registry.transform?.({
+          attributes,
+          helpers: registryProjectionHelpers,
+          relativePath: base.relativePath,
+        }) ?? {}),
+      } as TRecord;
+    },
+  };
 }
 
 export function toRegistryRecord<TRecord extends RegistryMarkdownRecord>(
@@ -201,6 +277,79 @@ export function createRegistryQueries<TRecord extends RegistryMarkdownRecord>(
   };
 }
 
+export async function listProjectedRegistryRecords<TRecord extends RegistryMarkdownRecord>(
+  vaultRoot: string,
+  definition: RegistryDefinition<TRecord>,
+  family: ProjectedRegistryFamily,
+  mapEntity: (entity: CanonicalEntity) => TRecord | null,
+  options: RegistryListOptions = {},
+): Promise<TRecord[]> {
+  const records = await loadProjectedRegistryRecords(
+    vaultRoot,
+    definition,
+    family,
+    mapEntity,
+  );
+  const filtered = records.filter((record) => matchesRegistryOptions(record, options));
+
+  return applyLimit(filtered, options.limit);
+}
+
+export async function readProjectedRegistryRecord<TRecord extends RegistryMarkdownRecord>(
+  vaultRoot: string,
+  definition: RegistryDefinition<TRecord>,
+  family: ProjectedRegistryFamily,
+  mapEntity: (entity: CanonicalEntity) => TRecord | null,
+  recordId: string,
+): Promise<TRecord | null> {
+  const records = await loadProjectedRegistryRecords(
+    vaultRoot,
+    definition,
+    family,
+    mapEntity,
+  );
+  return records.find((record) => record.id === recordId) ?? null;
+}
+
+export async function showProjectedRegistryRecord<TRecord extends RegistryMarkdownRecord>(
+  vaultRoot: string,
+  definition: RegistryDefinition<TRecord>,
+  family: ProjectedRegistryFamily,
+  mapEntity: (entity: CanonicalEntity) => TRecord | null,
+  lookup: string,
+): Promise<TRecord | null> {
+  const records = await loadProjectedRegistryRecords(
+    vaultRoot,
+    definition,
+    family,
+    mapEntity,
+  );
+
+  return records.find((record) => matchesLookup(lookup, record.id, record.slug, record.title)) ?? null;
+}
+
+export function createProjectedRegistryQueries<TRecord extends RegistryMarkdownRecord>(
+  definition: RegistryDefinition<TRecord>,
+  family: ProjectedRegistryFamily,
+  mapEntity: (entity: CanonicalEntity) => TRecord | null,
+): {
+  list(vaultRoot: string, options?: RegistryListOptions): Promise<TRecord[]>;
+  read(vaultRoot: string, recordId: string): Promise<TRecord | null>;
+  show(vaultRoot: string, lookup: string): Promise<TRecord | null>;
+} {
+  return {
+    list(vaultRoot, options = {}) {
+      return listProjectedRegistryRecords(vaultRoot, definition, family, mapEntity, options);
+    },
+    read(vaultRoot, recordId) {
+      return readProjectedRegistryRecord(vaultRoot, definition, family, mapEntity, recordId);
+    },
+    show(vaultRoot, lookup) {
+      return showProjectedRegistryRecord(vaultRoot, definition, family, mapEntity, lookup);
+    },
+  };
+}
+
 export interface GoalQueryRecord extends RegistryMarkdownRecord {
   horizon: string | null;
   priority: number | null;
@@ -212,28 +361,8 @@ export interface GoalQueryRecord extends RegistryMarkdownRecord {
   domains: string[];
 }
 
-export const goalRegistryDefinition: RegistryDefinition<GoalQueryRecord> = {
-  directory: "bank/goals",
-  idKeys: ["goalId"],
-  titleKeys: ["title"],
-  statusKeys: ["status"],
-  compare: buildPriorityTitleComparator,
-  transform(base, attributes) {
-    const window = attributes.window as FrontmatterObject | undefined;
-
-    return {
-      ...base,
-      horizon: firstString(attributes, ["horizon"]),
-      priority: readPriority(attributes, ["priority"]),
-      windowStartAt: window ? firstString(window, ["startAt"]) : null,
-      windowTargetAt: window ? firstString(window, ["targetAt"]) : null,
-      parentGoalId: firstString(attributes, ["parentGoalId"]),
-      relatedGoalIds: readRegistryStrings(attributes, ["relatedGoalIds"]),
-      relatedExperimentIds: readRegistryStrings(attributes, ["relatedExperimentIds"]),
-      domains: readRegistryStrings(attributes, ["domains"]),
-    };
-  },
-};
+export const goalRegistryDefinition: RegistryDefinition<GoalQueryRecord> =
+  createHealthEntityRegistryDefinition("goal");
 
 export interface ConditionQueryRecord extends RegistryMarkdownRecord {
   clinicalStatus: string | null;
@@ -247,26 +376,8 @@ export interface ConditionQueryRecord extends RegistryMarkdownRecord {
   note: string | null;
 }
 
-export const conditionRegistryDefinition: RegistryDefinition<ConditionQueryRecord> = {
-  directory: "bank/conditions",
-  idKeys: ["conditionId"],
-  titleKeys: ["title"],
-  statusKeys: ["clinicalStatus"],
-  transform(base, attributes) {
-    return {
-      ...base,
-      clinicalStatus: firstString(attributes, ["clinicalStatus"]),
-      verificationStatus: firstString(attributes, ["verificationStatus"]),
-      assertedOn: firstString(attributes, ["assertedOn"]),
-      resolvedOn: firstString(attributes, ["resolvedOn"]),
-      severity: firstString(attributes, ["severity"]),
-      bodySites: readRegistryStrings(attributes, ["bodySites"]),
-      relatedGoalIds: readRegistryStrings(attributes, ["relatedGoalIds"]),
-      relatedRegimenIds: readRegistryStrings(attributes, ["relatedRegimenIds"]),
-      note: firstString(attributes, ["note"]),
-    };
-  },
-};
+export const conditionRegistryDefinition: RegistryDefinition<ConditionQueryRecord> =
+  createHealthEntityRegistryDefinition("condition");
 
 export interface AllergyQueryRecord extends RegistryMarkdownRecord {
   substance: string | null;
@@ -277,23 +388,8 @@ export interface AllergyQueryRecord extends RegistryMarkdownRecord {
   note: string | null;
 }
 
-export const allergyRegistryDefinition: RegistryDefinition<AllergyQueryRecord> = {
-  directory: "bank/allergies",
-  idKeys: ["allergyId"],
-  titleKeys: ["title"],
-  statusKeys: ["status"],
-  transform(base, attributes) {
-    return {
-      ...base,
-      substance: firstString(attributes, ["substance"]),
-      criticality: firstString(attributes, ["criticality"]),
-      reaction: firstString(attributes, ["reaction"]),
-      recordedOn: firstString(attributes, ["recordedOn"]),
-      relatedConditionIds: readRegistryStrings(attributes, ["relatedConditionIds"]),
-      note: firstString(attributes, ["note"]),
-    };
-  },
-};
+export const allergyRegistryDefinition: RegistryDefinition<AllergyQueryRecord> =
+  createHealthEntityRegistryDefinition("allergy");
 
 export interface RegimenQueryRecord extends RegistryMarkdownRecord {
   kind: string | null;
@@ -308,30 +404,8 @@ export interface RegimenQueryRecord extends RegistryMarkdownRecord {
   group: string | null;
 }
 
-export const regimenRegistryDefinition: RegistryDefinition<RegimenQueryRecord> = {
-  directory: "bank/regimens",
-  idKeys: ["regimenId"],
-  titleKeys: ["title"],
-  statusKeys: ["status"],
-  transform(base, attributes) {
-    const directory = base.relativePath.split("/").slice(0, -1);
-    const group = directory.length > 2 ? directory.slice(2).join("/") : null;
-
-    return {
-      ...base,
-      kind: firstString(attributes, ["kind"]),
-      startedOn: firstString(attributes, ["startedOn"]),
-      stoppedOn: firstString(attributes, ["stoppedOn"]),
-      substance: firstString(attributes, ["substance"]),
-      dose: firstNumber(attributes, ["dose"]),
-      unit: firstString(attributes, ["unit"]),
-      schedule: firstString(attributes, ["schedule"]),
-      relatedGoalIds: readRegistryStrings(attributes, ["relatedGoalIds"]),
-      relatedConditionIds: readRegistryStrings(attributes, ["relatedConditionIds"]),
-      group,
-    };
-  },
-};
+export const regimenRegistryDefinition: RegistryDefinition<RegimenQueryRecord> =
+  createHealthEntityRegistryDefinition("regimen");
 
 export interface FamilyQueryRecord extends RegistryMarkdownRecord {
   relationship: string | null;
@@ -343,24 +417,8 @@ export interface FamilyQueryRecord extends RegistryMarkdownRecord {
   updatedAt: string | null;
 }
 
-export const familyRegistryDefinition: RegistryDefinition<FamilyQueryRecord> = {
-  directory: "bank/family",
-  idKeys: ["familyMemberId", "memberId"],
-  titleKeys: ["title", "name"],
-  statusKeys: [],
-  transform(base, attributes) {
-    return {
-      ...base,
-      relationship: firstString(attributes, ["relationship", "relation"]),
-      deceased: attributes.deceased === undefined ? null : Boolean(attributes.deceased),
-      conditions: readRegistryStrings(attributes, ["conditions"]),
-      relatedVariantIds: readRegistryStrings(attributes, ["relatedVariantIds"]),
-      note: firstString(attributes, ["note", "summary", "notes"]),
-      lineage: firstString(attributes, ["lineage"]),
-      updatedAt: firstString(attributes, ["updatedAt"]),
-    };
-  },
-};
+export const familyRegistryDefinition: RegistryDefinition<FamilyQueryRecord> =
+  createHealthEntityRegistryDefinition("family");
 
 export interface GeneticsQueryRecord extends RegistryMarkdownRecord {
   gene: string | null;
@@ -372,25 +430,180 @@ export interface GeneticsQueryRecord extends RegistryMarkdownRecord {
   updatedAt: string | null;
 }
 
-export const geneticsRegistryDefinition: RegistryDefinition<GeneticsQueryRecord> = {
-  directory: "bank/genetics",
-  idKeys: ["variantId"],
-  titleKeys: ["title", "label"],
-  statusKeys: ["significance"],
-  transform(base, attributes) {
-    return {
-      ...base,
-      gene: firstString(attributes, ["gene"]),
-      zygosity: firstString(attributes, ["zygosity"]),
-      significance: firstString(attributes, ["significance"]),
-      inheritance: firstString(attributes, ["inheritance"]),
-      sourceFamilyMemberIds: readRegistryStrings(attributes, ["sourceFamilyMemberIds", "familyMemberIds"]),
-      note: firstString(attributes, ["note", "summary", "actionability", "notes"]),
-      updatedAt: firstString(attributes, ["updatedAt"]),
-    };
-  },
-};
+export const geneticsRegistryDefinition: RegistryDefinition<GeneticsQueryRecord> =
+  createHealthEntityRegistryDefinition("genetics");
 
 export {
   type RegistryDefinition,
 };
+
+async function loadProjectedRegistryRecords<TRecord extends RegistryMarkdownRecord>(
+  vaultRoot: string,
+  definition: RegistryDefinition<TRecord>,
+  family: Extract<
+    CanonicalEntityFamily,
+    "allergy" | "condition" | "family" | "genetics" | "goal" | "regimen"
+  >,
+  mapEntity: (entity: CanonicalEntity) => TRecord | null,
+): Promise<TRecord[]> {
+  const relativePaths = await walkRelativeFiles(vaultRoot, definition.directory, ".md");
+  const records: TRecord[] = [];
+
+  for (const relativePath of relativePaths) {
+    const document = await readMarkdownDocument(vaultRoot, relativePath);
+    const record = toRegistryRecord(document, definition);
+    if (!record) {
+      continue;
+    }
+
+    const projected = mapEntity(projectRegistryEntity(family, record));
+    if (projected) {
+      records.push(projected);
+    }
+  }
+
+  return sortRegistryRecords(records, definition);
+}
+
+function registryRecordBaseFromEntity(
+  entity: CanonicalEntity,
+  family: CanonicalEntity["family"],
+): RegistryMarkdownRecord | null {
+  if (entity.family !== family) {
+    return null;
+  }
+
+  const attributes = entity.attributes as FrontmatterObject;
+
+  return {
+    id: entity.entityId,
+    slug: firstString(attributes, ["slug"]) ?? pathSlug(entity.path),
+    title: entity.title,
+    status: entity.status,
+    relativePath: entity.path,
+    markdown: entity.body ?? "",
+    body: entity.body ?? "",
+    attributes,
+  };
+}
+
+export function goalRecordFromEntity(entity: CanonicalEntity): GoalQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "goal");
+  if (!base) {
+    return null;
+  }
+
+  const window = base.attributes.window as FrontmatterObject | undefined;
+
+  return {
+    ...base,
+    horizon: firstString(base.attributes, ["horizon"]),
+    priority: readPriority(base.attributes, ["priority"]),
+    windowStartAt: window ? firstString(window, ["startAt"]) : null,
+    windowTargetAt: window ? firstString(window, ["targetAt"]) : null,
+    parentGoalId: firstString(base.attributes, ["parentGoalId"]),
+    relatedGoalIds: readRegistryStrings(base.attributes, ["relatedGoalIds"]),
+    relatedExperimentIds: readRegistryStrings(base.attributes, ["relatedExperimentIds"]),
+    domains: readRegistryStrings(base.attributes, ["domains"]),
+  };
+}
+
+export function conditionRecordFromEntity(
+  entity: CanonicalEntity,
+): ConditionQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "condition");
+  if (!base) {
+    return null;
+  }
+
+  return {
+    ...base,
+    clinicalStatus: firstString(base.attributes, ["clinicalStatus"]),
+    verificationStatus: firstString(base.attributes, ["verificationStatus"]),
+    assertedOn: firstString(base.attributes, ["assertedOn"]),
+    resolvedOn: firstString(base.attributes, ["resolvedOn"]),
+    severity: firstString(base.attributes, ["severity"]),
+    bodySites: readRegistryStrings(base.attributes, ["bodySites"]),
+    relatedGoalIds: readRegistryStrings(base.attributes, ["relatedGoalIds"]),
+    relatedRegimenIds: readRegistryStrings(base.attributes, ["relatedRegimenIds"]),
+    note: firstString(base.attributes, ["note"]),
+  };
+}
+
+export function allergyRecordFromEntity(entity: CanonicalEntity): AllergyQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "allergy");
+  if (!base) {
+    return null;
+  }
+
+  return {
+    ...base,
+    substance: firstString(base.attributes, ["substance"]),
+    criticality: firstString(base.attributes, ["criticality"]),
+    reaction: firstString(base.attributes, ["reaction"]),
+    recordedOn: firstString(base.attributes, ["recordedOn", "assertedOn"]),
+    relatedConditionIds: readRegistryStrings(base.attributes, ["relatedConditionIds"]),
+    note: firstString(base.attributes, ["note"]),
+  };
+}
+
+export function regimenRecordFromEntity(entity: CanonicalEntity): RegimenQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "regimen");
+  if (!base) {
+    return null;
+  }
+
+  return {
+    ...base,
+    kind: firstString(base.attributes, ["kind"]),
+    startedOn: firstString(base.attributes, ["startedOn"]),
+    stoppedOn: firstString(base.attributes, ["stoppedOn"]),
+    substance: firstString(base.attributes, ["substance"]),
+    dose: firstNumber(base.attributes, ["dose"]),
+    unit: firstString(base.attributes, ["unit"]),
+    schedule: firstString(base.attributes, ["schedule"]),
+    relatedGoalIds: readRegistryStrings(base.attributes, ["relatedGoalIds"]),
+    relatedConditionIds: readRegistryStrings(base.attributes, ["relatedConditionIds"]),
+    group:
+      firstString(base.attributes, ["group"]) ??
+      deriveRegimenGroupFromRelativePath(base.relativePath),
+  };
+}
+
+export function familyRecordFromEntity(entity: CanonicalEntity): FamilyQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "family");
+  if (!base) {
+    return null;
+  }
+
+  return {
+    ...base,
+    relationship: firstString(base.attributes, ["relationship", "relation"]),
+    deceased: firstBoolean(base.attributes, ["deceased"]),
+    conditions: readRegistryStrings(base.attributes, ["conditions"]),
+    relatedVariantIds: readRegistryStrings(base.attributes, ["relatedVariantIds"]),
+    note: firstString(base.attributes, ["note", "summary", "notes"]),
+    lineage: firstString(base.attributes, ["lineage"]),
+    updatedAt: firstString(base.attributes, ["updatedAt"]),
+  };
+}
+
+export function geneticsRecordFromEntity(
+  entity: CanonicalEntity,
+): GeneticsQueryRecord | null {
+  const base = registryRecordBaseFromEntity(entity, "genetics");
+  if (!base) {
+    return null;
+  }
+
+  return {
+    ...base,
+    gene: firstString(base.attributes, ["gene"]),
+    zygosity: firstString(base.attributes, ["zygosity"]),
+    significance: firstString(base.attributes, ["significance"]),
+    inheritance: firstString(base.attributes, ["inheritance"]),
+    sourceFamilyMemberIds: readRegistryStrings(base.attributes, ["sourceFamilyMemberIds", "familyMemberIds"]),
+    note: firstString(base.attributes, ["note", "summary", "actionability", "notes"]),
+    updatedAt: firstString(base.attributes, ["updatedAt"]),
+  };
+}

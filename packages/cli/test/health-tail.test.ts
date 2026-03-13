@@ -217,6 +217,164 @@ test.sequential("goal upsert rejects reserved vault-root overrides from JSON pay
   }
 });
 
+test.sequential("family descriptor wiring keeps member-specific commands aligned with generic health reads", async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
+  const payloadPath = path.join(vaultRoot, "family.json");
+
+  try {
+    await runCli(["init", "--vault", vaultRoot]);
+    await writeFile(
+      payloadPath,
+      JSON.stringify({
+        title: "Mother",
+        relationship: "mother",
+        conditions: ["hypertension"],
+      }),
+      "utf8",
+    );
+
+    const upsertResult = await runCli<{
+      familyMemberId: string;
+    }>([
+      "family",
+      "upsert",
+      "--input",
+      `@${payloadPath}`,
+      "--vault",
+      vaultRoot,
+    ]);
+    const familyMemberId = requireData(upsertResult).familyMemberId;
+
+    const nounShow = await runCli<{
+      entity: Record<string, unknown>;
+    }>([
+      "family",
+      "show",
+      familyMemberId,
+      "--vault",
+      vaultRoot,
+    ]);
+    const nounList = await runCli<{
+      items: Array<Record<string, unknown>>;
+    }>([
+      "family",
+      "list",
+      "--vault",
+      vaultRoot,
+    ]);
+    const genericShow = await runCli<{
+      entity: {
+        id: string;
+        kind: string;
+      };
+    }>([
+      "show",
+      familyMemberId,
+      "--vault",
+      vaultRoot,
+    ]);
+    const genericList = await runCli<{
+      items: Array<{
+        id: string;
+        kind: string;
+      }>;
+    }>([
+      "list",
+      "--kind",
+      "family",
+      "--vault",
+      vaultRoot,
+    ]);
+
+    assert.equal(upsertResult.ok, true);
+    assert.equal(nounShow.ok, true);
+    assert.equal(nounList.ok, true);
+    assert.equal(genericShow.ok, true);
+    assert.equal(genericList.ok, true);
+    assert.equal(requireData(genericShow).entity.id, familyMemberId);
+    assert.equal(requireData(genericShow).entity.kind, "family");
+    assert.equal(
+      requireData(nounShow).entity.id ?? requireData(nounShow).entity.familyMemberId,
+      familyMemberId,
+    );
+    assert.deepEqual(
+      requireData(nounList).items.map((item) => item.id),
+      [familyMemberId],
+    );
+    assert.deepEqual(
+      requireData(genericList).items.map((item) => item.id),
+      [familyMemberId],
+    );
+    assert.deepEqual(
+      requireData(genericList).items.map((item) => item.kind),
+      ["family"],
+    );
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
+test.sequential("history descriptor wiring preserves the shared history-ledger upsert result shape", async () => {
+  const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
+  const payloadPath = path.join(vaultRoot, "history.json");
+
+  try {
+    await runCli(["init", "--vault", vaultRoot]);
+    await writeFile(
+      payloadPath,
+      JSON.stringify({
+        kind: "encounter",
+        occurredAt: "2026-03-12T13:00:00.000Z",
+        title: "Primary care follow-up",
+        encounterType: "office_visit",
+        location: "Primary care clinic",
+      }),
+      "utf8",
+    );
+
+    const upsertResult = await runCli<{
+      eventId: string;
+      lookupId: string;
+      ledgerFile: string;
+      created: boolean;
+    }>([
+      "history",
+      "upsert",
+      "--input",
+      `@${payloadPath}`,
+      "--vault",
+      vaultRoot,
+    ]);
+    const eventId = requireData(upsertResult).eventId;
+    const showResult = await runCli<{
+      entity: {
+        id: string;
+        kind: string;
+      };
+    }>([
+      "history",
+      "show",
+      eventId,
+      "--vault",
+      vaultRoot,
+    ]);
+
+    assert.equal(upsertResult.ok, true);
+    assert.match(eventId, /^evt_/u);
+    assert.equal(requireData(upsertResult).lookupId, eventId);
+    assert.equal(requireData(upsertResult).created, true);
+    assert.equal(
+      requireData(upsertResult).ledgerFile,
+      "ledger/events/2026/2026-03.jsonl",
+    );
+    assert.equal(showResult.ok, true);
+    assert.equal(requireData(showResult).entity.id, eventId);
+    assert.equal(requireData(showResult).entity.kind, "encounter");
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true });
+  }
+});
+
 test.sequential("profile current lookup stays wired for both noun-specific and generic show", async () => {
   const vaultRoot = await mkdtemp(path.join(tmpdir(), "healthybob-cli-health-"));
   const payloadPath = path.join(vaultRoot, "profile.json");
