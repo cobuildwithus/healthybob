@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 export interface CliSuccessEnvelope<TData = Record<string, unknown>> {
@@ -43,23 +42,18 @@ export type CliEnvelope<TData = Record<string, unknown>> =
   | CliSuccessEnvelope<TData>
   | CliErrorEnvelope
 
-const execFileAsync = promisify(execFile)
-
 export const packageDir = fileURLToPath(new URL('../', import.meta.url))
 export const repoRoot = path.resolve(packageDir, '../..')
 export const binPath = path.join(packageDir, 'dist/bin.js')
 
 export async function runCli<TData = Record<string, unknown>>(
   args: string[],
+  options?: {
+    stdin?: string
+  },
 ): Promise<CliEnvelope<TData>> {
   try {
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [binPath, ...withMachineOutput(args)],
-      {
-        cwd: repoRoot,
-      },
-    )
+    const { stdout } = await execCli(withMachineOutput(args), options)
 
     return JSON.parse(stdout) as CliEnvelope<TData>
   } catch (error) {
@@ -76,11 +70,14 @@ export async function runCli<TData = Record<string, unknown>>(
   }
 }
 
-export async function runRawCli(args: string[]): Promise<string> {
+export async function runRawCli(
+  args: string[],
+  options?: {
+    stdin?: string
+  },
+): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(process.execPath, [binPath, ...args], {
-      cwd: repoRoot,
-    })
+    const { stdout } = await execCli(args, options)
 
     return stdout.trim()
   } catch (error) {
@@ -141,4 +138,33 @@ function withMachineOutput(args: string[]): string[] {
   }
 
   return nextArgs
+}
+
+async function execCli(
+  args: string[],
+  options?: {
+    stdin?: string
+  },
+) {
+  return await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const child = execFile(
+      process.execPath,
+      [binPath, ...args],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          Object.assign(error, { stderr, stdout })
+          reject(error)
+          return
+        }
+
+        resolve({ stdout, stderr })
+      },
+    )
+
+    child.stdin?.end(options?.stdin)
+  })
 }

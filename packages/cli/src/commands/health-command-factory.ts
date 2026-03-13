@@ -1,15 +1,11 @@
 import { Cli, z } from 'incur'
 import { requestIdFromOptions, withBaseOptions } from '../command-helpers.js'
+import {
+  inputFileOptionSchema,
+  normalizeInputFileOption,
+} from '../json-input.js'
 export { healthPayloadSchema } from '../health-cli-descriptors.js'
-
-export const inputFileOptionSchema = z
-  .string()
-  .regex(/^@.+/u, 'Expected an @file.json payload reference.')
-  .describe('Payload file reference in @file.json form.')
-
-export function normalizeInputFileOption(input: string) {
-  return input.slice(1)
-}
+export { inputFileOptionSchema, normalizeInputFileOption } from '../json-input.js'
 
 const limitOptionSchema = z.number().int().positive().max(200).default(50)
 const localDateOptionSchema = z
@@ -52,7 +48,7 @@ interface CrudHints {
   upsert?: string
 }
 
-type CrudListMode = 'limit-only' | 'date-range-limit' | 'history-kind-date-range-limit'
+export type HealthCrudListFilterCapability = 'date-range' | 'kind' | 'status'
 
 type CrudCommandName = keyof CrudDescriptions
 type CommandExamples = Array<Record<string, unknown>>
@@ -100,7 +96,7 @@ interface HealthCrudConfig<
   group: Cli.Cli
   groupName: string
   hints?: CrudHints
-  listMode?: CrudListMode
+  listFilterCapabilities?: readonly HealthCrudListFilterCapability[]
   listStatusDescription?: string
   noun: string
   outputs: CrudOutputs<TScaffold, TUpsert, TShow, TList>
@@ -214,10 +210,10 @@ const defaultHintsByCommand: Partial<
     return 'Use --limit to cap results.'
   },
   scaffold(config) {
-    return `Edit the emitted payload, save it as ${config.payloadFile}, then pass it back with --input @${config.payloadFile}.`
+    return `Edit the emitted payload, save it as ${config.payloadFile}, then pass it back with --input @${config.payloadFile} or pipe it to --input -.`
   },
   upsert(config) {
-    return `--input expects @file.json so the CLI can load the structured ${config.noun} payload from disk.`
+    return `--input accepts @file.json or - so the CLI can load the structured ${config.noun} payload from disk or stdin.`
   },
 }
 
@@ -433,10 +429,7 @@ export function registerHealthCrudCommands<
     listOptionShape.status = statusOptionSchema.describe(config.listStatusDescription)
   }
 
-  if (
-    config.listMode === 'date-range-limit' ||
-    config.listMode === 'history-kind-date-range-limit'
-  ) {
+  if (config.listFilterCapabilities?.includes('date-range')) {
     listOptionShape.from = localDateOptionSchema
       .optional()
       .describe('Optional inclusive lower date bound in YYYY-MM-DD form.')
@@ -445,7 +438,7 @@ export function registerHealthCrudCommands<
       .describe('Optional inclusive upper date bound in YYYY-MM-DD form.')
   }
 
-  if (config.listMode === 'history-kind-date-range-limit') {
+  if (config.listFilterCapabilities?.includes('kind')) {
     listOptionShape.kind = z
       .string()
       .min(1)
@@ -509,4 +502,621 @@ export function registerHealthCrudCommands<
       })
     },
   })
+}
+
+type CommandOptionShape = Record<string, z.ZodTypeAny>
+
+interface FactoryCommandConfig<TResult> {
+  name: string
+  args: z.ZodObject<any>
+  description: string
+  examples?: CommandExamples
+  hint?: string
+  options?: CommandOptionShape
+  output: z.ZodType<TResult>
+  run(input: {
+    args: Record<string, unknown>
+    options: Record<string, unknown> & { vault: string }
+    requestId: string | null
+  }): Promise<TResult>
+}
+
+interface FactoryCommandGroupConfig {
+  commandName: string
+  description: string
+  commands: readonly FactoryCommandConfig<any>[]
+}
+
+interface NamedArgCommandConfig<TResult> {
+  description: string
+  argName: string
+  argSchema: z.ZodTypeAny
+  examples?: CommandExamples
+  hint?: string
+  output: z.ZodType<TResult>
+  run(input: ShowCommandContext): Promise<TResult>
+}
+
+interface RegistryDocEntityGroupConfig<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+> {
+  commandName: string
+  description: string
+  scaffold: FactoryCommandConfig<TScaffold>
+  upsert: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    output: z.ZodType<TUpsert>
+    run(input: UpsertCommandContext): Promise<TUpsert>
+  }
+  show: NamedArgCommandConfig<TShow>
+  list: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    output: z.ZodType<TList>
+    statusOption?: z.ZodTypeAny
+    run(input: ListCommandContext): Promise<TList>
+  }
+}
+
+interface LedgerEventListCommandContext extends ListCommandContext {
+  experiment?: string
+  tag?: unknown
+}
+
+interface LedgerEventEntityGroupConfig<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+> {
+  commandName: string
+  description: string
+  scaffold: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    kindOption: z.ZodTypeAny
+    output: z.ZodType<TScaffold>
+    run(input: CommandContext & { kind: string }): Promise<TScaffold>
+  }
+  upsert: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    output: z.ZodType<TUpsert>
+    run(input: UpsertCommandContext): Promise<TUpsert>
+  }
+  show: NamedArgCommandConfig<TShow>
+  list: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    experimentOption?: z.ZodTypeAny
+    kindOption?: z.ZodTypeAny
+    output: z.ZodType<TList>
+    tagOption?: z.ZodTypeAny
+    run(input: LedgerEventListCommandContext): Promise<TList>
+  }
+}
+
+interface ArtifactListOptionNames {
+  from: string
+  to: string
+}
+
+interface ArtifactBackedEntityGroupConfig<
+  TPrimary,
+  TShow,
+  TList,
+  TManifest,
+> {
+  commandName: string
+  description: string
+  primaryAction: FactoryCommandConfig<TPrimary>
+  show: NamedArgCommandConfig<TShow>
+  list: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    limitOption?: z.ZodTypeAny
+    optionNames?: ArtifactListOptionNames
+    output: z.ZodType<TList>
+    run(input: CommandContext & { from?: string; to?: string; limit?: number }): Promise<TList>
+  }
+  manifest: NamedArgCommandConfig<TManifest>
+  additionalCommands?: readonly FactoryCommandConfig<any>[]
+}
+
+interface LifecycleEntityGroupConfig<
+  TCreate,
+  TShow,
+  TList,
+  TUpdate,
+  TCheckpoint,
+  TStop,
+> {
+  commandName: string
+  description: string
+  create: FactoryCommandConfig<TCreate>
+  show: NamedArgCommandConfig<TShow>
+  list: {
+    description: string
+    examples?: CommandExamples
+    hint?: string
+    output: z.ZodType<TList>
+    statusOption?: z.ZodTypeAny
+    run(input: ListCommandContext): Promise<TList>
+  }
+  update: FactoryCommandConfig<TUpdate>
+  checkpoint: FactoryCommandConfig<TCheckpoint>
+  stop: {
+    description: string
+    argName: string
+    argSchema: z.ZodTypeAny
+    examples?: CommandExamples
+    hint?: string
+    options?: CommandOptionShape
+    output: z.ZodType<TStop>
+    run(input: CommandContext & { id: string } & Record<string, unknown>): Promise<TStop>
+  }
+}
+
+function optionStringValue(
+  options: Record<string, unknown>,
+  key: string,
+) {
+  return typeof options[key] === 'string' ? options[key] : undefined
+}
+
+function optionNumberValue(
+  options: Record<string, unknown>,
+  key: string,
+) {
+  return typeof options[key] === 'number' ? options[key] : undefined
+}
+
+function createNamedArgSchema(
+  argName: string,
+  argSchema: z.ZodTypeAny,
+): z.ZodObject<any> {
+  return z.object({
+    [argName]: argSchema,
+  })
+}
+
+function createFactoryCommandGroup(config: FactoryCommandGroupConfig) {
+  const group = Cli.create(config.commandName, {
+    description: config.description,
+  })
+
+  for (const command of config.commands) {
+    group.command(command.name, {
+      args: command.args,
+      description: command.description,
+      examples: command.examples,
+      hint: command.hint,
+      options: withBaseOptions(command.options ?? {}),
+      output: command.output,
+      async run(context) {
+        return command.run({
+          args: context.args as Record<string, unknown>,
+          options: context.options as Record<string, unknown> & { vault: string },
+          requestId: requestIdFromOptions(
+            context.options as { vault: string; requestId?: string },
+          ),
+        })
+      },
+    })
+  }
+
+  return group
+}
+
+function registerFactoryCommandGroup(
+  cli: Cli.Cli,
+  config: FactoryCommandGroupConfig,
+) {
+  const group = createFactoryCommandGroup(config)
+  cli.command(group)
+  return group
+}
+
+export function createRegistryDocEntityGroup<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+>(
+  config: RegistryDocEntityGroupConfig<TScaffold, TUpsert, TShow, TList>,
+) {
+  return createFactoryCommandGroup({
+    commandName: config.commandName,
+    description: config.description,
+    commands: [
+      config.scaffold,
+      {
+        name: 'upsert',
+        args: z.object({}),
+        description: config.upsert.description,
+        examples: config.upsert.examples,
+        hint: config.upsert.hint,
+        options: {
+          input: inputFileOptionSchema,
+        },
+        output: config.upsert.output,
+        run({ options, requestId }) {
+          return config.upsert.run({
+            input: normalizeInputFileOption(String(options.input ?? '')),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'show',
+        args: createNamedArgSchema(config.show.argName, config.show.argSchema),
+        description: config.show.description,
+        examples: config.show.examples,
+        hint: config.show.hint,
+        output: config.show.output,
+        run({ args, options, requestId }) {
+          return config.show.run({
+            id: String(args[config.show.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'list',
+        args: z.object({}),
+        description: config.list.description,
+        examples: config.list.examples,
+        hint: config.list.hint,
+        options: {
+          ...(config.list.statusOption ? { status: config.list.statusOption } : {}),
+          limit: limitOptionSchema,
+        },
+        output: config.list.output,
+        run({ options, requestId }) {
+          return config.list.run({
+            limit: optionNumberValue(options, 'limit'),
+            requestId,
+            status: optionStringValue(options, 'status'),
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+    ],
+  })
+}
+
+export function registerRegistryDocEntityGroup<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+>(
+  cli: Cli.Cli,
+  config: RegistryDocEntityGroupConfig<TScaffold, TUpsert, TShow, TList>,
+) {
+  const group = createRegistryDocEntityGroup(config)
+  cli.command(group)
+  return group
+}
+
+export function createLedgerEventEntityGroup<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+>(
+  config: LedgerEventEntityGroupConfig<TScaffold, TUpsert, TShow, TList>,
+) {
+  return createFactoryCommandGroup({
+    commandName: config.commandName,
+    description: config.description,
+    commands: [
+      {
+        name: 'scaffold',
+        args: z.object({}),
+        description: config.scaffold.description,
+        examples: config.scaffold.examples,
+        hint: config.scaffold.hint,
+        options: {
+          kind: config.scaffold.kindOption,
+        },
+        output: config.scaffold.output,
+        run({ options, requestId }) {
+          return config.scaffold.run({
+            kind: String(options.kind ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'upsert',
+        args: z.object({}),
+        description: config.upsert.description,
+        examples: config.upsert.examples,
+        hint: config.upsert.hint,
+        options: {
+          input: inputFileOptionSchema,
+        },
+        output: config.upsert.output,
+        run({ options, requestId }) {
+          return config.upsert.run({
+            input: normalizeInputFileOption(String(options.input ?? '')),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'show',
+        args: createNamedArgSchema(config.show.argName, config.show.argSchema),
+        description: config.show.description,
+        examples: config.show.examples,
+        hint: config.show.hint,
+        output: config.show.output,
+        run({ args, options, requestId }) {
+          return config.show.run({
+            id: String(args[config.show.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'list',
+        args: z.object({}),
+        description: config.list.description,
+        examples: config.list.examples,
+        hint: config.list.hint,
+        options: {
+          ...(config.list.kindOption ? { kind: config.list.kindOption } : {}),
+          from: localDateOptionSchema.optional(),
+          to: localDateOptionSchema.optional(),
+          ...(config.list.tagOption ? { tag: config.list.tagOption } : {}),
+          ...(config.list.experimentOption
+            ? { experiment: config.list.experimentOption }
+            : {}),
+          limit: limitOptionSchema,
+        },
+        output: config.list.output,
+        run({ options, requestId }) {
+          return config.list.run({
+            experiment: optionStringValue(options, 'experiment'),
+            from: optionStringValue(options, 'from'),
+            kind: optionStringValue(options, 'kind'),
+            limit: optionNumberValue(options, 'limit'),
+            requestId,
+            tag: options.tag,
+            to: optionStringValue(options, 'to'),
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+    ],
+  })
+}
+
+export function registerLedgerEventEntityGroup<
+  TScaffold,
+  TUpsert,
+  TShow,
+  TList,
+>(
+  cli: Cli.Cli,
+  config: LedgerEventEntityGroupConfig<TScaffold, TUpsert, TShow, TList>,
+) {
+  const group = createLedgerEventEntityGroup(config)
+  cli.command(group)
+  return group
+}
+
+export function createArtifactBackedEntityGroup<
+  TPrimary,
+  TShow,
+  TList,
+  TManifest,
+>(
+  config: ArtifactBackedEntityGroupConfig<TPrimary, TShow, TList, TManifest>,
+) {
+  const optionNames = config.list.optionNames ?? {
+    from: 'from',
+    to: 'to',
+  }
+
+  return createFactoryCommandGroup({
+    commandName: config.commandName,
+    description: config.description,
+    commands: [
+      config.primaryAction,
+      {
+        name: 'show',
+        args: createNamedArgSchema(config.show.argName, config.show.argSchema),
+        description: config.show.description,
+        examples: config.show.examples,
+        hint: config.show.hint,
+        output: config.show.output,
+        run({ args, options, requestId }) {
+          return config.show.run({
+            id: String(args[config.show.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'list',
+        args: z.object({}),
+        description: config.list.description,
+        examples: config.list.examples,
+        hint: config.list.hint,
+        options: {
+          [optionNames.from]: localDateOptionSchema
+            .optional()
+            .describe('Optional inclusive start date in YYYY-MM-DD form.'),
+          [optionNames.to]: localDateOptionSchema
+            .optional()
+            .describe('Optional inclusive end date in YYYY-MM-DD form.'),
+          ...(config.list.limitOption ? { limit: config.list.limitOption } : {}),
+        },
+        output: config.list.output,
+        run({ options, requestId }) {
+          return config.list.run({
+            from: optionStringValue(options, optionNames.from),
+            limit: optionNumberValue(options, 'limit'),
+            requestId,
+            to: optionStringValue(options, optionNames.to),
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'manifest',
+        args: createNamedArgSchema(
+          config.manifest.argName,
+          config.manifest.argSchema,
+        ),
+        description: config.manifest.description,
+        examples: config.manifest.examples,
+        hint: config.manifest.hint,
+        output: config.manifest.output,
+        run({ args, options, requestId }) {
+          return config.manifest.run({
+            id: String(args[config.manifest.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      ...(config.additionalCommands ?? []),
+    ],
+  })
+}
+
+export function registerArtifactBackedEntityGroup<
+  TPrimary,
+  TShow,
+  TList,
+  TManifest,
+>(
+  cli: Cli.Cli,
+  config: ArtifactBackedEntityGroupConfig<TPrimary, TShow, TList, TManifest>,
+) {
+  const group = createArtifactBackedEntityGroup(config)
+  cli.command(group)
+  return group
+}
+
+export function createLifecycleEntityGroup<
+  TCreate,
+  TShow,
+  TList,
+  TUpdate,
+  TCheckpoint,
+  TStop,
+>(
+  config: LifecycleEntityGroupConfig<
+    TCreate,
+    TShow,
+    TList,
+    TUpdate,
+    TCheckpoint,
+    TStop
+  >,
+) {
+  return createFactoryCommandGroup({
+    commandName: config.commandName,
+    description: config.description,
+    commands: [
+      config.create,
+      {
+        name: 'show',
+        args: createNamedArgSchema(config.show.argName, config.show.argSchema),
+        description: config.show.description,
+        examples: config.show.examples,
+        hint: config.show.hint,
+        output: config.show.output,
+        run({ args, options, requestId }) {
+          return config.show.run({
+            id: String(args[config.show.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      {
+        name: 'list',
+        args: z.object({}),
+        description: config.list.description,
+        examples: config.list.examples,
+        hint: config.list.hint,
+        options: {
+          ...(config.list.statusOption ? { status: config.list.statusOption } : {}),
+          limit: limitOptionSchema,
+        },
+        output: config.list.output,
+        run({ options, requestId }) {
+          return config.list.run({
+            limit: optionNumberValue(options, 'limit'),
+            requestId,
+            status: optionStringValue(options, 'status'),
+            vault: String(options.vault ?? ''),
+          })
+        },
+      },
+      config.update,
+      config.checkpoint,
+      {
+        name: 'stop',
+        args: createNamedArgSchema(config.stop.argName, config.stop.argSchema),
+        description: config.stop.description,
+        examples: config.stop.examples,
+        hint: config.stop.hint,
+        options: config.stop.options,
+        output: config.stop.output,
+        run({ args, options, requestId }) {
+          return config.stop.run({
+            id: String(args[config.stop.argName] ?? ''),
+            requestId,
+            vault: String(options.vault ?? ''),
+            ...(options as Record<string, unknown>),
+          })
+        },
+      },
+    ],
+  })
+}
+
+export function registerLifecycleEntityGroup<
+  TCreate,
+  TShow,
+  TList,
+  TUpdate,
+  TCheckpoint,
+  TStop,
+>(
+  cli: Cli.Cli,
+  config: LifecycleEntityGroupConfig<
+    TCreate,
+    TShow,
+    TList,
+    TUpdate,
+    TCheckpoint,
+    TStop
+  >,
+) {
+  const group = createLifecycleEntityGroup(config)
+  cli.command(group)
+  return group
 }

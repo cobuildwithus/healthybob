@@ -20,38 +20,41 @@ import type {
 } from "./health-cli-method-types.js";
 import {
   listItemSchema,
+  localDateSchema,
   pathSchema,
   showResultSchema,
 } from "./vault-cli-contracts.js";
 
 export type { JsonObject } from "./health-cli-method-types.js";
 
-type GenericListMode = "date-range-limit" | "history-kind-date-range-limit" | "limit-only";
-type ServiceListMode = "status-limit";
-type HealthUpsertMode = "profile-snapshot" | "record-payload";
-type HealthResultMode = "profile-snapshot" | "record-path" | "history-ledger";
+export type HealthListFilterCapability = "date-range" | "kind" | "status";
+export type HealthUpsertInputCapability = "profile-snapshot-envelope";
+export type HealthUpsertResultCapability =
+  | "path"
+  | "ledger-file"
+  | "current-profile-path"
+  | "profile-payload";
 
 export interface HealthCoreDescriptor {
+  inputCapabilities: readonly HealthUpsertInputCapability[];
   payloadTemplate: JsonObject;
   resultIdField: string;
-  resultMode: HealthResultMode;
+  resultCapabilities: readonly HealthUpsertResultCapability[];
   runtimeMethod: HealthCoreRuntimeMethodName;
   scaffoldNoun: string;
   scaffoldServiceMethod: HealthCoreScaffoldServiceMethodName;
-  upsertMode: HealthUpsertMode;
   upsertServiceMethod: HealthCoreUpsertServiceMethodName;
 }
 
 export interface HealthQueryDescriptor {
   genericListKinds?: readonly string[];
-  genericListMode?: GenericListMode;
+  genericListFilterCapabilities: readonly HealthListFilterCapability[];
   genericLookupPrefixes?: readonly string[];
   genericLookupValues?: readonly string[];
   listServiceMethod: HealthQueryListServiceMethodName;
   notFoundLabel: string;
   runtimeListMethod: HealthQueryRuntimeListMethodName;
   runtimeShowMethod: HealthQueryRuntimeShowMethodName;
-  serviceListMode: ServiceListMode;
   showServiceMethod: HealthQueryShowServiceMethodName;
 }
 
@@ -101,7 +104,9 @@ export interface HealthEntityDescriptor extends HealthEntityDefinition {
 
 interface HealthEntityDescriptorExtension {
   command?: HealthEntityCommandDescriptorExtension;
-  core?: Omit<HealthCoreDescriptor, "payloadTemplate">;
+  core?: Omit<HealthCoreDescriptor, "payloadTemplate" | "inputCapabilities"> & {
+    inputCapabilities?: readonly HealthUpsertInputCapability[];
+  };
   query?: Omit<
     HealthQueryDescriptor,
     "genericListKinds" | "genericLookupPrefixes" | "genericLookupValues"
@@ -120,13 +125,13 @@ export function createHealthScaffoldResultSchema<TNoun extends string>(noun: TNo
 
 export const healthShowResultSchema = showResultSchema;
 
-export const healthListFiltersSchema: z.ZodType<HealthListFilters> = z.object({
-  from: z.string().min(1).optional(),
-  to: z.string().min(1).optional(),
+export const healthListFiltersSchema = z.object({
+  from: localDateSchema.optional(),
+  to: localDateSchema.optional(),
   kind: z.string().min(1).optional(),
   status: z.string().min(1).optional(),
   limit: z.number().int().positive().max(200).default(50),
-});
+}) satisfies z.ZodType<HealthListFilters>;
 
 export const healthListResultSchema = z.object({
   vault: pathSchema,
@@ -139,12 +144,11 @@ export const healthListResultSchema = z.object({
 const checkedHealthEntityDescriptorExtensions = {
   assessment: {
     query: {
-      genericListMode: "date-range-limit",
+      genericListFilterCapabilities: ["date-range", "status"],
       listServiceMethod: "listAssessments",
       notFoundLabel: "assessment",
       runtimeListMethod: "listAssessments",
       runtimeShowMethod: "showAssessment",
-      serviceListMode: "status-limit",
       showServiceMethod: "showAssessment",
     },
   },
@@ -156,7 +160,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List profile snapshots through the health read model.",
         scaffold: "Emit a payload template for a profile snapshot upsert.",
         show: "Show one profile snapshot or the derived current profile.",
-        upsert: "Upsert one profile snapshot from an @file.json payload.",
+        upsert: "Upsert one profile snapshot from a JSON payload file or stdin.",
       },
       examples: {
         show: [
@@ -201,21 +205,20 @@ const checkedHealthEntityDescriptorExtensions = {
       },
     },
     core: {
+      inputCapabilities: ["profile-snapshot-envelope"],
       resultIdField: "snapshotId",
-      resultMode: "profile-snapshot",
+      resultCapabilities: ["ledger-file", "current-profile-path", "profile-payload"],
       runtimeMethod: "appendProfileSnapshot",
       scaffoldNoun: "profile",
       scaffoldServiceMethod: "scaffoldProfileSnapshot",
-      upsertMode: "profile-snapshot",
       upsertServiceMethod: "upsertProfileSnapshot",
     },
     query: {
-      genericListMode: "date-range-limit",
+      genericListFilterCapabilities: ["date-range", "status"],
       listServiceMethod: "listProfileSnapshots",
       notFoundLabel: "profile",
       runtimeListMethod: "listProfileSnapshots",
       runtimeShowMethod: "showProfile",
-      serviceListMode: "status-limit",
       showServiceMethod: "showProfile",
     },
   },
@@ -227,7 +230,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List goals through the health read model.",
         scaffold: "Emit a payload template for goal upserts.",
         show: "Show one goal by canonical id or slug.",
-        upsert: "Upsert one goal from an @file.json payload.",
+        upsert: "Upsert one goal from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional goal status to filter by.",
       noun: "goal",
@@ -240,20 +243,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "goalId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertGoal",
       scaffoldNoun: "goal",
       scaffoldServiceMethod: "scaffoldGoal",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertGoal",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listGoals",
       notFoundLabel: "goal",
       runtimeListMethod: "listGoals",
       runtimeShowMethod: "showGoal",
-      serviceListMode: "status-limit",
       showServiceMethod: "showGoal",
     },
   },
@@ -265,7 +266,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List conditions through the health read model.",
         scaffold: "Emit a payload template for condition upserts.",
         show: "Show one condition by canonical id or slug.",
-        upsert: "Upsert one condition from an @file.json payload.",
+        upsert: "Upsert one condition from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional condition status to filter by.",
       noun: "condition",
@@ -278,20 +279,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "conditionId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertCondition",
       scaffoldNoun: "condition",
       scaffoldServiceMethod: "scaffoldCondition",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertCondition",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listConditions",
       notFoundLabel: "condition",
       runtimeListMethod: "listConditions",
       runtimeShowMethod: "showCondition",
-      serviceListMode: "status-limit",
       showServiceMethod: "showCondition",
     },
   },
@@ -303,7 +302,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List allergies through the health read model.",
         scaffold: "Emit a payload template for allergy upserts.",
         show: "Show one allergy by canonical id or slug.",
-        upsert: "Upsert one allergy from an @file.json payload.",
+        upsert: "Upsert one allergy from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional allergy status to filter by.",
       noun: "allergy",
@@ -316,20 +315,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "allergyId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertAllergy",
       scaffoldNoun: "allergy",
       scaffoldServiceMethod: "scaffoldAllergy",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertAllergy",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listAllergies",
       notFoundLabel: "allergy",
       runtimeListMethod: "listAllergies",
       runtimeShowMethod: "showAllergy",
-      serviceListMode: "status-limit",
       showServiceMethod: "showAllergy",
     },
   },
@@ -341,7 +338,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List regimens through the health read model.",
         scaffold: "Emit a payload template for regimen upserts.",
         show: "Show one regimen by canonical id or slug.",
-        upsert: "Upsert one regimen from an @file.json payload.",
+        upsert: "Upsert one regimen from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional regimen status to filter by.",
       noun: "regimen",
@@ -354,20 +351,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "regimenId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertRegimenItem",
       scaffoldNoun: "regimen",
       scaffoldServiceMethod: "scaffoldRegimen",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertRegimen",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listRegimens",
       notFoundLabel: "regimen",
       runtimeListMethod: "listRegimens",
       runtimeShowMethod: "showRegimen",
-      serviceListMode: "status-limit",
       showServiceMethod: "showRegimen",
     },
   },
@@ -379,7 +374,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List timed history events through the health read model.",
         scaffold: "Emit a payload template for timed history events.",
         show: "Show one timed history event.",
-        upsert: "Append one timed history event from an @file.json payload.",
+        upsert: "Append one timed history event from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional health-event status to filter by.",
       noun: "history event",
@@ -392,20 +387,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "eventId",
-      resultMode: "history-ledger",
+      resultCapabilities: ["ledger-file"],
       runtimeMethod: "appendHistoryEvent",
       scaffoldNoun: "history",
       scaffoldServiceMethod: "scaffoldHistoryEvent",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertHistoryEvent",
     },
     query: {
-      genericListMode: "history-kind-date-range-limit",
+      genericListFilterCapabilities: ["kind", "date-range", "status"],
       listServiceMethod: "listHistoryEvents",
       notFoundLabel: "history event",
       runtimeListMethod: "listHistoryEvents",
       runtimeShowMethod: "showHistoryEvent",
-      serviceListMode: "status-limit",
       showServiceMethod: "showHistoryEvent",
     },
   },
@@ -417,7 +410,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List family members through the health read model.",
         scaffold: "Emit a payload template for family member upserts.",
         show: "Show one family member by canonical id or slug.",
-        upsert: "Upsert one family member from an @file.json payload.",
+        upsert: "Upsert one family member from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional family-member status to filter by.",
       noun: "family member",
@@ -430,20 +423,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "familyMemberId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertFamilyMember",
       scaffoldNoun: "family",
       scaffoldServiceMethod: "scaffoldFamilyMember",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertFamilyMember",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listFamilyMembers",
       notFoundLabel: "family member",
       runtimeListMethod: "listFamilyMembers",
       runtimeShowMethod: "showFamilyMember",
-      serviceListMode: "status-limit",
       showServiceMethod: "showFamilyMember",
     },
   },
@@ -455,7 +446,7 @@ const checkedHealthEntityDescriptorExtensions = {
         list: "List genetic variants through the health read model.",
         scaffold: "Emit a payload template for genetic variant upserts.",
         show: "Show one genetic variant by canonical id or slug.",
-        upsert: "Upsert one genetic variant from an @file.json payload.",
+        upsert: "Upsert one genetic variant from a JSON payload file or stdin.",
       },
       listStatusDescription: "Optional genetic-variant status to filter by.",
       noun: "genetic variant",
@@ -468,20 +459,18 @@ const checkedHealthEntityDescriptorExtensions = {
     },
     core: {
       resultIdField: "variantId",
-      resultMode: "record-path",
+      resultCapabilities: ["path"],
       runtimeMethod: "upsertGeneticVariant",
       scaffoldNoun: "genetics",
       scaffoldServiceMethod: "scaffoldGeneticVariant",
-      upsertMode: "record-payload",
       upsertServiceMethod: "upsertGeneticVariant",
     },
     query: {
-      genericListMode: "limit-only",
+      genericListFilterCapabilities: ["status"],
       listServiceMethod: "listGeneticVariants",
       notFoundLabel: "genetic variant",
       runtimeListMethod: "listGeneticVariants",
       runtimeShowMethod: "showGeneticVariant",
-      serviceListMode: "status-limit",
       showServiceMethod: "showGeneticVariant",
     },
   },
@@ -515,6 +504,7 @@ function buildHealthEntityDescriptor(
     core: extension.core
       ? {
           ...extension.core,
+          inputCapabilities: extension.core.inputCapabilities ?? [],
           payloadTemplate: requireScaffoldTemplate(definition),
         }
       : undefined,
@@ -576,6 +566,27 @@ export function hasHealthCommandDescriptor(
   descriptor: HealthEntityDescriptor,
 ): descriptor is HealthCommandDescriptorEntry {
   return Boolean(descriptor.command && descriptor.core && descriptor.query);
+}
+
+export function healthCoreHasInputCapability(
+  descriptor: Pick<HealthCoreDescriptorEntry, "core">,
+  capability: HealthUpsertInputCapability,
+) {
+  return descriptor.core.inputCapabilities.includes(capability);
+}
+
+export function healthCoreHasResultCapability(
+  descriptor: Pick<HealthCoreDescriptorEntry, "core">,
+  capability: HealthUpsertResultCapability,
+) {
+  return descriptor.core.resultCapabilities.includes(capability);
+}
+
+export function healthQueryHasListFilterCapability(
+  descriptor: Pick<HealthQueryDescriptorEntry, "query">,
+  capability: HealthListFilterCapability,
+) {
+  return descriptor.query.genericListFilterCapabilities.includes(capability);
 }
 
 const queryHealthDescriptors = healthEntityDescriptors.filter(hasHealthQueryDescriptor);

@@ -1,8 +1,5 @@
 import { Cli, z } from 'incur'
 import {
-  requestIdFromOptions,
-} from '../command-helpers.js'
-import {
   listItemSchema,
   pathSchema,
   showResultSchema,

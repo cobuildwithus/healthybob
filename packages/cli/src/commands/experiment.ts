@@ -1,10 +1,6 @@
 import { EXPERIMENT_STATUSES } from '@healthybob/contracts'
 import { Cli, z } from 'incur'
 import {
-  requestIdFromOptions,
-  withBaseOptions,
-} from '../command-helpers.js'
-import {
   inputFileOptionSchema,
   normalizeInputFileOption,
 } from './health-command-factory.js'
@@ -18,6 +14,7 @@ import {
   slugSchema,
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
+import { registerLifecycleEntityGroup } from './health-command-factory.js'
 
 const experimentStatusSchema = z.enum(EXPERIMENT_STATUSES)
 
@@ -51,130 +48,117 @@ export function registerExperimentCommands(
   cli: Cli.Cli,
   services: VaultCliServices,
 ) {
-  const experiment = Cli.create('experiment', {
+  registerLifecycleEntityGroup(cli, {
+    commandName: 'experiment',
     description: 'Experiment bank commands routed through the core write API.',
-  })
-
-  experiment.command(
-    'create',
-    {
+    create: {
+      name: 'create',
       description: 'Create a baseline experiment document.',
       args: z.object({
         slug: slugSchema,
       }),
-      options: withBaseOptions({
+      options: {
         title: z.string().min(1).optional().describe('Optional human-readable title.'),
         hypothesis: z.string().min(1).optional().describe('Optional experiment hypothesis.'),
         startedOn: localDateSchema.optional().describe('Optional experiment start date.'),
         status: experimentStatusSchema.optional().describe('Optional experiment status.'),
-      }),
+      },
       output: experimentCreateResultSchema,
-      async run({ args, options }) {
+      async run({ args, options, requestId }) {
         return services.core.createExperiment({
-          vault: options.vault,
-          requestId: requestIdFromOptions(options),
-          slug: args.slug,
-          title: options.title,
-          hypothesis: options.hypothesis,
-          startedOn: options.startedOn,
-          status: options.status,
+          vault: String(options.vault ?? ''),
+          requestId,
+          slug: String(args.slug ?? ''),
+          title: typeof options.title === 'string' ? options.title : undefined,
+          hypothesis: typeof options.hypothesis === 'string' ? options.hypothesis : undefined,
+          startedOn: typeof options.startedOn === 'string' ? options.startedOn : undefined,
+          status: typeof options.status === 'string' ? options.status : undefined,
         })
       },
     },
-  )
-
-  experiment.command('show', {
-    description: 'Show one experiment by canonical id or slug.',
-    args: z.object({
-      id: z.string().min(1).describe('Experiment id or slug to resolve.'),
-    }),
-    options: withBaseOptions(),
-    output: showResultSchema,
-    async run({ args, options }) {
-      return services.query.showExperiment({
-        lookup: args.id,
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-      })
+    show: {
+      description: 'Show one experiment by canonical id or slug.',
+      argName: 'id',
+      argSchema: z.string().min(1).describe('Experiment id or slug to resolve.'),
+      output: showResultSchema,
+      async run(input) {
+        return services.query.showExperiment({
+          lookup: input.id,
+          vault: input.vault,
+          requestId: input.requestId,
+        })
+      },
+    },
+    list: {
+      description: 'List experiments through the query read model.',
+      statusOption: experimentStatusSchema.optional().describe('Optional experiment status filter.'),
+      output: experimentListResultSchema,
+      async run(input) {
+        const result = await services.query.listExperiments({
+          vault: input.vault,
+          requestId: input.requestId,
+          status: input.status,
+          limit: input.limit ?? 50,
+        })
+        return result as z.infer<typeof experimentListResultSchema>
+      },
+    },
+    update: {
+      name: 'update',
+      args: z.object({}),
+      description: 'Update one experiment frontmatter/body payload from a JSON payload file or stdin.',
+      options: {
+        input: inputFileOptionSchema,
+      },
+      output: experimentUpdateResultSchema,
+      async run({ options, requestId }) {
+        const result = await services.core.updateExperiment({
+          vault: String(options.vault ?? ''),
+          requestId,
+          inputFile: normalizeInputFileOption(String(options.input ?? '')),
+        })
+        return result as z.infer<typeof experimentUpdateResultSchema>
+      },
+    },
+    checkpoint: {
+      name: 'checkpoint',
+      args: z.object({}),
+      description: 'Append one experiment checkpoint event from a JSON payload file or stdin.',
+      options: {
+        input: inputFileOptionSchema,
+      },
+      output: experimentLifecycleResultSchema,
+      async run({ options, requestId }) {
+        const result = await services.core.checkpointExperiment({
+          vault: String(options.vault ?? ''),
+          requestId,
+          inputFile: normalizeInputFileOption(String(options.input ?? '')),
+        })
+        return result as z.infer<typeof experimentLifecycleResultSchema>
+      },
+    },
+    stop: {
+      description: 'Stop one experiment by id or slug and append a stop lifecycle event.',
+      argName: 'id',
+      argSchema: z.string().min(1).describe('Experiment id or slug to stop.'),
+      options: {
+        occurredAt: isoTimestampSchema
+          .optional()
+          .describe('Optional stop timestamp in ISO 8601 form.'),
+        note: z.string().min(1).optional().describe('Optional stop note.'),
+      },
+      output: experimentLifecycleResultSchema,
+      async run(input) {
+        const result = await services.core.stopExperiment({
+          vault: input.vault,
+          requestId: input.requestId,
+          lookup: input.id,
+          occurredAt:
+            typeof input.occurredAt === 'string' ? input.occurredAt : undefined,
+          note: typeof input.note === 'string' ? input.note : undefined,
+        })
+        return result as z.infer<typeof experimentLifecycleResultSchema>
+      },
     },
   })
-
-  experiment.command('list', {
-    description: 'List experiments through the query read model.',
-    args: z.object({}),
-    options: withBaseOptions({
-      status: experimentStatusSchema.optional().describe('Optional experiment status filter.'),
-      limit: z.number().int().positive().max(200).default(50),
-    }),
-    output: experimentListResultSchema,
-    async run({ options }) {
-      const result = await services.query.listExperiments({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        status: options.status,
-        limit: options.limit,
-      })
-      return result as z.infer<typeof experimentListResultSchema>
-    },
-  })
-
-  experiment.command('update', {
-    description: 'Update one experiment frontmatter/body payload from a JSON payload file or stdin.',
-    args: z.object({}),
-    options: withBaseOptions({
-      input: inputFileOptionSchema,
-    }),
-    output: experimentUpdateResultSchema,
-    async run({ options }) {
-      const result = await services.core.updateExperiment({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        inputFile: normalizeInputFileOption(options.input),
-      })
-      return result as z.infer<typeof experimentUpdateResultSchema>
-    },
-  })
-
-  experiment.command('checkpoint', {
-    description: 'Append one experiment checkpoint event from a JSON payload file or stdin.',
-    args: z.object({}),
-    options: withBaseOptions({
-      input: inputFileOptionSchema,
-    }),
-    output: experimentLifecycleResultSchema,
-    async run({ options }) {
-      const result = await services.core.checkpointExperiment({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        inputFile: normalizeInputFileOption(options.input),
-      })
-      return result as z.infer<typeof experimentLifecycleResultSchema>
-    },
-  })
-
-  experiment.command('stop', {
-    description: 'Stop one experiment by id or slug and append a stop lifecycle event.',
-    args: z.object({
-      id: z.string().min(1).describe('Experiment id or slug to stop.'),
-    }),
-    options: withBaseOptions({
-      occurredAt: isoTimestampSchema
-        .optional()
-        .describe('Optional stop timestamp in ISO 8601 form.'),
-      note: z.string().min(1).optional().describe('Optional stop note.'),
-    }),
-    output: experimentLifecycleResultSchema,
-    async run({ args, options }) {
-      const result = await services.core.stopExperiment({
-        vault: options.vault,
-        requestId: requestIdFromOptions(options),
-        lookup: args.id,
-        occurredAt: options.occurredAt,
-        note: options.note,
-      })
-      return result as z.infer<typeof experimentLifecycleResultSchema>
-    },
-  })
-
-  cli.command(experiment)
 }
