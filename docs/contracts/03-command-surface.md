@@ -18,37 +18,37 @@ vault-cli vault show --vault <path> [--format json|md] [--request-id <id>]
 vault-cli vault paths --vault <path> [--format json|md] [--request-id <id>]
 vault-cli vault stats --vault <path> [--format json|md] [--request-id <id>]
 vault-cli vault update --vault <path> [--title <title>] [--timezone <tz>] [--format json|md] [--request-id <id>]
-vault-cli audit show <auditId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli audit show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli audit list --vault <path> [--action <action>] [--actor <actor>] [--status <status>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli audit tail --vault <path> [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli provider scaffold --vault <path> [--format json|md] [--request-id <id>]
 vault-cli provider upsert --vault <path> --input @file.json [--format json|md] [--request-id <id>]
-vault-cli provider show <prov_*|slug> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli provider show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli provider list --vault <path> [--status active|inactive] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli event scaffold --vault <path> --kind <kind> [--format json|md] [--request-id <id>]
 vault-cli event upsert --vault <path> --input @file.json [--format json|md] [--request-id <id>]
-vault-cli event show <evt_*> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli event show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli event list --vault <path> [--kind <kind>] [--from <date>] [--to <date>] [--tag <tag> ...] [--experiment <slug>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli document import <file> --vault <path> [--title <title>] [--occurred-at <ts>] [--note "..."] [--source <source>] [--format json|md] [--request-id <id>]
-vault-cli document show <doc_*|evt_*> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli document show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli document list --vault <path> [--from <date>] [--to <date>] [--format json|md] [--request-id <id>]
-vault-cli document manifest <doc_*|evt_*> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli document manifest <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli meal add --vault <path> --photo <path> [--audio <path>] [--note "..."] [--occurred-at <ts>] [--source <source>] [--format json|md] [--request-id <id>]
-vault-cli meal show <meal_*|evt_*> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli meal show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli meal list --vault <path> [--from <date>] [--to <date>] [--format json|md] [--request-id <id>]
-vault-cli meal manifest <meal_*|evt_*> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli meal manifest <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli samples add --vault <path> --input @file.json [--format json|md] [--request-id <id>]
 vault-cli samples import-csv <file> --vault <path> [--preset <id>] [--stream <stream>] [--ts-column <name>] [--value-column <name>] [--unit <unit>] [--delimiter <char>] [--metadata-columns <name> ...] [--source <source>] [--format json|md] [--request-id <id>]
-vault-cli samples show <sampleId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli samples show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli samples list --vault <path> [--stream <stream>] [--from <date>] [--to <date>] [--quality <quality>] [--limit <n>] [--format json|md] [--request-id <id>]
-vault-cli samples batch show <batchId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli samples batch show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli samples batch list --vault <path> [--stream <stream>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli experiment create <slug> --vault <path> [--title <title>] [--hypothesis <text>] [--started-on <date>] [--status <status>] [--format json|md] [--request-id <id>]
-vault-cli experiment show <exp_*|slug> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli experiment show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli experiment list --vault <path> [--status <status>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli experiment update --vault <path> --input @file.json [--format json|md] [--request-id <id>]
 vault-cli experiment checkpoint --vault <path> --input @file.json [--format json|md] [--request-id <id>]
-vault-cli experiment stop <exp_*|slug> --vault <path> [--occurred-at <ts>] [--note "..."] [--format json|md] [--request-id <id>]
+vault-cli experiment stop <id> --vault <path> [--occurred-at <ts>] [--note "..."] [--format json|md] [--request-id <id>]
 vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli journal show <date> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli journal list --vault <path> [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
@@ -58,22 +58,22 @@ vault-cli journal unlink-event <date> --vault <path> --id <evt_*> [--id <evt_*> 
 vault-cli journal link-stream <date> --vault <path> --stream <stream> [--stream <stream> ...] [--format json|md] [--request-id <id>]
 vault-cli journal unlink-stream <date> --vault <path> --stream <stream> [--stream <stream> ...] [--format json|md] [--request-id <id>]
 vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli list --vault <path> [--record-type <type> ...] [--kind <kind>] [--status <status>] [--stream <stream> ...] [--tag <tag> ...] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
-vault-cli search --vault <path> --text <query> [--backend auto|scan|sqlite] [--record-type <type> ...] [--kind <kind> ...] [--stream <stream> ...] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <tag> ...] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli list --vault <path> [--record-type <type> ...] [--kind <kind>] [--status <status>] [--stream <stream> ...] [--tag <tag> ...] [--experiment <slug>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli search --vault <path> --text <query> [--backend auto|scan|sqlite] [--record-type <type> ...] [--kind <kind> ...] [--stream <stream> ...] [--experiment <slug>] [--from <date>] [--to <date>] [--tag <tag> ...] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli search index status --vault <path> [--format json|md] [--request-id <id>]
 vault-cli search index rebuild --vault <path> [--format json|md] [--request-id <id>]
 vault-cli timeline --vault <path> [--from <date>] [--to <date>] [--experiment <slug>] [--kind <kind> ...] [--stream <stream> ...] [--entry-type <type> ...] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli export pack create --vault <path> --from <date> --to <date> [--experiment <slug>] [--out <dir>] [--format json|md] [--request-id <id>]
-vault-cli export pack show <packId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli export pack show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli export pack list --vault <path> [--from <date>] [--to <date>] [--experiment <slug>] [--limit <n>] [--format json|md] [--request-id <id>]
-vault-cli export pack materialize <packId> --vault <path> [--out <dir>] [--format json|md] [--request-id <id>]
-vault-cli export pack prune <packId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli export pack materialize <id> --vault <path> [--out <dir>] [--format json|md] [--request-id <id>]
+vault-cli export pack prune <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli intake import <file> --vault <path> [--title <title>] [--occurred-at <ts>] [--imported-at <ts>] [--source <source>] [--format json|md] [--request-id <id>]
-vault-cli intake show <assessmentId> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli intake list --vault <path> [--date-from <date>] [--date-to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
-vault-cli intake manifest <assessmentId> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli intake raw <assessmentId> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli intake project <assessmentId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli intake show <id> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli intake list --vault <path> [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli intake manifest <id> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli intake raw <id> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli intake project <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli profile current rebuild --vault <path> [--format json|md] [--request-id <id>]
 vault-cli regimen stop <regimenId> --vault <path> [--stopped-on <date>] [--format json|md] [--request-id <id>]
 vault-cli inbox bootstrap --vault <path> [--rebuild] [--strict] [--ffmpegCommand <command>] [--pdftotextCommand <command>] [--whisperCommand <command>] [--whisperModelPath <path>] [--paddleocrCommand <command>] [--format json|md] [--request-id <id>]
@@ -357,8 +357,8 @@ The examples below are the full successful `--format json` response bodies.
     "status": null,
     "stream": null,
     "experiment": "sleep-window",
-    "dateFrom": "2026-03-01",
-    "dateTo": "2026-03-12",
+    "from": "2026-03-01",
+    "to": "2026-03-12",
     "tag": "lunch",
     "limit": 50
   },
@@ -390,8 +390,8 @@ The examples below are the full successful `--format json` response bodies.
     "kinds": ["document"],
     "streams": [],
     "experiment": null,
-    "dateFrom": null,
-    "dateTo": null,
+    "from": null,
+    "to": null,
     "tags": ["labs"],
     "limit": 20
   },

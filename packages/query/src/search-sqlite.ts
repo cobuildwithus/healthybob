@@ -216,7 +216,7 @@ async function searchVaultSqliteWithStatus(
 
   if (!status) {
     throw new Error(
-      "SQLite search index is empty. Run `vault-cli search index-rebuild --vault <path>` first or use `--backend scan`.",
+      "SQLite search index is empty. Run `vault-cli search index rebuild --vault <path>` first or use `--backend scan`.",
     );
   }
 

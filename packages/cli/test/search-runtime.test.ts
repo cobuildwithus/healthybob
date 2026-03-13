@@ -297,7 +297,7 @@ test.sequential('timeline merges journals, events, and sample summaries into one
   }
 })
 
-test.sequential('search index-status and index-rebuild expose the shared sqlite runtime state without creating it early', async () => {
+test.sequential('search index status and rebuild expose the shared sqlite runtime state without creating it early', async () => {
   const fixture = await makeRetrievalFixture()
   const runtimeDatabasePath = path.join(fixture.vaultRoot, '.runtime/search.sqlite')
 
@@ -311,7 +311,8 @@ test.sequential('search index-status and index-rebuild expose the shared sqlite 
       dbPath: string
     }>([
       'search',
-      'index-status',
+      'index',
+      'status',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -330,7 +331,8 @@ test.sequential('search index-status and index-rebuild expose the shared sqlite 
       dbPath: string
     }>([
       'search',
-      'index-rebuild',
+      'index',
+      'rebuild',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -371,7 +373,7 @@ test.sequential('search index-status and index-rebuild expose the shared sqlite 
   }
 })
 
-test.sequential('search index-status ignores a copied inbox search db until index-rebuild restores the canonical search db', async () => {
+test.sequential('search index status ignores a copied inbox search db until index rebuild restores the canonical search db', async () => {
   const fixture = await makeRetrievalFixture()
   const searchDatabasePath = path.join(fixture.vaultRoot, '.runtime/search.sqlite')
   const legacyDatabasePath = path.join(fixture.vaultRoot, '.runtime/inboxd.sqlite')
@@ -382,7 +384,8 @@ test.sequential('search index-status ignores a copied inbox search db until inde
       rebuilt: boolean
     }>([
       'search',
-      'index-rebuild',
+      'index',
+      'rebuild',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -400,7 +403,8 @@ test.sequential('search index-status ignores a copied inbox search db until inde
       dbPath: string
     }>([
       'search',
-      'index-status',
+      'index',
+      'status',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -428,7 +432,7 @@ test.sequential('search index-status ignores a copied inbox search db until inde
     assert.equal(sqliteSearch.ok, false)
     assert.match(
       sqliteSearch.error.message ?? '',
-      /index-rebuild|--backend scan/u,
+      /index rebuild|--backend scan/u,
     )
 
     const rebuilt = await runCli<{
@@ -438,7 +442,8 @@ test.sequential('search index-status ignores a copied inbox search db until inde
       dbPath: string
     }>([
       'search',
-      'index-rebuild',
+      'index',
+      'rebuild',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -454,7 +459,7 @@ test.sequential('search index-status ignores a copied inbox search db until inde
   }
 })
 
-test.sequential('search index-status treats a pre-existing inbox runtime db as unindexed and sqlite backend returns operator guidance', async () => {
+test.sequential('search index status treats a pre-existing inbox runtime db as unindexed and sqlite backend returns operator guidance', async () => {
   const fixture = await makeRetrievalFixture()
   const runtimeRoot = path.join(fixture.vaultRoot, '.runtime')
   const runtimeDatabasePath = path.join(runtimeRoot, 'inboxd.sqlite')
@@ -471,7 +476,8 @@ test.sequential('search index-status treats a pre-existing inbox runtime db as u
       dbPath: string
     }>([
       'search',
-      'index-status',
+      'index',
+      'status',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -494,7 +500,7 @@ test.sequential('search index-status treats a pre-existing inbox runtime db as u
     assert.equal(sqliteSearch.ok, false)
     assert.match(
       sqliteSearch.error.message ?? '',
-      /index-rebuild|--backend scan/u,
+      /index rebuild|--backend scan/u,
     )
   } finally {
     await rm(fixture.vaultRoot, { recursive: true, force: true })
@@ -543,7 +549,8 @@ Steady energy after electrolyte drink.
 
     const rebuild = await runCli([
       'search',
-      'index-rebuild',
+      'index',
+      'rebuild',
       '--vault',
       fixture.vaultRoot,
     ])
@@ -607,6 +614,9 @@ test.sequential('search accepts projected health record families', async () => {
 
   try {
     const result = await runCli<{
+      filters: {
+        recordTypes: string[]
+      }
       hits: Array<{
         recordId: string
         recordType: string
@@ -617,12 +627,21 @@ test.sequential('search accepts projected health record families', async () => {
       '--text',
       'sleep',
       '--record-type',
-      'history,assessment,goal',
+      'history',
+      '--record-type',
+      'assessment',
+      '--record-type',
+      'goal',
       '--vault',
       vaultRoot,
     ])
 
     assert.equal(result.ok, true)
+    assert.deepEqual(requireData(result).filters.recordTypes, [
+      'history',
+      'assessment',
+      'goal',
+    ])
     assert.deepEqual(
       new Set(requireData(result).hits.map((hit) => hit.recordType)),
       new Set(['history', 'assessment', 'goal']),
@@ -638,13 +657,20 @@ test.sequential('timeline exposes projected health entry types', async () => {
 
   try {
     const result = await runCli<{
+      filters: {
+        entryTypes: string[]
+      }
       items: Array<{
         entryType: string
       }>
     }>([
       'timeline',
       '--entry-type',
-      'assessment,history,profile_snapshot',
+      'assessment',
+      '--entry-type',
+      'history',
+      '--entry-type',
+      'profile_snapshot',
       '--from',
       '2026-03-12',
       '--to',
@@ -654,10 +680,67 @@ test.sequential('timeline exposes projected health entry types', async () => {
     ])
 
     assert.equal(result.ok, true)
+    assert.deepEqual(requireData(result).filters.entryTypes, [
+      'assessment',
+      'history',
+      'profile_snapshot',
+    ])
     assert.deepEqual(
       requireData(result).items.map((item) => item.entryType),
       ['profile_snapshot', 'assessment', 'history'],
     )
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('search no longer splits comma-delimited record-type tokens', async () => {
+  const vaultRoot = await makeCanonicalHealthFixture()
+
+  try {
+    const result = await runCli<{
+      filters: {
+        recordTypes: string[]
+      }
+    }>([
+      'search',
+      '--text',
+      'sleep',
+      '--record-type',
+      'history,assessment',
+      '--vault',
+      vaultRoot,
+    ])
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(requireData(result).filters.recordTypes, [])
+  } finally {
+    await rm(vaultRoot, { recursive: true, force: true })
+  }
+})
+
+test.sequential('timeline no longer splits comma-delimited entry-type tokens', async () => {
+  const vaultRoot = await makeCanonicalHealthFixture()
+
+  try {
+    const result = await runCli<{
+      filters: {
+        entryTypes: string[]
+      }
+    }>([
+      'timeline',
+      '--entry-type',
+      'assessment,history',
+      '--from',
+      '2026-03-12',
+      '--to',
+      '2026-03-12',
+      '--vault',
+      vaultRoot,
+    ])
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(requireData(result).filters.entryTypes, [])
   } finally {
     await rm(vaultRoot, { recursive: true, force: true })
   }

@@ -1741,7 +1741,7 @@ function createRecord(
   };
 }
 
-test("rebuildSqliteSearchIndex only materializes non-sample documents and index-status stays read-only when absent", async () => {
+test("rebuildSqliteSearchIndex only materializes non-sample documents and search index status stays read-only when absent", async () => {
   const vaultRoot = await createFixtureVault();
   const runtimeDatabasePath = path.join(vaultRoot, SEARCH_DB_RELATIVE_PATH);
 
@@ -1849,7 +1849,7 @@ test("getSqliteSearchStatus ignores a copied inbox search db until rebuild resto
           },
           { backend: "sqlite" },
         ),
-      /index-rebuild|--backend scan/u,
+      /index rebuild|--backend scan/u,
     );
 
     const rebuilt = await rebuildSqliteSearchIndex(vaultRoot);
@@ -1948,7 +1948,7 @@ test("getSqliteSearchStatus stays false against a pre-existing inbox runtime db 
           { recordTypes: ["event"] },
           { backend: "sqlite" },
         ),
-      /index-rebuild|--backend scan/u,
+      /index rebuild|--backend scan/u,
     );
   } finally {
     await rm(vaultRoot, { recursive: true, force: true });

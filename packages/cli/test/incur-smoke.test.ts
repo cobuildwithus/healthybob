@@ -57,8 +57,26 @@ test('search schema exposes retrieval-specific filters', async () => {
   assert.equal('text' in schema.options.properties, true)
   assert.equal('backend' in schema.options.properties, true)
   assert.equal('recordType' in schema.options.properties, true)
+  assert.equal('from' in schema.options.properties, true)
+  assert.equal('to' in schema.options.properties, true)
+  assert.equal('dateFrom' in schema.options.properties, false)
+  assert.equal('dateTo' in schema.options.properties, false)
   assert.equal('entryType' in schema.options.properties, false)
-  assert.deepEqual(schema.options.required, ['vault', 'text', 'limit'])
+  assert.deepEqual(schema.options.required, ['vault', 'limit'])
+})
+
+test('search index status schema does not require a text query', async () => {
+  const schema = JSON.parse(
+    await runRawCli(['search', 'index', 'status', '--schema', '--format', 'json']),
+  ) as {
+    options: {
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+  }
+
+  assert.equal('text' in schema.options.properties, true)
+  assert.deepEqual(schema.options.required, ['vault', 'limit'])
 })
 
 test('profile show help exposes only the global format flag', async () => {
@@ -80,7 +98,7 @@ test('health command help surfaces examples and hints through Incur metadata', a
   )
   assert.match(
     profileUpsertHelp,
-    /--input expects @file\.json so the CLI can load the structured profile snapshot payload from disk\./u,
+    /--input accepts @file\.json or - so the CLI can load the structured profile snapshot payload from disk or stdin\./u,
   )
   assert.match(
     profileRebuildHelp,
@@ -204,7 +222,7 @@ test('goal scaffold help surfaces factory-provided example and hint text', async
   )
   assert.match(
     help,
-    /Edit the emitted payload, save it as goal\.json, then pass it back with --input @goal\.json\./u,
+    /Edit the emitted payload, save it as goal\.json, then pass it back with --input @goal\.json or pipe it to --input -\./u,
   )
 })
 

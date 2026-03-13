@@ -6,6 +6,7 @@ import {
   pathSchema,
   slugSchema,
 } from '../vault-cli-contracts.js'
+import { VaultCliError } from '../vault-cli-errors.js'
 import { loadQueryRuntime } from '../query-runtime.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
@@ -70,8 +71,8 @@ const searchResultSchema = z.object({
     kinds: z.array(z.string().min(1)),
     streams: z.array(z.string().min(1)),
     experiment: slugSchema.nullable(),
-    dateFrom: localDateSchema.nullable(),
-    dateTo: localDateSchema.nullable(),
+    from: localDateSchema.nullable(),
+    to: localDateSchema.nullable(),
     tags: z.array(z.string().min(1)),
     limit: z.number().int().positive().max(200),
   }),
@@ -143,36 +144,37 @@ export function registerSearchCommands(
       text: z
         .string()
         .min(1)
+        .optional()
         .describe('Search text to run across titles, notes, tags, ids, and record payloads.'),
       backend: z
         .enum(searchBackendValues)
         .optional()
         .describe('Retrieval backend. Defaults to `auto`, which prefers SQLite when an index exists and otherwise falls back to the scan backend.'),
       recordType: z
-        .string()
+        .array(z.string().min(1))
         .optional()
-        .describe('Optional comma-separated record families: core, experiment, journal, event, sample, audit, assessment, profile_snapshot, current_profile, goal, condition, allergy, regimen, history, family, genetics.'),
+        .describe('Optional record families. Repeat --record-type for multiple values: core, experiment, journal, event, sample, audit, assessment, profile_snapshot, current_profile, goal, condition, allergy, regimen, history, family, genetics.'),
       kind: z
-        .string()
+        .array(z.string().min(1))
         .optional()
-        .describe('Optional comma-separated record kinds such as meal, note, document, or journal_day.'),
+        .describe('Optional record kinds such as meal, note, document, or journal_day. Repeat --kind for multiple values.'),
       stream: z
-        .string()
+        .array(z.string().min(1))
         .optional()
-        .describe('Optional comma-separated sample streams; setting this also opts sample rows into search.'),
+        .describe('Optional sample streams; setting this also opts sample rows into search. Repeat --stream for multiple values.'),
       experiment: slugSchema
         .optional()
         .describe('Optional experiment slug filter.'),
-      dateFrom: localDateSchema
+      from: localDateSchema
         .optional()
         .describe('Inclusive lower date bound.'),
-      dateTo: localDateSchema
+      to: localDateSchema
         .optional()
         .describe('Inclusive upper date bound.'),
       tag: z
-        .string()
+        .array(z.string().min(1))
         .optional()
-        .describe('Optional comma-separated tags that matching records must contain.'),
+        .describe('Optional tags that matching records must contain. Repeat --tag for multiple values.'),
       limit: z
         .number()
         .int()
@@ -201,21 +203,30 @@ export function registerSearchCommands(
         }
       }
 
+      const text = options.text?.trim()
+
+      if (!text) {
+        throw new VaultCliError(
+          'invalid_query',
+          'Search text is required for `search`.',
+        )
+      }
+
       const recordTypes = parseRecordTypes(options.recordType)
-      const kinds = parseCsvOption(options.kind)
-      const streams = parseCsvOption(options.stream)
-      const tags = parseCsvOption(options.tag)
+      const kinds = normalizeRepeatedOption(options.kind)
+      const streams = normalizeRepeatedOption(options.stream)
+      const tags = normalizeRepeatedOption(options.tag)
       const backend = options.backend ?? 'auto'
       const result = await query.searchVaultRuntime(
         options.vault,
-        options.text,
+        text,
         {
           recordTypes: recordTypes.length > 0 ? recordTypes : undefined,
           kinds: kinds.length > 0 ? kinds : undefined,
           streams: streams.length > 0 ? streams : undefined,
           experimentSlug: options.experiment,
-          from: options.dateFrom,
-          to: options.dateTo,
+          from: options.from,
+          to: options.to,
           tags: tags.length > 0 ? tags : undefined,
           limit: options.limit,
         },
@@ -226,14 +237,14 @@ export function registerSearchCommands(
         vault: options.vault,
         query: result.query,
         filters: {
-          text: options.text,
+          text,
           backend,
           recordTypes,
           kinds,
           streams,
           experiment: options.experiment ?? null,
-          dateFrom: options.dateFrom ?? null,
-          dateTo: options.dateTo ?? null,
+          from: options.from ?? null,
+          to: options.to ?? null,
           tags,
           limit: options.limit,
         },
@@ -259,17 +270,17 @@ export function registerSearchCommands(
           .optional()
           .describe('Optional experiment slug filter.'),
         kind: z
-          .string()
+          .array(z.string().min(1))
           .optional()
-          .describe('Optional comma-separated entry kinds such as meal, note, journal_day, or sample_summary.'),
+          .describe('Optional entry kinds such as meal, note, journal_day, or sample_summary. Repeat --kind for multiple values.'),
         stream: z
-          .string()
+          .array(z.string().min(1))
           .optional()
-          .describe('Optional comma-separated streams; applies to sample summaries and any stream-carrying events.'),
+          .describe('Optional streams; applies to sample summaries and any stream-carrying events. Repeat --stream for multiple values.'),
         entryType: z
-          .string()
+          .array(z.string().min(1))
           .optional()
-          .describe('Optional comma-separated entry types: journal, event, assessment, history, profile_snapshot, sample_summary.'),
+          .describe('Optional entry types: journal, event, assessment, history, profile_snapshot, sample_summary. Repeat --entry-type for multiple values.'),
         limit: z
           .number()
           .int()
@@ -280,8 +291,8 @@ export function registerSearchCommands(
       }),
       output: timelineResultSchema,
       async run({ options }) {
-        const kinds = parseCsvOption(options.kind)
-        const streams = parseCsvOption(options.stream)
+        const kinds = normalizeRepeatedOption(options.kind)
+        const streams = normalizeRepeatedOption(options.stream)
         const entryTypes = parseTimelineEntryTypes(options.entryType)
         const entryTypeSet = entryTypes.length > 0 ? new Set(entryTypes) : null
         const query = await loadQueryRuntime()
@@ -323,15 +334,14 @@ export function registerSearchCommands(
   )
 }
 
-function parseCsvOption(value: string | undefined): string[] {
-  if (typeof value !== 'string') {
+function normalizeRepeatedOption(value: string[] | undefined): string[] {
+  if (!Array.isArray(value)) {
     return []
   }
 
   return [
     ...new Set(
       value
-        .split(',')
         .map((entry) => entry.trim())
         .filter((entry) => entry.length > 0),
     ),
@@ -339,9 +349,9 @@ function parseCsvOption(value: string | undefined): string[] {
 }
 
 function parseRecordTypes(
-  value: string | undefined,
+  value: string[] | undefined,
 ): Array<(typeof recordTypeValues)[number]> {
-  const requestedValues = parseCsvOption(value)
+  const requestedValues = normalizeRepeatedOption(value)
   const recordTypeSet = new Set(recordTypeValues)
 
   return requestedValues.filter(
@@ -351,9 +361,9 @@ function parseRecordTypes(
 }
 
 function parseTimelineEntryTypes(
-  value: string | undefined,
+  value: string[] | undefined,
 ): Array<(typeof timelineEntryTypeValues)[number]> {
-  const requestedValues = parseCsvOption(value)
+  const requestedValues = normalizeRepeatedOption(value)
   const entryTypeSet = new Set(timelineEntryTypeValues)
 
   return requestedValues.filter(

@@ -4,26 +4,16 @@ import { createVaultCli } from './vault-cli.js'
 
 const cli = createVaultCli()
 
-cli.serve(rewriteSearchIndexArgv(process.argv.slice(2)))
+cli.serve(rewriteSearchArgv(process.argv.slice(2)))
 
-function rewriteSearchIndexArgv(argv: string[]): string[] {
+function rewriteSearchArgv(argv: string[]): string[] {
   if (argv[0] !== 'search') {
     return argv
   }
 
-  if (argv[1] !== 'index-status' && argv[1] !== 'index-rebuild') {
-    return argv
+  if (argv[1] === 'index' && (argv[2] === 'status' || argv[2] === 'rebuild')) {
+    return ['search', `index-${argv[2]}`, ...argv.slice(3)]
   }
 
-  if (hasNamedOption(argv, 'text')) {
-    return argv
-  }
-
-  return [...argv, '--text', '__hb_search_index_command__']
-}
-
-function hasNamedOption(argv: readonly string[], optionName: string): boolean {
-  return argv.some(
-    (token) => token === `--${optionName}` || token.startsWith(`--${optionName}=`),
-  )
+  return argv
 }

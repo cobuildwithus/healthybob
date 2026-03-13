@@ -99,48 +99,49 @@ export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices)
     description: 'Export commands routed through the query layer.',
   })
 
-  exportCli.command(
-    'pack',
-    {
-      description: 'Build a date-bounded export pack from the read model.',
-      args: emptyArgsSchema,
-      options: withBaseOptions({
-        from: localDateSchema.describe('Inclusive start date for the pack.'),
-        to: localDateSchema.describe('Inclusive end date for the pack.'),
-        experiment: slugSchema
-          .optional()
-          .describe('Optional experiment slug filter.'),
-        out: pathSchema
-          .optional()
-          .describe('Optional directory for materialized pack output.'),
-      }),
-      output: exportPackResultSchema,
-      async run({ options }) {
-        return services.query.exportPack({
-          vault: options.vault,
-          requestId: requestIdFromOptions(options),
-          from: options.from,
-          to: options.to,
-          experiment: options.experiment,
-          out: options.out,
-        })
-      },
-    },
-  )
+  const packCli = Cli.create('pack', {
+    description: 'Build and inspect derived export packs.',
+  })
 
-  exportCli.command('show', {
+  packCli.command('create', {
+    description: 'Build a date-bounded export pack from the read model.',
+    args: emptyArgsSchema,
+    options: withBaseOptions({
+      from: localDateSchema.describe('Inclusive start date for the pack.'),
+      to: localDateSchema.describe('Inclusive end date for the pack.'),
+      experiment: slugSchema
+        .optional()
+        .describe('Optional experiment slug filter.'),
+      out: pathSchema
+        .optional()
+        .describe('Optional directory for materialized pack output.'),
+    }),
+    output: exportPackResultSchema,
+    async run({ options }) {
+      return services.query.exportPack({
+        vault: options.vault,
+        requestId: requestIdFromOptions(options),
+        from: options.from,
+        to: options.to,
+        experiment: options.experiment,
+        out: options.out,
+      })
+    },
+  })
+
+  packCli.command('show', {
     description: 'Show one stored export pack manifest by pack id.',
     args: z.object({
-      packId: exportPackIdSchema,
+      id: exportPackIdSchema,
     }),
     options: withBaseOptions(),
     output: exportPackShowResultSchema,
     async run({ args, options }) {
-      return showStoredExportPack(options.vault, args.packId)
+      return showStoredExportPack(options.vault, args.id)
     },
   })
 
-  exportCli.command('list', {
+  packCli.command('list', {
     description: 'List stored export packs from exports/packs with optional scope filters.',
     args: emptyArgsSchema,
     options: withBaseOptions({
@@ -177,10 +178,10 @@ export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices)
     },
   })
 
-  exportCli.command('materialize', {
+  packCli.command('materialize', {
     description: 'Copy one stored export pack to the selected output root.',
     args: z.object({
-      packId: exportPackIdSchema,
+      id: exportPackIdSchema,
     }),
     options: withBaseOptions({
       out: pathSchema
@@ -191,23 +192,24 @@ export function registerExportCommands(cli: Cli.Cli, services: VaultCliServices)
     async run({ args, options }) {
       return materializeStoredExportPack({
         vault: options.vault,
-        packId: args.packId,
+        packId: args.id,
         out: options.out,
       })
     },
   })
 
-  exportCli.command('prune', {
+  packCli.command('prune', {
     description: 'Remove one stored export pack directory from exports/packs.',
     args: z.object({
-      packId: exportPackIdSchema,
+      id: exportPackIdSchema,
     }),
     options: withBaseOptions(),
     output: exportPackPruneResultSchema,
     async run({ args, options }) {
-      return pruneStoredExportPack(options.vault, args.packId)
+      return pruneStoredExportPack(options.vault, args.id)
     },
   })
 
+  exportCli.command(packCli)
   cli.command(exportCli)
 }

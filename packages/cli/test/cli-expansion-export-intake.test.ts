@@ -79,6 +79,35 @@ test('intake import schema exposes the richer importer-backed metadata options',
   assert.deepEqual(schema.options.required, ['vault'])
 })
 
+test('intake and export pack help use generic id selectors plus from/to list filters', async () => {
+  const intakeShowHelp = await runRawSliceCli(['intake', 'show', '--help'])
+  const intakeListSchema = JSON.parse(
+    await runRawSliceCli(['intake', 'list', '--schema', '--format', 'json']),
+  ) as {
+    options: {
+      properties: Record<string, unknown>
+    }
+  }
+  const exportPackShowHelp = await runRawSliceCli(['export', 'pack', 'show', '--help'])
+  const exportPackMaterializeHelp = await runRawSliceCli([
+    'export',
+    'pack',
+    'materialize',
+    '--help',
+  ])
+
+  assert.match(intakeShowHelp, /Usage: vault-cli intake show <id> \[options\]/u)
+  assert.equal('from' in intakeListSchema.options.properties, true)
+  assert.equal('to' in intakeListSchema.options.properties, true)
+  assert.equal('dateFrom' in intakeListSchema.options.properties, false)
+  assert.equal('dateTo' in intakeListSchema.options.properties, false)
+  assert.match(exportPackShowHelp, /Usage: vault-cli export pack show <id> \[options\]/u)
+  assert.match(
+    exportPackMaterializeHelp,
+    /Usage: vault-cli export pack materialize <id> \[options\]/u,
+  )
+})
+
 test.sequential(
   'intake import forwards richer metadata and exposes manifest/raw follow-up commands',
   async () => {

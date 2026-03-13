@@ -353,6 +353,7 @@ test.sequential('export pack materializes the derived five-file pack when --out 
     }>([
       'export',
       'pack',
+      'create',
       '--from',
       '2026-03-12',
       '--to',
@@ -364,7 +365,7 @@ test.sequential('export pack materializes the derived five-file pack when --out 
     ])
 
     assert.equal(result.ok, true)
-    assert.equal(result.meta?.command, 'export pack')
+    assert.equal(result.meta?.command, 'export pack create')
     assert.equal(requireData(result).files.length, 5)
 
     for (const relativePath of requireData(result).files) {
