@@ -3,14 +3,24 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 interface PackageJsonShape {
+  name?: string
+  private?: boolean
   main?: string
   types?: string
+  files?: string[]
   bin?: Record<string, string>
   exports?: {
     '.': {
       default?: string
       types?: string
     }
+  }
+  publishConfig?: {
+    access?: string
+  }
+  repository?: string | {
+    type?: string
+    url?: string
   }
   scripts?: Record<string, string | undefined>
 }
@@ -42,12 +52,24 @@ const tsconfigTypecheck = JSON.parse(
 const packageLocalTsFiles = await listFiles(packageDir, ['src', 'scripts', 'test'])
 
 assert(
+  packageJson.name === '@healthybob/cli',
+  'package.json must keep the published package name @healthybob/cli.',
+)
+assert(
+  packageJson.private === false,
+  'package.json must be marked publishable (private: false).',
+)
+assert(
   packageJson.main === './dist/index.js',
   'package.json must expose ./dist/index.js as main.',
 )
 assert(
   packageJson.types === './dist/index.d.ts',
   'package.json must expose ./dist/index.d.ts as types.',
+)
+assert(
+  packageJson.files?.includes('CHANGELOG.md') === true,
+  'package.json files must include CHANGELOG.md for package-scoped releases.',
 )
 assert(
   packageJson.bin?.['vault-cli'] === 'dist/bin.js',
@@ -62,10 +84,27 @@ assert(
   'package.json exports must target dist/index.d.ts for types.',
 )
 assert(
+  packageJson.publishConfig?.access === 'public',
+  'package.json publishConfig.access must stay public.',
+)
+assert(
+  (typeof packageJson.repository === 'object' ? packageJson.repository?.url : packageJson.repository) ===
+    'https://github.com/cobuildwithus/healthybob',
+  'package.json repository.url must stay pinned to the Healthy Bob repository.',
+)
+assert(
   packageJson.scripts?.build &&
     packageJson.scripts?.typecheck &&
-    packageJson.scripts?.test,
-  'package.json must define build, typecheck, and test scripts.',
+    packageJson.scripts?.test &&
+    packageJson.scripts?.prepack === 'pnpm build' &&
+    packageJson.scripts?.['verify:release-target'] &&
+    packageJson.scripts?.['changelog:update'] &&
+    packageJson.scripts?.['release:notes'] &&
+    packageJson.scripts?.['release:check'] === 'bash scripts/release-check.sh' &&
+    packageJson.scripts?.['release:patch'] &&
+    packageJson.scripts?.['release:minor'] &&
+    packageJson.scripts?.['release:major'],
+  'package.json must define build/test/typecheck plus the package-scoped release scripts.',
 )
 assert(
   !Object.values(packageJson.scripts ?? {}).some((script) =>

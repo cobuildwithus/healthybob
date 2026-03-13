@@ -14,6 +14,8 @@ export default defineConfig({
       "packages/cli/test/health-tail.test.ts",
       "packages/cli/test/incur-smoke.test.ts",
       "packages/cli/test/runtime.test.ts",
+      "packages/cli/test/release-script-coverage-audit.test.ts",
+      "packages/cli/test/release-workflow-guards.test.ts",
     ],
     coverage: {
       enabled: true,
