@@ -273,6 +273,88 @@ test("whisper.cpp provider reports missing model paths and parses transcript art
   assert.equal(result.metadata?.language, "en");
 });
 
+test("whisper.cpp provider derives transcript text from SRT artifacts when TXT is absent", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-whisper-srt-only");
+  const executablePath = await writeExecutableFile(
+    directory,
+    "fake-whisper-srt-only",
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const args = process.argv.slice(2);",
+      "const outputBase = args[args.indexOf('-of') + 1];",
+      "fs.writeFileSync(",
+      "  `${outputBase}.srt`,",
+      "  '1\\n00:00:00,000 --> 00:00:01,250\\nalpha\\n\\n2\\n00:00:01,250 --> 00:00:02,500\\nbeta\\n',",
+      "  'utf8',",
+      ");",
+      "process.stdout.write('stdout noise');",
+      "process.stderr.write('stderr noise');",
+    ].join("\n"),
+  );
+  const inputPath = await writeExternalFile(directory, "voice-note.wav", "wav-placeholder");
+  const provider = createWhisperCppProvider({
+    commandCandidates: [executablePath],
+    modelPath: "models/fake.bin",
+  });
+
+  const result = await provider.run({
+    intent: "attachment_text",
+    artifact: {
+      captureId: "cap_audio_srt_only",
+      attachmentId: "att_audio_srt_only",
+      kind: "audio",
+      fileName: "voice-note.wav",
+      mime: "audio/wav",
+      storedPath: "raw/inbox/example/voice-note.wav",
+      absolutePath: inputPath,
+    },
+    inputPath,
+    scratchDirectory: directory,
+  });
+
+  assert.equal(result.text, "alpha beta");
+  assert.doesNotMatch(result.text, /stdout noise/u);
+  assert.doesNotMatch(result.text, /stderr noise/u);
+  assert.equal(result.blocks?.length, 2);
+  assert.equal(result.blocks?.[0]?.text, "alpha");
+  assert.equal(result.blocks?.[1]?.text, "beta");
+  assert.equal(result.metadata?.durationMs, 2500);
+});
+
+test("whisper.cpp provider rejects stdout-only logs when no transcript artifact is written", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-whisper-logs");
+  const audioPath = await writeExternalFile(directory, "note.wav", "wav-bytes-placeholder");
+  const modelPath = await writeExternalFile(directory, "ggml-base.en.bin", "model-placeholder");
+  const commandPath = await writeExecutableFile(
+    directory,
+    "fake-whisper.sh",
+    ['#!/usr/bin/env bash', 'echo "whisper.cpp: loaded model"', "exit 0"].join("\n"),
+  );
+  const provider = createWhisperCppProvider({
+    commandCandidates: [commandPath],
+    modelPath,
+  });
+
+  await assert.rejects(
+    provider.run({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_whisper_logs",
+        attachmentId: "att_whisper_logs",
+        kind: "audio",
+        fileName: "note.wav",
+        mime: "audio/wav",
+        storedPath: "raw/inbox/example/note.wav",
+        absolutePath: audioPath,
+      },
+      inputPath: audioPath,
+      scratchDirectory: directory,
+    }),
+    /whisper\.cpp did not produce a transcript file/u,
+  );
+});
+
 test("PaddleOCR provider discovers explicit executables and harvests OCR artifacts", async () => {
   const directory = await makeTempDirectory("healthybob-parser-paddleocr");
   const executablePath = await writeExecutableFile(
@@ -340,13 +422,44 @@ test("PaddleOCR provider discovers explicit executables and harvests OCR artifac
 
   assert.match(result.text, /Milk/u);
   assert.match(result.text, /Scanned text/u);
-  assert.match(result.text, /stdout ocr/u);
+  assert.doesNotMatch(result.text, /stdout ocr/u);
   assert.equal(result.tables?.length, 1);
   assert.deepEqual(result.tables?.[0]?.rows, [
     ["Item", "Qty"],
     ["Milk", "1"],
   ]);
   assert.equal(result.metadata?.pageCount, 2);
+});
+
+test("PaddleOCR provider rejects stdout-only logs when no structured output files are written", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-paddle-logs");
+  const imagePath = await writeExternalFile(directory, "scan.png", "image-placeholder");
+  const commandPath = await writeExecutableFile(
+    directory,
+    "fake-paddle.sh",
+    ['#!/usr/bin/env bash', 'echo "INFO: OCR complete"', "exit 0"].join("\n"),
+  );
+  const provider = createPaddleOcrProvider({
+    commandCandidates: [commandPath],
+  });
+
+  await assert.rejects(
+    provider.run({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_paddle_logs",
+        attachmentId: "att_paddle_logs",
+        kind: "image",
+        fileName: "scan.png",
+        mime: "image/png",
+        storedPath: "raw/inbox/example/scan.png",
+        absolutePath: imagePath,
+      },
+      inputPath: imagePath,
+      scratchDirectory: directory,
+    }),
+    /PaddleOCR did not produce extractable text/u,
+  );
 });
 
 test("registry prefers built-in text parsing for markdown documents", async () => {

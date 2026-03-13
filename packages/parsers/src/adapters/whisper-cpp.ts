@@ -99,16 +99,18 @@ export function createWhisperCppProvider(
         ...(options.translate ? ["-tr"] : []),
         ...(options.extraArgs ?? []),
       ];
-      const result = await runCommand(command, args);
-      const textOutput = (await readUtf8IfExists(`${outputBase}.txt`))?.trim();
+      await runCommand(command, args);
+      const textOutput = (await readUtf8IfExists(`${outputBase}.txt`))?.trim() ?? "";
       const srtOutput = await readUtf8IfExists(`${outputBase}.srt`);
-      const text = textOutput || result.stdout.trim() || result.stderr.trim();
+      const srtBlocks = srtOutput ? parseSrtBlocks(srtOutput) : [];
+      const text = textOutput || srtBlocks.map((block) => block.text).join(" ").trim();
 
       if (!text) {
-        throw new TypeError("whisper.cpp did not produce a transcript.");
+        throw new TypeError("whisper.cpp did not produce a transcript file.");
       }
 
-      const blocks = srtOutput ? parseSrtBlocks(srtOutput) : splitTextIntoBlocks(text, { defaultKind: "segment" });
+      const blocks =
+        srtBlocks.length > 0 ? srtBlocks : splitTextIntoBlocks(text, { defaultKind: "segment" });
       const durationMs = blocks.reduce((maxValue, block) => {
         const endMs = typeof block.endMs === "number" ? block.endMs : 0;
         return Math.max(maxValue, endMs);

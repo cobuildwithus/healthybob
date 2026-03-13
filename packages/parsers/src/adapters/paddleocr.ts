@@ -64,8 +64,8 @@ export function createPaddleOcrProvider(
             extraArgs: options.extraArgs,
           });
 
-      const result = await runCommand(command, args);
-      const collected = await collectPaddleOutput(outputDirectory, result.stdout);
+      await runCommand(command, args);
+      const collected = await collectPaddleOutput(outputDirectory);
 
       if (!collected.text) {
         throw new TypeError("PaddleOCR did not produce extractable text.");
@@ -131,7 +131,6 @@ function buildPaddlexArgs(inputPath: string, outputDirectory: string): string[] 
 
 async function collectPaddleOutput(
   outputDirectory: string,
-  stdout: string,
 ): Promise<{ text: string; markdown: string | null; tables: ParsedTable[]; pageCount: number | null }> {
   const files = await collectFilesRecursively(outputDirectory);
   const markdownContents: string[] = [];
@@ -172,7 +171,6 @@ async function collectPaddleOutput(
   const text = [
     ...textContents.filter(Boolean),
     markdown ? markdownToText(markdown) : "",
-    stdout.trim(),
   ]
     .filter(Boolean)
     .join("\n\n")
