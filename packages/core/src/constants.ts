@@ -1,46 +1,41 @@
-export const VAULT_SCHEMA_VERSION = "hb.vault.v1";
+import {
+  AUDIT_ACTORS as CONTRACT_AUDIT_ACTORS,
+  AUDIT_STATUSES as CONTRACT_AUDIT_STATUSES,
+  CONTRACT_SCHEMA_VERSION,
+  EVENT_KINDS as CONTRACT_EVENT_KINDS,
+  EVENT_SOURCES as CONTRACT_EVENT_SOURCES,
+  EXPERIMENT_STATUSES as CONTRACT_EXPERIMENT_STATUSES,
+  FILE_CHANGE_OPERATIONS as CONTRACT_FILE_CHANGE_OPERATIONS,
+  ID_PREFIXES as CONTRACT_ID_PREFIXES,
+  SAMPLE_QUALITIES as CONTRACT_SAMPLE_QUALITIES,
+  SAMPLE_SOURCES as CONTRACT_SAMPLE_SOURCES,
+  SAMPLE_STREAMS as CONTRACT_SAMPLE_STREAMS,
+} from "@healthybob/contracts";
+
+export const VAULT_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.vault;
 
 export const FRONTMATTER_SCHEMA_VERSIONS = Object.freeze({
-  allergy: "hb.frontmatter.allergy.v1",
-  condition: "hb.frontmatter.condition.v1",
-  core: "hb.frontmatter.core.v1",
-  experiment: "hb.frontmatter.experiment.v1",
-  familyMember: "hb.frontmatter.family-member.v1",
-  geneticVariant: "hb.frontmatter.genetic-variant.v1",
-  goal: "hb.frontmatter.goal.v1",
-  journalDay: "hb.frontmatter.journal-day.v1",
-  profileCurrent: "hb.frontmatter.profile-current.v1",
-  regimen: "hb.frontmatter.regimen.v1",
+  allergy: CONTRACT_SCHEMA_VERSION.allergyFrontmatter,
+  condition: CONTRACT_SCHEMA_VERSION.conditionFrontmatter,
+  core: CONTRACT_SCHEMA_VERSION.coreFrontmatter,
+  experiment: CONTRACT_SCHEMA_VERSION.experimentFrontmatter,
+  familyMember: CONTRACT_SCHEMA_VERSION.familyMemberFrontmatter,
+  geneticVariant: CONTRACT_SCHEMA_VERSION.geneticVariantFrontmatter,
+  goal: CONTRACT_SCHEMA_VERSION.goalFrontmatter,
+  journalDay: CONTRACT_SCHEMA_VERSION.journalDayFrontmatter,
+  profileCurrent: CONTRACT_SCHEMA_VERSION.profileCurrentFrontmatter,
+  regimen: CONTRACT_SCHEMA_VERSION.regimenFrontmatter,
 });
 
-export const ASSESSMENT_RESPONSE_SCHEMA_VERSION = "hb.assessment-response.v1";
-export const EVENT_SCHEMA_VERSION = "hb.event.v1";
-export const PROFILE_SNAPSHOT_SCHEMA_VERSION = "hb.profile-snapshot.v1";
-export const SAMPLE_SCHEMA_VERSION = "hb.sample.v1";
-export const AUDIT_SCHEMA_VERSION = "hb.audit.v1";
+export const ASSESSMENT_RESPONSE_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.assessmentResponse;
+export const EVENT_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.event;
+export const PROFILE_SNAPSHOT_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.profileSnapshot;
+export const SAMPLE_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.sample;
+export const AUDIT_SCHEMA_VERSION = CONTRACT_SCHEMA_VERSION.audit;
 
 export const DEFAULT_TIMEZONE = "America/New_York";
 
-export const ID_PREFIXES = Object.freeze({
-  allergy: "alg",
-  assessment: "asmt",
-  audit: "aud",
-  condition: "cond",
-  document: "doc",
-  event: "evt",
-  experiment: "exp",
-  family: "fam",
-  goal: "goal",
-  meal: "meal",
-  pack: "pack",
-  profileSnapshot: "psnap",
-  provider: "prov",
-  regimen: "reg",
-  sample: "smp",
-  transform: "xfm",
-  variant: "var",
-  vault: "vault",
-});
+export const ID_PREFIXES = CONTRACT_ID_PREFIXES;
 
 export const VAULT_LAYOUT = Object.freeze({
   metadata: "vault.json",
@@ -128,68 +123,19 @@ export const REQUIRED_DIRECTORIES = Object.freeze([
   VAULT_LAYOUT.exportPacksDirectory,
 ]);
 
-export const BASELINE_EVENT_KINDS = Object.freeze([
-  "adverse_effect",
-  "document",
-  "encounter",
-  "exposure",
-  "meal",
-  "symptom",
-  "note",
-  "observation",
-  "experiment_event",
-  "medication_intake",
-  "procedure",
-  "supplement_intake",
-  "test",
-  "activity_session",
-  "sleep_session",
-]);
+export const BASELINE_EVENT_KINDS = CONTRACT_EVENT_KINDS;
 
-export const EVENT_SOURCES = Object.freeze([
-  "manual",
-  "import",
-  "device",
-  "derived",
-]);
+export const EVENT_SOURCES = CONTRACT_EVENT_SOURCES;
 
-export const BASELINE_SAMPLE_STREAMS = Object.freeze([
-  "heart_rate",
-  "hrv",
-  "steps",
-  "sleep_stage",
-  "respiratory_rate",
-  "temperature",
-  "glucose",
-]);
+export const BASELINE_SAMPLE_STREAMS = CONTRACT_SAMPLE_STREAMS;
 
-export const SAMPLE_SOURCES = Object.freeze([
-  "device",
-  "import",
-  "manual",
-  "derived",
-]);
+export const SAMPLE_SOURCES = CONTRACT_SAMPLE_SOURCES;
 
-export const SAMPLE_QUALITIES = Object.freeze([
-  "raw",
-  "normalized",
-  "derived",
-]);
+export const SAMPLE_QUALITIES = CONTRACT_SAMPLE_QUALITIES;
 
-export const EXPERIMENT_STATUSES = Object.freeze([
-  "planned",
-  "active",
-  "paused",
-  "completed",
-  "abandoned",
-]);
+export const EXPERIMENT_STATUSES = CONTRACT_EXPERIMENT_STATUSES;
 
-export const AUDIT_ACTORS = Object.freeze(["cli", "core", "importer", "query"]);
-export const AUDIT_STATUSES = Object.freeze(["success", "failure"]);
+export const AUDIT_ACTORS = CONTRACT_AUDIT_ACTORS;
+export const AUDIT_STATUSES = CONTRACT_AUDIT_STATUSES;
 
-export const FILE_CHANGE_OPERATIONS = Object.freeze([
-  "create",
-  "append",
-  "update",
-  "copy",
-]);
+export const FILE_CHANGE_OPERATIONS = CONTRACT_FILE_CHANGE_OPERATIONS;
