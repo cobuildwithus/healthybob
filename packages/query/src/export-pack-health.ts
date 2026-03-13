@@ -76,6 +76,43 @@ function collectJsonlRecords<TRecord>(
   return { records, failures };
 }
 
+function finalizeCollection<TSource, TRecord>(
+  collection: TolerantCollection<TSource>,
+  options: {
+    filter?: (record: TSource) => boolean;
+    compare?: (left: TSource, right: TSource) => number;
+    map: (record: TSource) => TRecord;
+  },
+): TolerantCollection<TRecord> {
+  let records = collection.records;
+
+  if (options.filter) {
+    records = records.filter(options.filter);
+  }
+
+  if (options.compare) {
+    records = records.sort(options.compare);
+  }
+
+  return {
+    records: records.map(options.map),
+    failures: collection.failures,
+  };
+}
+
+function toBankPage(record: RegistryMarkdownRecord): ExportPackBankPage {
+  return {
+    id: record.id,
+    slug: record.slug,
+    title: record.title,
+    status: record.status,
+    relativePath: record.relativePath,
+    markdown: record.markdown,
+    body: record.body,
+    attributes: record.attributes,
+  };
+}
+
 function toExportPackAssessmentRecord(
   record: NonNullable<ReturnType<typeof toAssessmentRecord>>,
 ): ExportPackAssessmentRecord {
@@ -154,50 +191,49 @@ function readAssessmentRecords(
   vaultRoot: string,
   filters: ExportPackFilters,
 ): TolerantCollection<ExportPackAssessmentRecord> {
-  const loaded = collectJsonlRecords(
-    readJsonlRecordOutcomesSync(vaultRoot, "ledger/assessments"),
-    toAssessmentRecord,
+  return finalizeCollection(
+    collectJsonlRecords(
+      readJsonlRecordOutcomesSync(vaultRoot, "ledger/assessments"),
+      toAssessmentRecord,
+    ),
+    {
+      filter: (entry) => matchesDateWindow(entry.recordedAt ?? entry.importedAt, filters),
+      compare: compareAssessments,
+      map: toExportPackAssessmentRecord,
+    },
   );
-
-  return {
-    records: loaded.records
-    .filter((entry) => matchesDateWindow(entry.recordedAt ?? entry.importedAt, filters))
-    .sort(compareAssessments)
-    .map(toExportPackAssessmentRecord),
-    failures: loaded.failures,
-  };
 }
 
 function readProfileSnapshotRecords(
   vaultRoot: string,
 ): TolerantCollection<ExportPackProfileSnapshotRecord> {
-  const loaded = collectJsonlRecords(
-    readJsonlRecordOutcomesSync(vaultRoot, "ledger/profile-snapshots"),
-    toProfileSnapshotRecord,
+  return finalizeCollection(
+    collectJsonlRecords(
+      readJsonlRecordOutcomesSync(vaultRoot, "ledger/profile-snapshots"),
+      toProfileSnapshotRecord,
+    ),
+    {
+      compare: compareSnapshots,
+      map: toExportPackProfileSnapshotRecord,
+    },
   );
-
-  return {
-    records: loaded.records.sort(compareSnapshots).map(toExportPackProfileSnapshotRecord),
-    failures: loaded.failures,
-  };
 }
 
 function readHistoryRecords(
   vaultRoot: string,
   filters: ExportPackFilters,
 ): TolerantCollection<ExportPackHistoryRecord> {
-  const loaded = collectJsonlRecords(
-    readJsonlRecordOutcomesSync(vaultRoot, "ledger/events"),
-    toHistoryRecord,
+  return finalizeCollection(
+    collectJsonlRecords(
+      readJsonlRecordOutcomesSync(vaultRoot, "ledger/events"),
+      toHistoryRecord,
+    ),
+    {
+      filter: (entry) => matchesDateWindow(entry.occurredAt, filters),
+      compare: compareHistory,
+      map: toExportPackHistoryRecord,
+    },
   );
-
-  return {
-    records: loaded.records
-    .filter((entry) => matchesDateWindow(entry.occurredAt, filters))
-    .sort(compareHistory)
-    .map(toExportPackHistoryRecord),
-    failures: loaded.failures,
-  };
 }
 
 function fallbackCurrentProfile(
@@ -276,16 +312,7 @@ function readRegistryPages<TRecord extends RegistryMarkdownRecord>(
   }
 
   return {
-    records: sortRegistryRecords(records, definition).map((record) => ({
-      id: record.id,
-      slug: record.slug,
-      title: record.title,
-      status: record.status,
-      relativePath: record.relativePath,
-      markdown: record.markdown,
-      body: record.body,
-      attributes: record.attributes,
-    })),
+    records: sortRegistryRecords(records, definition).map(toBankPage),
     failures,
   };
 }

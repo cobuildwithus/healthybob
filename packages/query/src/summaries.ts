@@ -62,33 +62,7 @@ export function summarizeDailySamples(
     const key = `${date}:${stream}`;
     const numericValue = getNumericValue(sample);
     const unit = getString(sample.data.unit);
-
-    if (!groups.has(key)) {
-      groups.set(key, {
-        summary: {
-          date,
-          stream,
-          sampleCount: 0,
-          units: [],
-          unit: null,
-          minValue: null,
-          maxValue: null,
-          averageValue: null,
-          sumValue: null,
-          firstSampleAt: null,
-          lastSampleAt: null,
-          sampleIds: [],
-          sourcePaths: [],
-        },
-        values: [],
-        unitSet: new Set(),
-      });
-    }
-
-    const group = groups.get(key);
-    if (!group) {
-      continue;
-    }
+    const group = getOrCreateSummaryGroup(groups, key, date, stream);
 
     const { summary, values, unitSet } = group;
     summary.sampleCount += 1;
@@ -118,30 +92,79 @@ export function summarizeDailySamples(
   }
 
   return [...groups.values()]
-    .map(({ summary, values, unitSet }) => {
-      const sortedUnits = [...unitSet].sort();
-      summary.units = sortedUnits;
-      summary.unit = sortedUnits.length === 1 ? sortedUnits[0] : null;
+    .map(({ summary, values, unitSet }) => finalizeSummary(summary, values, unitSet))
+    .sort(compareDailySampleSummaries);
+}
 
-      if (values.length > 0) {
-        summary.minValue = Math.min(...values);
-        summary.maxValue = Math.max(...values);
-        summary.sumValue = values.reduce((sum, value) => sum + value, 0);
-        summary.averageValue = Number((summary.sumValue / values.length).toFixed(4));
-      }
+function getOrCreateSummaryGroup(
+  groups: Map<
+    string,
+    { summary: DailySampleSummary; values: number[]; unitSet: Set<string> }
+  >,
+  key: string,
+  date: string,
+  stream: string,
+): { summary: DailySampleSummary; values: number[]; unitSet: Set<string> } {
+  const existing = groups.get(key);
+  if (existing) {
+    return existing;
+  }
 
-      summary.sampleIds.sort();
-      summary.sourcePaths.sort();
+  const created = {
+    summary: {
+      date,
+      stream,
+      sampleCount: 0,
+      units: [],
+      unit: null,
+      minValue: null,
+      maxValue: null,
+      averageValue: null,
+      sumValue: null,
+      firstSampleAt: null,
+      lastSampleAt: null,
+      sampleIds: [],
+      sourcePaths: [],
+    },
+    values: [],
+    unitSet: new Set<string>(),
+  };
 
-      return summary;
-    })
-    .sort((left, right) => {
-      if (left.date === right.date) {
-        return left.stream.localeCompare(right.stream);
-      }
+  groups.set(key, created);
+  return created;
+}
 
-      return left.date.localeCompare(right.date);
-    });
+function finalizeSummary(
+  summary: DailySampleSummary,
+  values: number[],
+  unitSet: Set<string>,
+): DailySampleSummary {
+  const sortedUnits = [...unitSet].sort();
+  summary.units = sortedUnits;
+  summary.unit = sortedUnits.length === 1 ? sortedUnits[0] : null;
+
+  if (values.length > 0) {
+    summary.minValue = Math.min(...values);
+    summary.maxValue = Math.max(...values);
+    summary.sumValue = values.reduce((sum, value) => sum + value, 0);
+    summary.averageValue = Number((summary.sumValue / values.length).toFixed(4));
+  }
+
+  summary.sampleIds.sort();
+  summary.sourcePaths.sort();
+
+  return summary;
+}
+
+function compareDailySampleSummaries(
+  left: DailySampleSummary,
+  right: DailySampleSummary,
+): number {
+  if (left.date === right.date) {
+    return left.stream.localeCompare(right.stream);
+  }
+
+  return left.date.localeCompare(right.date);
 }
 
 function getNumericValue(sample: VaultRecord): number | null {

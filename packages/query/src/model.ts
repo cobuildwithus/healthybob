@@ -148,7 +148,7 @@ export function listRecords(
   const kindSet = kinds ? new Set(kinds) : null;
   const streamSet = streams ? new Set(streams) : null;
   const tagSet = tags ? new Set(tags) : null;
-  const normalizedText = text ? text.toLowerCase() : null;
+  const normalizedText = normalizeFilterText(text);
 
   return vault.records.filter((record) => {
     if (idSet && !record.lookupIds.some((lookupId) => idSet.has(lookupId))) {
@@ -175,37 +175,27 @@ export function listRecords(
       return false;
     }
 
-    if (from && compareDateStrings(record.date ?? record.occurredAt, from) < 0) {
+    if (!matchesDateBounds(record.date ?? record.occurredAt, from, to)) {
       return false;
     }
 
-    if (to && compareDateStrings(record.date ?? record.occurredAt, to) > 0) {
+    if (!matchesTagSet(record.tags, tagSet)) {
       return false;
     }
 
-    if (tagSet && !record.tags.some((tag) => tagSet.has(tag))) {
-      return false;
-    }
-
-    if (!normalizedText) {
-      return true;
-    }
-
-    const haystacks = [
-      record.displayId,
-      ...record.lookupIds,
-      record.kind,
-      record.stream,
-      record.experimentSlug,
-      record.title,
-      record.body,
-      JSON.stringify(record.data),
-    ]
-      .filter((value): value is string => Boolean(value))
-      .join("\n")
-      .toLowerCase();
-
-    return haystacks.includes(normalizedText);
+    return matchesFilterText(
+      [
+        record.displayId,
+        ...record.lookupIds,
+        record.kind,
+        record.stream,
+        record.experimentSlug,
+        record.title,
+        record.body,
+        JSON.stringify(record.data),
+      ],
+      normalizedText,
+    );
   });
 }
 
@@ -215,27 +205,21 @@ export function listExperiments(
 ): VaultRecord[] {
   const { slug, tags, text } = filters;
   const tagSet = tags ? new Set(tags) : null;
-  const normalizedText = text ? text.toLowerCase() : null;
+  const normalizedText = normalizeFilterText(text);
 
   return vault.experiments.filter((record) => {
     if (slug && record.experimentSlug !== slug) {
       return false;
     }
 
-    if (tagSet && !record.tags.some((tag) => tagSet.has(tag))) {
+    if (!matchesTagSet(record.tags, tagSet)) {
       return false;
     }
 
-    if (!normalizedText) {
-      return true;
-    }
-
-    const haystack = [record.title, record.body, JSON.stringify(record.frontmatter)]
-      .filter((value): value is string => Boolean(value))
-      .join("\n")
-      .toLowerCase();
-
-    return haystack.includes(normalizedText);
+    return matchesFilterText(
+      [record.title, record.body, JSON.stringify(record.frontmatter)],
+      normalizedText,
+    );
   });
 }
 
@@ -252,14 +236,10 @@ export function listJournalEntries(
 ): VaultRecord[] {
   const { from, to, experimentSlug, tags, text } = filters;
   const tagSet = tags ? new Set(tags) : null;
-  const normalizedText = text ? text.toLowerCase() : null;
+  const normalizedText = normalizeFilterText(text);
 
   return vault.journalEntries.filter((record) => {
-    if (from && compareDateStrings(record.date, from) < 0) {
-      return false;
-    }
-
-    if (to && compareDateStrings(record.date, to) > 0) {
+    if (!matchesDateBounds(record.date, from, to)) {
       return false;
     }
 
@@ -267,20 +247,14 @@ export function listJournalEntries(
       return false;
     }
 
-    if (tagSet && !record.tags.some((tag) => tagSet.has(tag))) {
+    if (!matchesTagSet(record.tags, tagSet)) {
       return false;
     }
 
-    if (!normalizedText) {
-      return true;
-    }
-
-    const haystack = [record.title, record.body, JSON.stringify(record.frontmatter)]
-      .filter((value): value is string => Boolean(value))
-      .join("\n")
-      .toLowerCase();
-
-    return haystack.includes(normalizedText);
+    return matchesFilterText(
+      [record.title, record.body, JSON.stringify(record.frontmatter)],
+      normalizedText,
+    );
   });
 }
 
@@ -356,46 +330,44 @@ async function readExperimentPages(vaultRoot: string): Promise<VaultRecord[]> {
   const fileEntries = await listDirectoryFiles(experimentDir);
 
   const pages = await Promise.all(
-    fileEntries
-      .filter((entry) => entry.endsWith(".md"))
-      .map(async (entry) => {
-        const filePath = path.join(experimentDir, entry);
-        const source = await readFile(filePath, "utf8");
-        const document = parseMarkdownDocument(source);
-        const attributes = normalizeFrontmatterAttributes(
-          "experiment",
-          document.attributes,
-        );
-        const slug = pickString(attributes, ["slug"]) ?? path.basename(entry, ".md");
-        const title =
-          pickString(attributes, ["title"]) ??
-          extractMarkdownHeading(document.body) ??
-          slug;
-        const startedOn = pickString(attributes, ["startedOn", "started_on"]);
-        const id = pickString(attributes, ["experimentId", "id"]) ?? `experiment:${slug}`;
+    fileEntries.filter(hasMarkdownExtension).map(async (entry) => {
+      const filePath = path.join(experimentDir, entry);
+      const source = await readFile(filePath, "utf8");
+      const document = parseMarkdownDocument(source);
+      const attributes = normalizeFrontmatterAttributes(
+        "experiment",
+        document.attributes,
+      );
+      const slug = pickString(attributes, ["slug"]) ?? path.basename(entry, ".md");
+      const title =
+        pickString(attributes, ["title"]) ??
+        extractMarkdownHeading(document.body) ??
+        slug;
+      const startedOn = pickString(attributes, ["startedOn", "started_on"]);
+      const id = pickString(attributes, ["experimentId", "id"]) ?? `experiment:${slug}`;
 
-        return {
-          displayId: id,
-          primaryLookupId: id,
-          id,
-          lookupIds: uniqueStrings([id, slug]),
-          recordType: "experiment",
-          sourcePath: path.posix.join("bank/experiments", entry),
-          sourceFile: filePath,
-          occurredAt: pickString(attributes, ["updatedAt", "updated_at"]) ?? startedOn,
-          date: normalizeDate(startedOn),
-          kind: "experiment",
-          stream: null,
-          experimentSlug: slug,
-          title,
-          tags: normalizeTags(attributes.tags),
-          data: {
-            ...attributes,
-          },
-          body: document.body,
-          frontmatter: attributes,
-        } satisfies VaultRecord;
-      }),
+      return {
+        displayId: id,
+        primaryLookupId: id,
+        id,
+        lookupIds: uniqueStrings([id, slug]),
+        recordType: "experiment",
+        sourcePath: path.posix.join("bank/experiments", entry),
+        sourceFile: filePath,
+        occurredAt: pickString(attributes, ["updatedAt", "updated_at"]) ?? startedOn,
+        date: normalizeDate(startedOn),
+        kind: "experiment",
+        stream: null,
+        experimentSlug: slug,
+        title,
+        tags: normalizeTags(attributes.tags),
+        data: {
+          ...attributes,
+        },
+        body: document.body,
+        frontmatter: attributes,
+      } satisfies VaultRecord;
+    }),
   );
 
   return pages.sort(compareRecords);
@@ -411,7 +383,7 @@ async function readJournalPages(vaultRoot: string): Promise<VaultRecord[]> {
     const dayEntries = await listDirectoryFiles(yearDir);
 
     for (const dayEntry of dayEntries) {
-      if (!dayEntry.endsWith(".md")) {
+      if (!hasMarkdownExtension(dayEntry)) {
         continue;
       }
 
@@ -458,27 +430,16 @@ async function readJsonlRecordFamily(
   relativeDir: string,
   recordType: Exclude<JsonRecordType, "sample">,
 ): Promise<VaultRecord[]> {
-  const targetDir = path.join(vaultRoot, relativeDir);
-  const filePaths = await walkFiles(targetDir);
   const records: VaultRecord[] = [];
 
-  for (const filePath of filePaths.filter((entry) => entry.endsWith(".jsonl"))) {
-    const sourcePath = toPosixRelative(vaultRoot, filePath);
-    const contents = await readFile(filePath, "utf8");
-    const lines = contents.split("\n");
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]?.trim() ?? "";
-      if (!line) {
-        continue;
-      }
-
-      const payload = normalizeJsonRecordPayload(
-        recordType,
-        JSON.parse(line) as QueryRecordData,
-      );
+  await forEachJsonlPayload(
+    vaultRoot,
+    relativeDir,
+    (filePath, sourcePath, lineNumber, rawPayload) => {
+      const payload = normalizeJsonRecordPayload(recordType, rawPayload);
       const rawRecordId =
-        pickString(payload, ["id"]) ?? `${recordType}:${sourcePath}:${index + 1}`;
+        pickString(payload, ["id"]) ??
+        `${recordType}:${sourcePath}:${lineNumber}`;
       const occurredAt = pickString(payload, [
         "occurredAt",
         "recordedAt",
@@ -486,7 +447,8 @@ async function readJsonlRecordFamily(
         "recorded_at",
         "timestamp",
       ]);
-      const kind = pickString(payload, ["kind"]) ?? (recordType === "audit" ? "audit" : recordType);
+      const kind =
+        pickString(payload, ["kind"]) ?? (recordType === "audit" ? "audit" : recordType);
       const identity = deriveVaultRecordIdentity(recordType, payload, rawRecordId);
       const lookupIds = uniqueStrings([
         identity.displayId,
@@ -520,35 +482,23 @@ async function readJsonlRecordFamily(
         body: pickString(payload, ["note", "summary"]),
         frontmatter: null,
       });
-    }
-  }
+    },
+  );
 
   return records.sort(compareRecords);
 }
 
 async function readSampleRecords(vaultRoot: string): Promise<VaultRecord[]> {
-  const sampleDir = path.join(vaultRoot, "ledger/samples");
-  const filePaths = await walkFiles(sampleDir);
   const records: VaultRecord[] = [];
 
-  for (const filePath of filePaths.filter((entry) => entry.endsWith(".jsonl"))) {
-    const sourcePath = toPosixRelative(vaultRoot, filePath);
-    const streamFromPath = inferSampleStreamFromPath(sourcePath);
-    const contents = await readFile(filePath, "utf8");
-    const lines = contents.split("\n");
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]?.trim() ?? "";
-      if (!line) {
-        continue;
-      }
-
-      const payload = normalizeJsonRecordPayload(
-        "sample",
-        JSON.parse(line) as QueryRecordData,
-      );
+  await forEachJsonlPayload(
+    vaultRoot,
+    "ledger/samples",
+    (filePath, sourcePath, lineNumber, rawPayload) => {
+      const streamFromPath = inferSampleStreamFromPath(sourcePath);
+      const payload = normalizeJsonRecordPayload("sample", rawPayload);
       const rawRecordId =
-        pickString(payload, ["id"]) ?? `sample:${sourcePath}:${index + 1}`;
+        pickString(payload, ["id"]) ?? `sample:${sourcePath}:${lineNumber}`;
       const occurredAt = pickString(payload, [
         "recordedAt",
         "occurredAt",
@@ -577,10 +527,55 @@ async function readSampleRecords(vaultRoot: string): Promise<VaultRecord[]> {
         body: null,
         frontmatter: null,
       });
-    }
-  }
+    },
+  );
 
   return records.sort(compareRecords);
+}
+
+async function forEachJsonlPayload(
+  vaultRoot: string,
+  relativeDir: string,
+  visit: (
+    filePath: string,
+    sourcePath: string,
+    lineNumber: number,
+    payload: QueryRecordData,
+  ) => void,
+): Promise<void> {
+  const targetDir = path.join(vaultRoot, relativeDir);
+
+  for (const filePath of await listFilesByExtension(targetDir, ".jsonl")) {
+    const sourcePath = toPosixRelative(vaultRoot, filePath);
+    await readJsonlFile(filePath, sourcePath, visit);
+  }
+}
+
+async function readJsonlFile(
+  filePath: string,
+  sourcePath: string,
+  visit: (
+    filePath: string,
+    sourcePath: string,
+    lineNumber: number,
+    payload: QueryRecordData,
+  ) => void,
+): Promise<void> {
+  const contents = await readFile(filePath, "utf8");
+
+  for (const [index, rawLine] of contents.split("\n").entries()) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    visit(
+      filePath,
+      sourcePath,
+      index + 1,
+      JSON.parse(line) as QueryRecordData,
+    );
+  }
 }
 
 async function listDirectoryFiles(directoryPath: string): Promise<string[]> {
@@ -594,6 +589,13 @@ async function listDirectoryFiles(directoryPath: string): Promise<string[]> {
 
     throw error;
   }
+}
+
+async function listFilesByExtension(
+  directoryPath: string,
+  extension: string,
+): Promise<string[]> {
+  return (await walkFiles(directoryPath)).filter((entry) => entry.endsWith(extension));
 }
 
 async function walkFiles(directoryPath: string): Promise<string[]> {
@@ -687,6 +689,47 @@ function normalizeTags(value: unknown): string[] {
   return normalizeStringArray(value);
 }
 
+function normalizeFilterText(text: string | undefined): string | null {
+  return text ? text.toLowerCase() : null;
+}
+
+function matchesDateBounds(
+  value: string | null | undefined,
+  from?: string,
+  to?: string,
+): boolean {
+  if (from && compareDateStrings(value, from) < 0) {
+    return false;
+  }
+
+  if (to && compareDateStrings(value, to) > 0) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesTagSet(
+  values: readonly string[],
+  tagSet: ReadonlySet<string> | null,
+): boolean {
+  return !tagSet || values.some((value) => tagSet.has(value));
+}
+
+function matchesFilterText(
+  values: readonly unknown[],
+  normalizedText: string | null,
+): boolean {
+  return !normalizedText || buildTextHaystack(values).includes(normalizedText);
+}
+
+function buildTextHaystack(values: readonly unknown[]): string {
+  return values
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n")
+    .toLowerCase();
+}
+
 function pickString(
   object: QueryRecordData | null | undefined,
   keys: readonly string[],
@@ -720,54 +763,34 @@ function normalizeFrontmatterAttributes(
   recordType: FrontmatterRecordType,
   attributes: QueryRecordData,
 ): QueryRecordData {
-  const normalized: QueryRecordData =
-    attributes && typeof attributes === "object" ? { ...attributes } : {};
+  const normalized = cloneRecordData(attributes);
 
   switch (recordType) {
     case "core":
-      assignCanonicalString(normalized, attributes, "vaultId", ["vaultId", "vault_id", "id"]);
-      assignCanonicalString(normalized, attributes, "updatedAt", ["updatedAt", "updated_at"]);
+      assignCanonicalStrings(normalized, attributes, [
+        ["vaultId", ["vaultId", "vault_id", "id"]],
+        ["updatedAt", ["updatedAt", "updated_at"]],
+      ]);
       normalized.tags = normalizeStringArray(normalized.tags);
       return normalized;
     case "experiment":
-      assignCanonicalString(normalized, attributes, "experimentId", [
-        "experimentId",
-        "experiment_id",
-        "id",
-      ]);
-      assignCanonicalString(normalized, attributes, "slug", [
-        "slug",
-        "experimentSlug",
-        "experiment_slug",
-      ]);
-      assignCanonicalString(normalized, attributes, "startedOn", [
-        "startedOn",
-        "started_on",
-      ]);
-      assignCanonicalString(normalized, attributes, "updatedAt", [
-        "updatedAt",
-        "updated_at",
+      assignCanonicalStrings(normalized, attributes, [
+        ["experimentId", ["experimentId", "experiment_id", "id"]],
+        ["slug", ["slug", "experimentSlug", "experiment_slug"]],
+        ["startedOn", ["startedOn", "started_on"]],
+        ["updatedAt", ["updatedAt", "updated_at"]],
       ]);
       normalized.tags = normalizeStringArray(normalized.tags);
       return normalized;
     case "journal":
-      assignCanonicalString(normalized, attributes, "dayKey", [
-        "dayKey",
-        "day_key",
-        "date",
+      assignCanonicalStrings(normalized, attributes, [
+        ["dayKey", ["dayKey", "day_key", "date"]],
+        ["experimentSlug", ["experimentSlug", "experiment_slug"]],
+        ["updatedAt", ["updatedAt", "updated_at"]],
       ]);
-      assignCanonicalString(normalized, attributes, "experimentSlug", [
-        "experimentSlug",
-        "experiment_slug",
-      ]);
-      assignCanonicalString(normalized, attributes, "updatedAt", [
-        "updatedAt",
-        "updated_at",
-      ]);
-      assignCanonicalArray(normalized, attributes, "eventIds", ["eventIds", "event_ids"]);
-      assignCanonicalArray(normalized, attributes, "sampleStreams", [
-        "sampleStreams",
-        "sample_streams",
+      assignCanonicalArrays(normalized, attributes, [
+        ["eventIds", ["eventIds", "event_ids"]],
+        ["sampleStreams", ["sampleStreams", "sample_streams"]],
       ]);
       normalized.tags = normalizeStringArray(normalized.tags);
       return normalized;
@@ -780,52 +803,41 @@ function normalizeJsonRecordPayload(
   recordType: JsonRecordType,
   payload: QueryRecordData,
 ): QueryRecordData {
-  const normalized: QueryRecordData =
-    payload && typeof payload === "object" ? { ...payload } : {};
+  const normalized = cloneRecordData(payload);
 
-  assignCanonicalString(normalized, payload, "id", ["id"]);
-  assignCanonicalString(normalized, payload, "kind", ["kind"]);
-  assignCanonicalString(normalized, payload, "stream", ["stream"]);
-  assignCanonicalString(normalized, payload, "source", ["source"]);
-  assignCanonicalString(normalized, payload, "title", ["title"]);
-  assignCanonicalString(normalized, payload, "summary", ["summary"]);
-  assignCanonicalString(normalized, payload, "note", ["note"]);
-  assignCanonicalString(normalized, payload, "occurredAt", ["occurredAt", "occurred_at"]);
-  assignCanonicalString(normalized, payload, "recordedAt", [
-    "recordedAt",
-    "recorded_at",
-    "timestamp",
+  assignCanonicalStrings(normalized, payload, [
+    ["id", ["id"]],
+    ["kind", ["kind"]],
+    ["stream", ["stream"]],
+    ["source", ["source"]],
+    ["title", ["title"]],
+    ["summary", ["summary"]],
+    ["note", ["note"]],
+    ["occurredAt", ["occurredAt", "occurred_at"]],
+    ["recordedAt", ["recordedAt", "recorded_at", "timestamp"]],
+    ["dayKey", ["dayKey", "day_key"]],
+    ["experimentId", ["experimentId", "experiment_id"]],
+    ["experimentSlug", ["experimentSlug", "experiment_slug"]],
+    ["documentId", ["documentId", "document_id"]],
+    ["documentPath", ["documentPath", "document_path"]],
+    ["mimeType", ["mimeType", "mime_type"]],
+    ["mealId", ["mealId", "meal_id"]],
+    ["transformId", ["transformId", "transform_id"]],
   ]);
-  assignCanonicalString(normalized, payload, "dayKey", ["dayKey", "day_key"]);
-  assignCanonicalString(normalized, payload, "experimentId", [
-    "experimentId",
-    "experiment_id",
+  assignCanonicalArrays(normalized, payload, [
+    ["tags", ["tags"]],
+    ["relatedIds", ["relatedIds", "related_ids"]],
+    ["rawRefs", ["rawRefs", "raw_refs"]],
+    ["eventIds", ["eventIds", "event_ids"]],
+    ["photoPaths", ["photoPaths", "photo_paths"]],
+    ["audioPaths", ["audioPaths", "audio_paths"]],
   ]);
-  assignCanonicalString(normalized, payload, "experimentSlug", [
-    "experimentSlug",
-    "experiment_slug",
-  ]);
-  assignCanonicalString(normalized, payload, "documentId", ["documentId", "document_id"]);
-  assignCanonicalString(normalized, payload, "documentPath", [
-    "documentPath",
-    "document_path",
-  ]);
-  assignCanonicalString(normalized, payload, "mimeType", ["mimeType", "mime_type"]);
-  assignCanonicalString(normalized, payload, "mealId", ["mealId", "meal_id"]);
-  assignCanonicalString(normalized, payload, "transformId", [
-    "transformId",
-    "transform_id",
-  ]);
-  assignCanonicalArray(normalized, payload, "tags", ["tags"]);
-  assignCanonicalArray(normalized, payload, "relatedIds", ["relatedIds", "related_ids"]);
-  assignCanonicalArray(normalized, payload, "rawRefs", ["rawRefs", "raw_refs"]);
-  assignCanonicalArray(normalized, payload, "eventIds", ["eventIds", "event_ids"]);
-  assignCanonicalArray(normalized, payload, "photoPaths", ["photoPaths", "photo_paths"]);
-  assignCanonicalArray(normalized, payload, "audioPaths", ["audioPaths", "audio_paths"]);
 
   if (recordType === "sample") {
-    assignCanonicalString(normalized, payload, "quality", ["quality"]);
-    assignCanonicalString(normalized, payload, "unit", ["unit"]);
+    assignCanonicalStrings(normalized, payload, [
+      ["quality", ["quality"]],
+      ["unit", ["unit"]],
+    ]);
   }
 
   return normalized;
@@ -841,8 +853,7 @@ function normalizeRecordData(
   },
 ): QueryRecordData {
   const { recordType, displayId, primaryLookupId, rawRecordId } = meta;
-  const data: QueryRecordData =
-    payload && typeof payload === "object" ? { ...payload } : {};
+  const data = cloneRecordData(payload);
 
   if (recordType === "event" && displayId !== rawRecordId) {
     data.entityId = displayId;
@@ -856,6 +867,12 @@ function normalizeRecordData(
   }
 
   return data;
+}
+
+function cloneRecordData(
+  value: QueryRecordData | null | undefined,
+): QueryRecordData {
+  return value && typeof value === "object" ? { ...value } : {};
 }
 
 function assignCanonicalString(
@@ -879,6 +896,26 @@ function assignCanonicalArray(
   const value = pickFirstArray(source, aliases);
   if (value) {
     target[key] = normalizeStringArray(value);
+  }
+}
+
+function assignCanonicalStrings(
+  target: QueryRecordData,
+  source: QueryRecordData | null | undefined,
+  entries: ReadonlyArray<readonly [string, readonly string[]]>,
+): void {
+  for (const [key, aliases] of entries) {
+    assignCanonicalString(target, source, key, aliases);
+  }
+}
+
+function assignCanonicalArrays(
+  target: QueryRecordData,
+  source: QueryRecordData | null | undefined,
+  entries: ReadonlyArray<readonly [string, readonly string[]]>,
+): void {
+  for (const [key, aliases] of entries) {
+    assignCanonicalArray(target, source, key, aliases);
   }
 }
 
@@ -926,4 +963,8 @@ function uniqueStrings(values: readonly unknown[]): string[] {
 
 function toPosixRelative(root: string, filePath: string): string {
   return path.relative(root, filePath).split(path.sep).join(path.posix.sep);
+}
+
+function hasMarkdownExtension(entry: string): boolean {
+  return entry.endsWith(".md");
 }

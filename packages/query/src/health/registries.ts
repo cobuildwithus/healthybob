@@ -110,6 +110,28 @@ export function sortRegistryRecords<TRecord extends RegistryMarkdownRecord>(
   return records.sort(compare);
 }
 
+function matchesRegistryOptions<TRecord extends RegistryMarkdownRecord>(
+  record: TRecord,
+  options: RegistryListOptions,
+): boolean {
+  return (
+    matchesStatus(record.status, options.status) &&
+    matchesText(
+      [record.id, record.slug, record.title, record.body, record.attributes],
+      options.text,
+    )
+  );
+}
+
+async function findRegistryRecord<TRecord extends RegistryMarkdownRecord>(
+  vaultRoot: string,
+  definition: RegistryDefinition<TRecord>,
+  predicate: (record: TRecord) => boolean,
+): Promise<TRecord | null> {
+  const records = await loadRegistry(vaultRoot, definition);
+  return records.find(predicate) ?? null;
+}
+
 async function loadRegistry<TRecord extends RegistryMarkdownRecord>(
   vaultRoot: string,
   definition: RegistryDefinition<TRecord>,
@@ -134,11 +156,7 @@ export async function listRegistryRecords<TRecord extends RegistryMarkdownRecord
   options: RegistryListOptions = {},
 ): Promise<TRecord[]> {
   const records = await loadRegistry(vaultRoot, definition);
-  const filtered = records.filter(
-    (record) =>
-      matchesStatus(record.status, options.status) &&
-      matchesText([record.id, record.slug, record.title, record.body, record.attributes], options.text),
-  );
+  const filtered = records.filter((record) => matchesRegistryOptions(record, options));
 
   return applyLimit(filtered, options.limit);
 }
@@ -148,8 +166,7 @@ export async function readRegistryRecord<TRecord extends RegistryMarkdownRecord>
   definition: RegistryDefinition<TRecord>,
   recordId: string,
 ): Promise<TRecord | null> {
-  const records = await loadRegistry(vaultRoot, definition);
-  return records.find((record) => record.id === recordId) ?? null;
+  return findRegistryRecord(vaultRoot, definition, (record) => record.id === recordId);
 }
 
 export async function showRegistryRecord<TRecord extends RegistryMarkdownRecord>(
@@ -157,10 +174,10 @@ export async function showRegistryRecord<TRecord extends RegistryMarkdownRecord>
   definition: RegistryDefinition<TRecord>,
   lookup: string,
 ): Promise<TRecord | null> {
-  const records = await loadRegistry(vaultRoot, definition);
-  return (
-    records.find((record) => matchesLookup(lookup, record.id, record.slug, record.title)) ??
-    null
+  return findRegistryRecord(
+    vaultRoot,
+    definition,
+    (record) => matchesLookup(lookup, record.id, record.slug, record.title),
   );
 }
 

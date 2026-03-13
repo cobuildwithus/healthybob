@@ -84,7 +84,9 @@ export function toProfileSnapshotRecord(
   }
 
   const sourceObject = firstObject(source, ["source"]);
+  const sourceDetails = sourceObject ?? {};
   const sourceAssessmentIds = firstStringArray(source, ["sourceAssessmentIds"]);
+  const sourceAssessmentId = firstString(sourceDetails, ["assessmentId"]);
 
   return {
     id,
@@ -94,13 +96,13 @@ export function toProfileSnapshotRecord(
     summary: firstString(source, ["summary"]),
     source:
       firstString(source, ["source"]) ??
-      firstString(sourceObject ?? {}, ["kind", "source", "importedFrom"]),
+      firstString(sourceDetails, ["kind", "source", "importedFrom"]),
     sourceAssessmentIds:
       sourceAssessmentIds.length > 0
         ? sourceAssessmentIds
-        : (firstString(sourceObject ?? {}, ["assessmentId"])
-            ? [firstString(sourceObject ?? {}, ["assessmentId"]) as string]
-            : []),
+        : sourceAssessmentId
+          ? [sourceAssessmentId]
+          : [],
     sourceEventIds: firstStringArray(source, ["sourceEventIds"]),
     profile: firstObject(source, ["profile"]) ?? {},
     relativePath,
@@ -119,6 +121,46 @@ export function compareSnapshots(
   }
 
   return left.id.localeCompare(right.id);
+}
+
+function isProfileSnapshotRecord(
+  record: ProfileSnapshotQueryRecord | null,
+): record is ProfileSnapshotQueryRecord {
+  return record !== null;
+}
+
+function matchesProfileSnapshotOptions(
+  record: ProfileSnapshotQueryRecord,
+  options: ProfileSnapshotListOptions,
+): boolean {
+  return (
+    matchesDateRange(record.recordedAt ?? record.capturedAt, options.from, options.to) &&
+    matchesText(
+      [
+        record.id,
+        record.summary,
+        record.source,
+        record.profile,
+        record.sourceAssessmentIds,
+        record.sourceEventIds,
+      ],
+      options.text,
+    )
+  );
+}
+
+function fallbackCurrentProfile(
+  latestSnapshot: ProfileSnapshotQueryRecord,
+): CurrentProfileQueryRecord {
+  return buildCurrentProfileRecord({
+    snapshotId: latestSnapshot.id,
+    updatedAt: latestSnapshot.recordedAt ?? latestSnapshot.capturedAt,
+    sourceAssessmentIds: latestSnapshot.sourceAssessmentIds,
+    sourceEventIds: latestSnapshot.sourceEventIds,
+    topGoalIds: firstStringArray(latestSnapshot.profile, ["topGoalIds"]),
+    markdown: null,
+    body: null,
+  });
 }
 
 export function toCurrentProfileRecord(
@@ -155,15 +197,8 @@ export async function listProfileSnapshots(
   const entries = await readJsonlRecords(vaultRoot, "ledger/profile-snapshots");
   const records = entries
     .map((entry) => toProfileSnapshotRecord(entry.value, entry.relativePath))
-    .filter((entry): entry is ProfileSnapshotQueryRecord => entry !== null)
-    .filter(
-      (entry) =>
-        matchesDateRange(entry.recordedAt ?? entry.capturedAt, options.from, options.to) &&
-        matchesText(
-          [entry.id, entry.summary, entry.source, entry.profile, entry.sourceAssessmentIds, entry.sourceEventIds],
-          options.text,
-        ),
-    )
+    .filter(isProfileSnapshotRecord)
+    .filter((entry) => matchesProfileSnapshotOptions(entry, options))
     .sort(compareSnapshots);
 
   return applyLimit(records, options.limit);
@@ -190,15 +225,7 @@ export async function readCurrentProfile(
   const document = await readOptionalMarkdownDocument(vaultRoot, "bank/profile/current.md");
 
   if (!document) {
-    return buildCurrentProfileRecord({
-      snapshotId: latestSnapshot.id,
-      updatedAt: latestSnapshot.recordedAt ?? latestSnapshot.capturedAt,
-      sourceAssessmentIds: latestSnapshot.sourceAssessmentIds,
-      sourceEventIds: latestSnapshot.sourceEventIds,
-      topGoalIds: firstStringArray(latestSnapshot.profile, ["topGoalIds"]),
-      markdown: null,
-      body: null,
-    });
+    return fallbackCurrentProfile(latestSnapshot);
   }
 
   const parsed = toCurrentProfileRecord(document);
@@ -206,15 +233,7 @@ export async function readCurrentProfile(
     return parsed;
   }
 
-  return buildCurrentProfileRecord({
-    snapshotId: latestSnapshot.id,
-    updatedAt: latestSnapshot.recordedAt ?? latestSnapshot.capturedAt,
-    sourceAssessmentIds: latestSnapshot.sourceAssessmentIds,
-    sourceEventIds: latestSnapshot.sourceEventIds,
-    topGoalIds: firstStringArray(latestSnapshot.profile, ["topGoalIds"]),
-    markdown: null,
-    body: null,
-  });
+  return fallbackCurrentProfile(latestSnapshot);
 }
 
 export async function showProfile(

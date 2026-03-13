@@ -89,6 +89,41 @@ export function compareHistory(left: HistoryQueryRecord, right: HistoryQueryReco
   return left.id.localeCompare(right.id);
 }
 
+function isHistoryRecord(record: HistoryQueryRecord | null): record is HistoryQueryRecord {
+  return record !== null;
+}
+
+function matchesKindFilter(
+  record: HistoryQueryRecord,
+  kindFilters: ReadonlySet<HealthHistoryKind> | null,
+): boolean {
+  return !kindFilters || kindFilters.has(record.kind);
+}
+
+function matchesHistoryOptions(
+  record: HistoryQueryRecord,
+  options: HistoryListOptions,
+  kindFilters: ReadonlySet<HealthHistoryKind> | null,
+): boolean {
+  return (
+    matchesKindFilter(record, kindFilters) &&
+    matchesDateRange(record.occurredAt, options.from, options.to) &&
+    matchesStatus(record.status, options.status) &&
+    matchesText(
+      [
+        record.id,
+        record.title,
+        record.kind,
+        record.source,
+        record.tags,
+        record.relatedIds,
+        record.data,
+      ],
+      options.text,
+    )
+  );
+}
+
 export async function listHistoryEvents(
   vaultRoot: string,
   options: HistoryListOptions = {},
@@ -101,14 +136,8 @@ export async function listHistoryEvents(
   const entries = await readJsonlRecords(vaultRoot, "ledger/events");
   const records = entries
     .map((entry) => toHistoryRecord(entry.value, entry.relativePath))
-    .filter((entry): entry is HistoryQueryRecord => entry !== null)
-    .filter(
-      (entry) =>
-        (kindFilters ? kindFilters.has(entry.kind) : true) &&
-        matchesDateRange(entry.occurredAt, options.from, options.to) &&
-        matchesStatus(entry.status, options.status) &&
-        matchesText([entry.id, entry.title, entry.kind, entry.source, entry.tags, entry.relatedIds, entry.data], options.text),
-    )
+    .filter(isHistoryRecord)
+    .filter((entry) => matchesHistoryOptions(entry, options, kindFilters))
     .sort(compareHistory);
 
   return applyLimit(records, options.limit);

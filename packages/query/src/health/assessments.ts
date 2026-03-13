@@ -74,6 +74,32 @@ export function compareAssessments(
   return left.id.localeCompare(right.id);
 }
 
+function isAssessmentRecord(
+  record: AssessmentQueryRecord | null,
+): record is AssessmentQueryRecord {
+  return record !== null;
+}
+
+function matchesAssessmentOptions(
+  record: AssessmentQueryRecord,
+  options: AssessmentListOptions,
+): boolean {
+  return (
+    matchesDateRange(record.recordedAt ?? record.importedAt, options.from, options.to) &&
+    matchesText(
+      [
+        record.id,
+        record.title,
+        record.assessmentType,
+        record.source,
+        record.responses,
+        record.relatedIds,
+      ],
+      options.text,
+    )
+  );
+}
+
 export async function listAssessments(
   vaultRoot: string,
   options: AssessmentListOptions = {},
@@ -81,15 +107,8 @@ export async function listAssessments(
   const entries = await readJsonlRecords(vaultRoot, "ledger/assessments");
   const records = entries
     .map((entry) => toAssessmentRecord(entry.value, entry.relativePath))
-    .filter((entry): entry is AssessmentQueryRecord => entry !== null)
-    .filter(
-      (entry) =>
-        matchesDateRange(entry.recordedAt ?? entry.importedAt, options.from, options.to) &&
-        matchesText(
-          [entry.id, entry.title, entry.assessmentType, entry.source, entry.responses, entry.relatedIds],
-          options.text,
-        ),
-    )
+    .filter(isAssessmentRecord)
+    .filter((entry) => matchesAssessmentOptions(entry, options))
     .sort(compareAssessments);
 
   return applyLimit(records, options.limit);
