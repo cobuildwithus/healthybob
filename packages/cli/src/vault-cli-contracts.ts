@@ -130,7 +130,6 @@ export const listFilterSchema = z.object({
   experiment: slugSchema.optional(),
   dateFrom: localDateSchema.optional(),
   dateTo: localDateSchema.optional(),
-  cursor: z.string().min(1).optional(),
   limit: z.number().int().positive().max(200).default(50),
 })
 

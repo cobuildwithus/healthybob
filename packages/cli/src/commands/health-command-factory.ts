@@ -52,7 +52,9 @@ interface CrudHints {
   upsert?: string
 }
 
+type CrudCommandName = keyof CrudDescriptions
 type CommandExamples = Array<Record<string, unknown>>
+type ServiceMethod<TInput, TResult> = (input: TInput) => Promise<TResult>
 
 interface CrudExamples {
   list?: CommandExamples
@@ -109,102 +111,181 @@ interface HealthCrudConfig<
   }
 }
 
-function scaffoldExamples(config: HealthCrudConfig<any, any, any, any>) {
-  return config.examples?.scaffold ?? [
-    {
-      description: `Print a template ${config.noun} payload.`,
-      options: {
-        vault: './vault',
+type HealthCrudConfigAny = HealthCrudConfig<any, any, any, any>
+
+type MethodName<TService, TInput, TResult> = {
+  [TKey in keyof TService]: TService[TKey] extends ServiceMethod<TInput, TResult>
+    ? TKey
+    : never
+}[keyof TService]
+
+interface CrudServiceMethodNames<
+  TCore extends object,
+  TQuery extends object,
+  TScaffold,
+  TUpsert extends object,
+  TShow,
+  TList,
+> {
+  list: MethodName<TQuery, ListCommandContext, TList>
+  scaffold: MethodName<TCore, CommandContext, TScaffold>
+  show: MethodName<TQuery, ShowCommandContext, TShow>
+  upsert: MethodName<TCore, UpsertCommandContext, TUpsert>
+}
+
+interface SuggestedCommand {
+  command: string
+  description: string
+  args?: Record<string, unknown>
+  options?: Record<string, unknown>
+}
+
+const defaultExamplesByCommand: Record<
+  CrudCommandName,
+  (config: HealthCrudConfigAny) => CommandExamples
+> = {
+  list(config) {
+    return [
+      {
+        description: `List ${config.pluralNoun} with a smaller page size.`,
+        options: {
+          limit: 10,
+          vault: './vault',
+        },
       },
-    },
-  ]
-}
-
-function upsertExamples(config: HealthCrudConfig<any, any, any, any>) {
-  return config.examples?.upsert ?? [
-    {
-      description: `Upsert one ${config.noun} from a JSON payload file.`,
-      options: {
-        input: `@${config.payloadFile}`,
-        vault: './vault',
+    ]
+  },
+  scaffold(config) {
+    return [
+      {
+        description: `Print a template ${config.noun} payload.`,
+        options: {
+          vault: './vault',
+        },
       },
-    },
-  ]
-}
-
-function showExamples(config: HealthCrudConfig<any, any, any, any>) {
-  return config.examples?.show ?? [
-    {
-      args: {
-        id: config.showId.example,
+    ]
+  },
+  show(config) {
+    return [
+      {
+        args: {
+          id: config.showId.example,
+        },
+        description: `Show one ${config.noun}.`,
+        options: {
+          vault: './vault',
+        },
       },
-      description: `Show one ${config.noun}.`,
-      options: {
-        vault: './vault',
+    ]
+  },
+  upsert(config) {
+    return [
+      {
+        description: `Upsert one ${config.noun} from a JSON payload file.`,
+        options: {
+          input: `@${config.payloadFile}`,
+          vault: './vault',
+        },
       },
-    },
-  ]
+    ]
+  },
 }
 
-function listExamples(config: HealthCrudConfig<any, any, any, any>) {
-  return config.examples?.list ?? [
-    {
-      description: `List ${config.pluralNoun} with a smaller page size.`,
-      options: {
-        limit: 10,
-        vault: './vault',
-      },
-    },
-  ]
+const defaultHintsByCommand: Partial<
+  Record<CrudCommandName, (config: HealthCrudConfigAny) => string>
+> = {
+  list() {
+    return 'Use --limit to cap results. --cursor is accepted for compatibility but ignored until pagination is implemented.'
+  },
+  scaffold(config) {
+    return `Edit the emitted payload, save it as ${config.payloadFile}, then pass it back with --input @${config.payloadFile}.`
+  },
+  upsert(config) {
+    return `--input expects @file.json so the CLI can load the structured ${config.noun} payload from disk.`
+  },
 }
 
-function scaffoldHint(config: HealthCrudConfig<any, any, any, any>) {
-  return (
-    config.hints?.scaffold ??
-    `Edit the emitted payload, save it as ${config.payloadFile}, then pass it back with --input @${config.payloadFile}.`
-  )
+function examplesFor(
+  config: HealthCrudConfigAny,
+  command: CrudCommandName,
+) {
+  return config.examples?.[command] ?? defaultExamplesByCommand[command](config)
 }
 
-function upsertHint(config: HealthCrudConfig<any, any, any, any>) {
-  return (
-    config.hints?.upsert ??
-    `--input expects @file.json so the CLI can load the structured ${config.noun} payload from disk.`
-  )
+function hintFor(
+  config: HealthCrudConfigAny,
+  command: keyof CrudHints,
+) {
+  return config.hints?.[command] ?? defaultHintsByCommand[command]?.(config)
 }
 
-function listHint(config: HealthCrudConfig<any, any, any, any>) {
-  return (
-    config.hints?.list ??
-    'Use --limit to cap results. --cursor is accepted for compatibility but ignored until pagination is implemented.'
-  )
+function bindServiceMethod<TService extends object, TInput, TResult>(
+  service: TService,
+  methodName: MethodName<TService, TInput, TResult>,
+): ServiceMethod<TInput, TResult> {
+  const method = service[methodName] as ServiceMethod<TInput, TResult>
+  return method.bind(service)
+}
+
+export function bindHealthCrudServices<
+  TCore extends object,
+  TQuery extends object,
+  TScaffold,
+  TUpsert extends object,
+  TShow,
+  TList,
+>(
+  services: {
+    core: TCore
+    query: TQuery
+  },
+  methodNames: CrudServiceMethodNames<
+    TCore,
+    TQuery,
+    TScaffold,
+    TUpsert,
+    TShow,
+    TList
+  >,
+): CrudServices<TScaffold, TUpsert, TShow, TList> {
+  return {
+    list: bindServiceMethod(services.query, methodNames.list),
+    scaffold: bindServiceMethod(services.core, methodNames.scaffold),
+    show: bindServiceMethod(services.query, methodNames.show),
+    upsert: bindServiceMethod(services.core, methodNames.upsert),
+  }
+}
+
+export function suggestedCommandsCta(commands: SuggestedCommand[]) {
+  return {
+    commands,
+    description: 'Suggested commands:' as const,
+  }
 }
 
 function upsertCta<TUpsert extends object>(
   config: HealthCrudConfig<any, TUpsert, any, any>,
   result: TUpsert,
 ) {
-  return {
-    commands: [
-      {
-        command: `${config.groupName} show`,
-        args: {
-          id: config.showId.fromUpsert(result),
-        },
-        description: `Show the saved ${config.noun}.`,
-        options: {
-          vault: true,
-        },
+  return suggestedCommandsCta([
+    {
+      command: `${config.groupName} show`,
+      args: {
+        id: config.showId.fromUpsert(result),
       },
-      {
-        command: `${config.groupName} list`,
-        description: `List ${config.pluralNoun}.`,
-        options: {
-          vault: true,
-        },
+      description: `Show the saved ${config.noun}.`,
+      options: {
+        vault: true,
       },
-    ],
-    description: 'Suggested commands:',
-  }
+    },
+    {
+      command: `${config.groupName} list`,
+      description: `List ${config.pluralNoun}.`,
+      options: {
+        vault: true,
+      },
+    },
+  ])
 }
 
 export function registerHealthCrudCommands<
@@ -216,8 +297,8 @@ export function registerHealthCrudCommands<
   config.group.command('scaffold', {
     args: z.object({}),
     description: config.descriptions.scaffold,
-    examples: scaffoldExamples(config),
-    hint: scaffoldHint(config),
+    examples: examplesFor(config, 'scaffold'),
+    hint: hintFor(config, 'scaffold'),
     options: withBaseOptions(),
     output: config.outputs.scaffold,
     async run(context) {
@@ -227,19 +308,16 @@ export function registerHealthCrudCommands<
       })
 
       return context.ok(result, {
-        cta: {
-          commands: [
-            {
-              command: `${config.groupName} upsert`,
-              description: `Apply the edited ${config.noun} payload.`,
-              options: {
-                input: `@${config.payloadFile}`,
-                vault: true,
-              },
+        cta: suggestedCommandsCta([
+          {
+            command: `${config.groupName} upsert`,
+            description: `Apply the edited ${config.noun} payload.`,
+            options: {
+              input: `@${config.payloadFile}`,
+              vault: true,
             },
-          ],
-          description: 'Suggested commands:',
-        },
+          },
+        ]),
       })
     },
   })
@@ -247,8 +325,8 @@ export function registerHealthCrudCommands<
   config.group.command('upsert', {
     args: z.object({}),
     description: config.descriptions.upsert,
-    examples: upsertExamples(config),
-    hint: upsertHint(config),
+    examples: examplesFor(config, 'upsert'),
+    hint: hintFor(config, 'upsert'),
     options: withBaseOptions({
       input: inputFileOptionSchema,
     }),
@@ -271,8 +349,8 @@ export function registerHealthCrudCommands<
       id: z.string().min(1).describe(config.showId.description),
     }),
     description: config.descriptions.show,
-    examples: showExamples(config),
-    hint: config.hints?.show,
+    examples: examplesFor(config, 'show'),
+    hint: hintFor(config, 'show'),
     options: withBaseOptions(),
     output: config.outputs.show,
     async run(context) {
@@ -298,22 +376,23 @@ export function registerHealthCrudCommands<
   config.group.command('list', {
     args: z.object({}),
     description: config.descriptions.list,
-    examples: listExamples(config),
-    hint: listHint(config),
+    examples: examplesFor(config, 'list'),
+    hint: hintFor(config, 'list'),
     options: listOptions,
     output: config.outputs.list,
     async run(context) {
-      const listInput: ListCommandContext = {
+      const status =
+        'status' in context.options &&
+        typeof context.options.status === 'string'
+          ? context.options.status
+          : undefined
+
+      return config.services.list({
         limit: context.options.limit,
         requestId: requestIdFromOptions(context.options),
+        status,
         vault: context.options.vault,
-      }
-
-      if ('status' in context.options && typeof context.options.status === 'string') {
-        listInput.status = context.options.status
-      }
-
-      return config.services.list(listInput)
+      })
     },
   })
 }

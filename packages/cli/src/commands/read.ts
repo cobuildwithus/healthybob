@@ -7,10 +7,6 @@ import {
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
 
-const reservedCursorOptionSchema = listFilterSchema.shape.cursor.describe(
-  'Reserved for future pagination support. Accepted for compatibility but ignored today.',
-)
-
 export function registerReadCommands(cli: Cli.Cli, services: VaultCliServices) {
   cli.command(
     'show',
@@ -44,7 +40,6 @@ export function registerReadCommands(cli: Cli.Cli, services: VaultCliServices) {
         experiment: listFilterSchema.shape.experiment,
         dateFrom: listFilterSchema.shape.dateFrom,
         dateTo: listFilterSchema.shape.dateTo,
-        cursor: reservedCursorOptionSchema,
         limit: listFilterSchema.shape.limit,
       }),
       output: listResultSchema,

@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,7 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface GoalServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldGoal(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertGoal(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showGoal(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listGoals(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
 export function registerGoalCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as GoalServices
   const goal = Cli.create('goal', {
     description: 'Goal registry commands for the health extension surface.',
   })
@@ -67,27 +38,19 @@ export function registerGoalCommands(cli: Cli.Cli, services: VaultCliServices) {
     listStatusDescription: 'Optional goal status to filter by.',
     noun: 'goal',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'goal.json',
     pluralNoun: 'goals',
-    services: {
-      list(input) {
-        return healthServices.query.listGoals(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldGoal(input)
-      },
-      show(input) {
-        return healthServices.query.showGoal(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertGoal(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listGoals',
+      scaffold: 'scaffoldGoal',
+      show: 'showGoal',
+      upsert: 'upsertGoal',
+    }),
     showId: {
       description: 'Goal id or slug to show.',
       example: '<goal-id>',

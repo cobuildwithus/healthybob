@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,7 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface AllergyServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldAllergy(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertAllergy(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showAllergy(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listAllergies(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
 export function registerAllergyCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as AllergyServices
   const allergy = Cli.create('allergy', {
     description: 'Allergy registry commands for the health extension surface.',
   })
@@ -67,27 +38,19 @@ export function registerAllergyCommands(cli: Cli.Cli, services: VaultCliServices
     listStatusDescription: 'Optional allergy status to filter by.',
     noun: 'allergy',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'allergy.json',
     pluralNoun: 'allergies',
-    services: {
-      list(input) {
-        return healthServices.query.listAllergies(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldAllergy(input)
-      },
-      show(input) {
-        return healthServices.query.showAllergy(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertAllergy(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listAllergies',
+      scaffold: 'scaffoldAllergy',
+      show: 'showAllergy',
+      upsert: 'upsertAllergy',
+    }),
     showId: {
       description: 'Allergy id or slug to show.',
       example: '<allergy-id>',

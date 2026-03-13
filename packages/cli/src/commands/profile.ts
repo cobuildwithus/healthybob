@@ -8,7 +8,11 @@ import {
 } from '../health-cli-descriptors.js'
 import { pathSchema } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+  suggestedCommandsCta,
+} from './health-command-factory.js'
 
 const scaffoldResultSchema = createHealthScaffoldResultSchema('profile')
 
@@ -22,9 +26,6 @@ const upsertResultSchema = z.object({
   profile: healthPayloadSchema.optional(),
 })
 
-const profileShowResultSchema = healthShowResultSchema
-const profileListResultSchema = healthListResultSchema
-
 const rebuildResultSchema = z.object({
   vault: pathSchema,
   profilePath: pathSchema,
@@ -32,39 +33,10 @@ const rebuildResultSchema = z.object({
   updated: z.boolean(),
 })
 
-interface ProfileServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldProfileSnapshot(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertProfileSnapshot(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-    rebuildCurrentProfile(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof rebuildResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showProfile(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof profileShowResultSchema>>
-    listProfileSnapshots(input: {
-      vault: string
-      requestId: string | null
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof profileListResultSchema>>
-  }
-}
-
-export function registerProfileCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as ProfileServices
+export function registerProfileCommands(
+  cli: Cli.Cli,
+  services: VaultCliServices,
+) {
   const profile = Cli.create('profile', {
     description: 'Profile snapshot commands for the health extension surface.',
   })
@@ -114,27 +86,19 @@ export function registerProfileCommands(cli: Cli.Cli, services: VaultCliServices
     },
     noun: 'profile snapshot',
     outputs: {
-      list: profileListResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: profileShowResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'profile-snapshot.json',
     pluralNoun: 'profile snapshots',
-    services: {
-      list(input) {
-        return healthServices.query.listProfileSnapshots(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldProfileSnapshot(input)
-      },
-      show(input) {
-        return healthServices.query.showProfile(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertProfileSnapshot(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listProfileSnapshots',
+      scaffold: 'scaffoldProfileSnapshot',
+      show: 'showProfile',
+      upsert: 'upsertProfileSnapshot',
+    }),
     showId: {
       description: 'Snapshot id or `current`.',
       example: 'current',
@@ -163,34 +127,31 @@ export function registerProfileCommands(cli: Cli.Cli, services: VaultCliServices
     options: withBaseOptions(),
     output: rebuildResultSchema,
     async run(context) {
-      const result = await healthServices.core.rebuildCurrentProfile({
+      const result = await services.core.rebuildCurrentProfile({
         vault: context.options.vault,
         requestId: requestIdFromOptions(context.options),
       })
 
       return context.ok(result, {
-        cta: {
-          commands: [
-            {
-              command: 'profile show',
-              args: {
-                id: 'current',
-              },
-              description: 'Show the rebuilt derived current profile.',
-              options: {
-                vault: true,
-              },
+        cta: suggestedCommandsCta([
+          {
+            command: 'profile show',
+            args: {
+              id: 'current',
             },
-            {
-              command: 'profile list',
-              description: 'List saved profile snapshots.',
-              options: {
-                vault: true,
-              },
+            description: 'Show the rebuilt derived current profile.',
+            options: {
+              vault: true,
             },
-          ],
-          description: 'Suggested commands:',
-        },
+          },
+          {
+            command: 'profile list',
+            description: 'List saved profile snapshots.',
+            options: {
+              vault: true,
+            },
+          },
+        ]),
       })
     },
   })

@@ -79,18 +79,30 @@ function withMachineOutput(args: string[]): string[] {
   return nextArgs
 }
 
-test('goal list help marks cursor as reserved instead of advertising pagination', async () => {
+test('list help and schemas no longer expose cursor pagination options', async () => {
   const help = await runRawSourceCli(['goal', 'list', '--help'])
+  const readSchema = JSON.parse(
+    await runRawSourceCli(['list', '--schema', '--format', 'json']),
+  ) as {
+    options: {
+      properties: Record<string, unknown>
+    }
+  }
+  const intakeSchema = JSON.parse(
+    await runRawSourceCli(['intake', 'list', '--schema', '--format', 'json']),
+  ) as {
+    options: {
+      properties: Record<string, unknown>
+    }
+  }
 
-  assert.match(
-    help,
-    /Use --limit to cap results\. --cursor is accepted for compatibility but ignored until pagination is implemented\./u,
-  )
+  assert.doesNotMatch(help, /--cursor/u)
   assert.doesNotMatch(help, /next-page token/u)
-  assert.match(help, /Reserved for future pagination support\./u)
+  assert.equal('cursor' in readSchema.options.properties, false)
+  assert.equal('cursor' in intakeSchema.options.properties, false)
 })
 
-test.sequential('list commands accept reserved cursor input without echoing it back', async () => {
+test.sequential('list commands still run after cursor removal', async () => {
   const vaultRoot = await mkdtemp(path.join(tmpdir(), 'healthybob-cli-list-'))
 
   try {
@@ -103,8 +115,6 @@ test.sequential('list commands accept reserved cursor input without echoing it b
       nextCursor: string | null
     }>([
       'list',
-      '--cursor',
-      'stub-token',
       '--limit',
       '5',
       '--vault',
@@ -121,8 +131,6 @@ test.sequential('list commands accept reserved cursor input without echoing it b
     }>([
       'intake',
       'list',
-      '--cursor',
-      'stub-token',
       '--limit',
       '5',
       '--vault',
@@ -139,8 +147,6 @@ test.sequential('list commands accept reserved cursor input without echoing it b
     }>([
       'goal',
       'list',
-      '--cursor',
-      'stub-token',
       '--limit',
       '5',
       '--vault',

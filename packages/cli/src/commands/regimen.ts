@@ -7,7 +7,11 @@ import {
 } from '../health-cli-descriptors.js'
 import { localDateSchema, pathSchema } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+  suggestedCommandsCta,
+} from './health-command-factory.js'
 
 const scaffoldResultSchema = createHealthScaffoldResultSchema('regimen')
 
@@ -19,9 +23,6 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
 const stopResultSchema = z.object({
   vault: pathSchema,
   regimenId: z.string().min(1),
@@ -30,42 +31,10 @@ const stopResultSchema = z.object({
   status: z.string().min(1),
 })
 
-interface RegimenServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldRegimen(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertRegimen(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-    stopRegimen(input: {
-      regimenId: string
-      stoppedOn?: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof stopResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showRegimen(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listRegimens(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
-export function registerRegimenCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as RegimenServices
+export function registerRegimenCommands(
+  cli: Cli.Cli,
+  services: VaultCliServices,
+) {
   const regimen = Cli.create('regimen', {
     description: 'Regimen registry commands for the health extension surface.',
   })
@@ -82,27 +51,19 @@ export function registerRegimenCommands(cli: Cli.Cli, services: VaultCliServices
     listStatusDescription: 'Optional regimen status to filter by.',
     noun: 'regimen',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'regimen.json',
     pluralNoun: 'regimens',
-    services: {
-      list(input) {
-        return healthServices.query.listRegimens(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldRegimen(input)
-      },
-      show(input) {
-        return healthServices.query.showRegimen(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertRegimen(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listRegimens',
+      scaffold: 'scaffoldRegimen',
+      show: 'showRegimen',
+      upsert: 'upsertRegimen',
+    }),
     showId: {
       description: 'Regimen id or slug to show.',
       example: '<regimen-id>',
@@ -144,7 +105,7 @@ export function registerRegimenCommands(cli: Cli.Cli, services: VaultCliServices
     }),
     output: stopResultSchema,
     async run(context) {
-      const result = await healthServices.core.stopRegimen({
+      const result = await services.core.stopRegimen({
         regimenId: context.args.regimenId,
         stoppedOn: context.options.stoppedOn,
         vault: context.options.vault,
@@ -152,29 +113,26 @@ export function registerRegimenCommands(cli: Cli.Cli, services: VaultCliServices
       })
 
       return context.ok(result, {
-        cta: {
-          commands: [
-            {
-              command: 'regimen show',
-              args: {
-                id: context.args.regimenId,
-              },
-              description: 'Show the stopped regimen record.',
-              options: {
-                vault: true,
-              },
+        cta: suggestedCommandsCta([
+          {
+            command: 'regimen show',
+            args: {
+              id: context.args.regimenId,
             },
-            {
-              command: 'regimen list',
-              description: 'List stopped regimens.',
-              options: {
-                status: 'stopped',
-                vault: true,
-              },
+            description: 'Show the stopped regimen record.',
+            options: {
+              vault: true,
             },
-          ],
-          description: 'Suggested commands:',
-        },
+          },
+          {
+            command: 'regimen list',
+            description: 'List stopped regimens.',
+            options: {
+              status: 'stopped',
+              vault: true,
+            },
+          },
+        ]),
       })
     },
   })

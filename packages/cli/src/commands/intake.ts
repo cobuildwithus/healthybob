@@ -9,11 +9,6 @@ import {
 import type { VaultCliServices } from '../vault-cli-services.js'
 
 const payloadSchema = z.record(z.string(), z.unknown())
-const reservedCursorOptionSchema = z
-  .string()
-  .min(1)
-  .optional()
-  .describe('Reserved for future pagination support. Accepted for compatibility but ignored today.')
 
 const intakeImportResultSchema = z.object({
   vault: pathSchema,
@@ -103,7 +98,6 @@ export function registerIntakeCommands(cli: Cli.Cli, services: VaultCliServices)
       options: withBaseOptions({
         dateFrom: localDateSchema.optional(),
         dateTo: localDateSchema.optional(),
-        cursor: reservedCursorOptionSchema,
         limit: z.number().int().positive().max(200).default(50),
       }),
       output: listResultSchema,

@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,7 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface FamilyServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldFamilyMember(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertFamilyMember(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showFamilyMember(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listFamilyMembers(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
 export function registerFamilyCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as FamilyServices
   const family = Cli.create('family', {
     description: 'Family registry commands for the health extension surface.',
   })
@@ -67,27 +38,19 @@ export function registerFamilyCommands(cli: Cli.Cli, services: VaultCliServices)
     listStatusDescription: 'Optional family-member status to filter by.',
     noun: 'family member',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'family.json',
     pluralNoun: 'family members',
-    services: {
-      list(input) {
-        return healthServices.query.listFamilyMembers(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldFamilyMember(input)
-      },
-      show(input) {
-        return healthServices.query.showFamilyMember(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertFamilyMember(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listFamilyMembers',
+      scaffold: 'scaffoldFamilyMember',
+      show: 'showFamilyMember',
+      upsert: 'upsertFamilyMember',
+    }),
     showId: {
       description: 'Family member id or slug to show.',
       example: '<family-member-id>',

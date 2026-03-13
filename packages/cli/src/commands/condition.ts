@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,10 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface ConditionServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldCondition(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertCondition(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showCondition(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listConditions(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
-export function registerConditionCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as ConditionServices
+export function registerConditionCommands(
+  cli: Cli.Cli,
+  services: VaultCliServices,
+) {
   const condition = Cli.create('condition', {
     description: 'Condition registry commands for the health extension surface.',
   })
@@ -67,27 +41,19 @@ export function registerConditionCommands(cli: Cli.Cli, services: VaultCliServic
     listStatusDescription: 'Optional condition status to filter by.',
     noun: 'condition',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'condition.json',
     pluralNoun: 'conditions',
-    services: {
-      list(input) {
-        return healthServices.query.listConditions(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldCondition(input)
-      },
-      show(input) {
-        return healthServices.query.showCondition(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertCondition(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listConditions',
+      scaffold: 'scaffoldCondition',
+      show: 'showCondition',
+      upsert: 'upsertCondition',
+    }),
     showId: {
       description: 'Condition id or slug to show.',
       example: '<condition-id>',

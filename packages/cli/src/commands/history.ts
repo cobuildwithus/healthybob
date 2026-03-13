@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,10 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface HistoryServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldHistoryEvent(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertHistoryEvent(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showHistoryEvent(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listHistoryEvents(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
-export function registerHistoryCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as HistoryServices
+export function registerHistoryCommands(
+  cli: Cli.Cli,
+  services: VaultCliServices,
+) {
   const history = Cli.create('history', {
     description: 'Timed health history commands for the extension surface.',
   })
@@ -67,27 +41,19 @@ export function registerHistoryCommands(cli: Cli.Cli, services: VaultCliServices
     listStatusDescription: 'Optional health-event status to filter by.',
     noun: 'history event',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'history.json',
     pluralNoun: 'history events',
-    services: {
-      list(input) {
-        return healthServices.query.listHistoryEvents(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldHistoryEvent(input)
-      },
-      show(input) {
-        return healthServices.query.showHistoryEvent(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertHistoryEvent(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listHistoryEvents',
+      scaffold: 'scaffoldHistoryEvent',
+      show: 'showHistoryEvent',
+      upsert: 'upsertHistoryEvent',
+    }),
     showId: {
       description: 'Timed history event id to show.',
       example: '<history-event-id>',

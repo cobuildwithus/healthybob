@@ -1,5 +1,8 @@
 import { Cli, z } from 'incur'
-import { registerHealthCrudCommands } from './health-command-factory.js'
+import {
+  bindHealthCrudServices,
+  registerHealthCrudCommands,
+} from './health-command-factory.js'
 import {
   createHealthScaffoldResultSchema,
   healthListResultSchema,
@@ -18,39 +21,10 @@ const upsertResultSchema = z.object({
   created: z.boolean(),
 })
 
-const showResultSchema = healthShowResultSchema
-const listResultSchema = healthListResultSchema
-
-interface GeneticsServices extends VaultCliServices {
-  core: VaultCliServices['core'] & {
-    scaffoldGeneticVariant(input: {
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof scaffoldResultSchema>>
-    upsertGeneticVariant(input: {
-      input: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof upsertResultSchema>>
-  }
-  query: VaultCliServices['query'] & {
-    showGeneticVariant(input: {
-      id: string
-      vault: string
-      requestId: string | null
-    }): Promise<z.infer<typeof showResultSchema>>
-    listGeneticVariants(input: {
-      vault: string
-      requestId: string | null
-      status?: string
-      cursor?: string
-      limit?: number
-    }): Promise<z.infer<typeof listResultSchema>>
-  }
-}
-
-export function registerGeneticsCommands(cli: Cli.Cli, services: VaultCliServices) {
-  const healthServices = services as GeneticsServices
+export function registerGeneticsCommands(
+  cli: Cli.Cli,
+  services: VaultCliServices,
+) {
   const genetics = Cli.create('genetics', {
     description: 'Genetic variant commands for the health extension surface.',
   })
@@ -67,27 +41,19 @@ export function registerGeneticsCommands(cli: Cli.Cli, services: VaultCliService
     listStatusDescription: 'Optional genetic-variant status to filter by.',
     noun: 'genetic variant',
     outputs: {
-      list: listResultSchema,
+      list: healthListResultSchema,
       scaffold: scaffoldResultSchema,
-      show: showResultSchema,
+      show: healthShowResultSchema,
       upsert: upsertResultSchema,
     },
     payloadFile: 'genetics.json',
     pluralNoun: 'genetic variants',
-    services: {
-      list(input) {
-        return healthServices.query.listGeneticVariants(input)
-      },
-      scaffold(input) {
-        return healthServices.core.scaffoldGeneticVariant(input)
-      },
-      show(input) {
-        return healthServices.query.showGeneticVariant(input)
-      },
-      upsert(input) {
-        return healthServices.core.upsertGeneticVariant(input)
-      },
-    },
+    services: bindHealthCrudServices(services, {
+      list: 'listGeneticVariants',
+      scaffold: 'scaffoldGeneticVariant',
+      show: 'showGeneticVariant',
+      upsert: 'upsertGeneticVariant',
+    }),
     showId: {
       description: 'Genetic variant id or slug to show.',
       example: '<genetic-variant-id>',
