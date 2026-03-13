@@ -1,8 +1,8 @@
-import { emitAuditRecord } from "../audit.js";
+import { buildAuditRecord, resolveAuditShardPath } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
-import { writeVaultTextFile } from "../fs.js";
 import { generateRecordId } from "../ids.js";
+import { WriteBatch } from "../operations/write-batch.js";
 
 import {
   REGIMEN_DOC_TYPE,
@@ -282,9 +282,13 @@ export async function upsertRegimenItem(
     body: buildBody(record),
   });
 
-  await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
-  const audit = await emitAuditRecord({
+  const batch = await WriteBatch.create({
     vaultRoot: input.vaultRoot,
+    operationType: "regimen_upsert",
+    summary: `Upsert regimen ${record.regimenId}`,
+  });
+  await batch.stageTextWrite(record.relativePath, markdown);
+  const audit = buildAuditRecord({
     action: "regimen_upsert",
     commandName: "core.upsertRegimenItem",
     summary: `Upserted regimen ${record.regimenId}.`,
@@ -296,10 +300,13 @@ export async function upsertRegimenItem(
       },
     ],
   });
+  const auditPath = resolveAuditShardPath(audit.occurredAt);
+  await batch.stageJsonlAppend(auditPath, `${JSON.stringify(audit)}\n`);
+  await batch.commit();
 
   return {
     created: !existingRecord,
-    auditPath: audit.relativePath,
+    auditPath,
     record: {
       ...record,
       markdown,
@@ -330,9 +337,13 @@ export async function stopRegimenItem(
     body: buildBody(updatedRecord),
   });
 
-  await writeVaultTextFile(input.vaultRoot, updatedRecord.relativePath, markdown);
-  const audit = await emitAuditRecord({
+  const batch = await WriteBatch.create({
     vaultRoot: input.vaultRoot,
+    operationType: "regimen_stop",
+    summary: `Stop regimen ${updatedRecord.regimenId}`,
+  });
+  await batch.stageTextWrite(updatedRecord.relativePath, markdown);
+  const audit = buildAuditRecord({
     action: "regimen_stop",
     commandName: "core.stopRegimenItem",
     summary: `Stopped regimen ${updatedRecord.regimenId}.`,
@@ -344,9 +355,12 @@ export async function stopRegimenItem(
       },
     ],
   });
+  const auditPath = resolveAuditShardPath(audit.occurredAt);
+  await batch.stageJsonlAppend(auditPath, `${JSON.stringify(audit)}\n`);
+  await batch.commit();
 
   return {
-    auditPath: audit.relativePath,
+    auditPath,
     record: {
       ...updatedRecord,
       markdown,

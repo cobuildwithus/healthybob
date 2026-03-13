@@ -47,6 +47,11 @@ import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "./frontm
 import { generateVaultId } from "./ids.js";
 import { readJsonlRecords } from "./jsonl.js";
 import { normalizeVaultRoot, resolveVaultPath } from "./path-safety.js";
+import {
+  isTerminalWriteOperationStatus,
+  listWriteOperationMetadataPaths,
+  readStoredWriteOperation,
+} from "./operations/write-batch.js";
 import { buildCurrentProfileMarkdown, listProfileSnapshots } from "./profile/storage.js";
 import { toIsoTimestamp } from "./time.js";
 
@@ -419,12 +424,8 @@ async function validateExistingVaultFile(
 
 async function validateAssessmentRecordReferences(
   vaultRoot: string,
-  record: UnknownRecord,
+  record: UnknownRecord & { rawPath: string },
 ): Promise<ValidationIssue[]> {
-  if (typeof record.rawPath !== "string") {
-    return [];
-  }
-
   const issues = await validateExistingVaultFile(
     vaultRoot,
     record.rawPath,
@@ -687,6 +688,40 @@ async function validateCurrentProfileConsistency(vaultRoot: string): Promise<Val
   return [];
 }
 
+async function validateWriteOperations(vaultRoot: string): Promise<ValidationIssue[]> {
+  const operationPaths = await listWriteOperationMetadataPaths(vaultRoot);
+  const issues: ValidationIssue[] = [];
+
+  for (const relativePath of operationPaths.sort()) {
+    try {
+      const operation = await readStoredWriteOperation(vaultRoot, relativePath);
+
+      if (isTerminalWriteOperationStatus(operation.status)) {
+        continue;
+      }
+
+      const errorSuffix = operation.error?.message ? ` Last error: ${operation.error.message}` : "";
+      issues.push(
+        validationIssue(
+          "HB_OPERATION_UNRESOLVED",
+          `Write operation "${operation.operationId}" is ${operation.status}.${errorSuffix}`,
+          relativePath,
+        ),
+      );
+    } catch (error) {
+      issues.push(
+        validationIssue(
+          error instanceof VaultError ? error.code : "HB_OPERATION_INVALID",
+          error instanceof Error ? error.message : String(error),
+          relativePath,
+        ),
+      );
+    }
+  }
+
+  return issues;
+}
+
 export async function validateVault({ vaultRoot }: LoadVaultInput = {}): Promise<ValidateVaultResult> {
   const absoluteRoot = normalizeVaultRoot(vaultRoot);
   const issues: ValidationIssue[] = [];
@@ -828,7 +863,11 @@ export async function validateVault({ vaultRoot }: LoadVaultInput = {}): Promise
       relativeDirectory: VAULT_LAYOUT.assessmentLedgerDirectory,
       schema: assessmentResponseSchema,
       code: "HB_CONTRACT_INVALID",
-      postValidateRecord: async (record) => validateAssessmentRecordReferences(absoluteRoot, record),
+      postValidateRecord: async (record) =>
+        validateAssessmentRecordReferences(
+          absoluteRoot,
+          record as UnknownRecord & { rawPath: string },
+        ),
     })),
   );
   issues.push(
@@ -866,6 +905,7 @@ export async function validateVault({ vaultRoot }: LoadVaultInput = {}): Promise
   );
   issues.push(...(await validateRawImportManifests(absoluteRoot)));
   issues.push(...(await validateCurrentProfileConsistency(absoluteRoot)));
+  issues.push(...(await validateWriteOperations(absoluteRoot)));
 
   return {
     valid: issues.length === 0,

@@ -1,5 +1,3 @@
-import { unlink } from "node:fs/promises";
-
 import {
   jsonObjectSchema,
   profileCurrentFrontmatterSchema,
@@ -7,11 +5,12 @@ import {
   safeParseContract,
 } from "@healthybob/contracts";
 
-import { emitAuditRecord } from "../audit.js";
+import { buildAuditRecord, resolveAuditShardPath } from "../audit.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
-import { pathExists, readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
+import { pathExists, readUtf8File, walkVaultFiles } from "../fs.js";
 import { generateRecordId } from "../ids.js";
-import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
+import { readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
+import { WriteBatch } from "../operations/write-batch.js";
 import { resolveVaultPath } from "../path-safety.js";
 import { toIsoTimestamp } from "../time.js";
 import { VaultError } from "../errors.js";
@@ -168,6 +167,45 @@ export function buildCurrentProfileMarkdown(snapshot: ProfileSnapshotRecord): st
   });
 }
 
+async function readCurrentProfileMarkdown(
+  vaultRoot: string,
+): Promise<{ exists: boolean; markdown: string | null }> {
+  const resolved = resolveVaultPath(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH);
+  const exists = await pathExists(resolved.absolutePath);
+
+  return {
+    exists,
+    markdown: exists ? await readUtf8File(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH) : null,
+  };
+}
+
+async function stageAuditRecord(
+  batch: WriteBatch,
+  input: Parameters<typeof buildAuditRecord>[0],
+): Promise<{ auditPath: string; record: ReturnType<typeof buildAuditRecord> }> {
+  const record = buildAuditRecord(input);
+  const auditPath = resolveAuditShardPath(record.occurredAt);
+  await batch.stageJsonlAppend(auditPath, `${JSON.stringify(record)}\n`);
+  return { auditPath, record };
+}
+
+function buildCurrentProfileResult(
+  snapshot: ProfileSnapshotRecord | null,
+  markdown: string | null,
+  auditPath: string,
+  updated: boolean,
+): RebuiltCurrentProfile {
+  return {
+    auditPath,
+    relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
+    exists: snapshot !== null,
+    markdown,
+    snapshot,
+    profile: snapshot?.profile ?? null,
+    updated,
+  };
+}
+
 export async function appendProfileSnapshot({
   vaultRoot,
   recordedAt = new Date(),
@@ -201,16 +239,47 @@ export async function appendProfileSnapshot({
     recordedTimestamp,
     "recordedAt",
   );
-
-  await appendJsonlRecord({
+  const existingSnapshots = await listProfileSnapshots({ vaultRoot });
+  const latestSnapshot = findLatestAcceptedProfileSnapshot(sortProfileSnapshots([...existingSnapshots, snapshot]));
+  const currentState = await readCurrentProfileMarkdown(vaultRoot);
+  const nextMarkdown = latestSnapshot ? buildCurrentProfileMarkdown(latestSnapshot) : null;
+  const updated = currentState.markdown !== nextMarkdown;
+  const batch = await WriteBatch.create({
     vaultRoot,
-    relativePath: ledgerPath,
-    record: snapshot,
+    operationType: "profile_snapshot_append",
+    summary: `Append profile snapshot ${snapshot.id}`,
+    occurredAt: snapshot.recordedAt,
   });
 
-  const currentProfile = await rebuildCurrentProfile({ vaultRoot });
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  await batch.stageJsonlAppend(ledgerPath, `${JSON.stringify(snapshot)}\n`);
+  if (!latestSnapshot) {
+    if (currentState.exists) {
+      await batch.stageDelete(PROFILE_CURRENT_DOCUMENT_PATH);
+    }
+  } else if (updated && nextMarkdown) {
+    await batch.stageTextWrite(PROFILE_CURRENT_DOCUMENT_PATH, nextMarkdown, { overwrite: true });
+  }
+
+  const rebuildAudit = await stageAuditRecord(batch, {
+    action: "profile_current_rebuild",
+    commandName: "core.rebuildCurrentProfile",
+    summary: latestSnapshot
+      ? `Rebuilt current profile from snapshot ${latestSnapshot.id}.`
+      : currentState.exists
+        ? "Removed stale current profile because no snapshots remain."
+        : "Profile current rebuild found no snapshots to materialize.",
+    occurredAt: latestSnapshot?.recordedAt,
+    targetIds: latestSnapshot ? [latestSnapshot.id] : [],
+    changes: updated
+      ? [
+          {
+            path: PROFILE_CURRENT_DOCUMENT_PATH,
+            op: latestSnapshot ? (currentState.exists ? "update" : "create") : "update",
+          },
+        ]
+      : [],
+  });
+  const audit = await stageAuditRecord(batch, {
     action: "profile_snapshot_add",
     commandName: "core.appendProfileSnapshot",
     summary: `Appended profile snapshot ${snapshot.id}.`,
@@ -223,12 +292,18 @@ export async function appendProfileSnapshot({
       },
     ],
   });
+  await batch.commit();
 
   return {
-    auditPath: audit.relativePath,
+    auditPath: audit.auditPath,
     snapshot,
     ledgerPath,
-    currentProfile,
+    currentProfile: buildCurrentProfileResult(
+      latestSnapshot,
+      nextMarkdown,
+      rebuildAudit.auditPath,
+      updated,
+    ),
   };
 }
 
@@ -275,22 +350,28 @@ export async function rebuildCurrentProfile({
 }: RebuildCurrentProfileInput): Promise<RebuiltCurrentProfile> {
   const snapshots = await listProfileSnapshots({ vaultRoot });
   const snapshot = findLatestAcceptedProfileSnapshot(snapshots);
-  const resolved = resolveVaultPath(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH);
-  const exists = await pathExists(resolved.absolutePath);
+  const currentState = await readCurrentProfileMarkdown(vaultRoot);
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "profile_current_rebuild",
+    summary: snapshot
+      ? `Rebuild current profile from snapshot ${snapshot.id}`
+      : "Rebuild current profile without snapshots",
+    occurredAt: snapshot?.recordedAt,
+  });
 
   if (!snapshot) {
-    if (exists) {
-      await unlink(resolved.absolutePath);
+    if (currentState.exists) {
+      await batch.stageDelete(PROFILE_CURRENT_DOCUMENT_PATH);
     }
 
-    const audit = await emitAuditRecord({
-      vaultRoot,
+    const audit = await stageAuditRecord(batch, {
       action: "profile_current_rebuild",
       commandName: "core.rebuildCurrentProfile",
-      summary: exists
+      summary: currentState.exists
         ? "Removed stale current profile because no snapshots remain."
         : "Profile current rebuild found no snapshots to materialize.",
-      changes: exists
+      changes: currentState.exists
         ? [
             {
               path: PROFILE_CURRENT_DOCUMENT_PATH,
@@ -299,28 +380,19 @@ export async function rebuildCurrentProfile({
           ]
         : [],
     });
+    await batch.commit();
 
-    return {
-      auditPath: audit.relativePath,
-      relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
-      exists: false,
-      markdown: null,
-      snapshot: null,
-      profile: null,
-      updated: exists,
-    };
+    return buildCurrentProfileResult(null, null, audit.auditPath, currentState.exists);
   }
 
   const markdown = buildCurrentProfileMarkdown(snapshot);
-  const previous = exists ? await readUtf8File(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH) : null;
-  const updated = previous !== markdown;
+  const updated = currentState.markdown !== markdown;
 
   if (updated) {
-    await writeVaultTextFile(vaultRoot, PROFILE_CURRENT_DOCUMENT_PATH, markdown, { overwrite: true });
+    await batch.stageTextWrite(PROFILE_CURRENT_DOCUMENT_PATH, markdown, { overwrite: true });
   }
 
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  const audit = await stageAuditRecord(batch, {
     action: "profile_current_rebuild",
     commandName: "core.rebuildCurrentProfile",
     summary: `Rebuilt current profile from snapshot ${snapshot.id}.`,
@@ -330,19 +402,12 @@ export async function rebuildCurrentProfile({
       ? [
           {
             path: PROFILE_CURRENT_DOCUMENT_PATH,
-            op: exists ? "update" : "create",
+            op: currentState.exists ? "update" : "create",
           },
         ]
       : [],
   });
+  await batch.commit();
 
-  return {
-    auditPath: audit.relativePath,
-    relativePath: PROFILE_CURRENT_DOCUMENT_PATH,
-    exists: true,
-    markdown,
-    snapshot,
-    profile: snapshot.profile,
-    updated,
-  };
+  return buildCurrentProfileResult(snapshot, markdown, audit.auditPath, updated);
 }

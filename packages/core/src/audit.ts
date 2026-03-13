@@ -17,6 +17,7 @@ import {
 } from "./constants.js";
 import { generateRecordId } from "./ids.js";
 import { appendJsonlRecord, toMonthlyShardRelativePath } from "./jsonl.js";
+import type { WriteBatch } from "./operations/write-batch.js";
 import { normalizeRelativeVaultPath } from "./path-safety.js";
 import { toIsoTimestamp } from "./time.js";
 
@@ -36,7 +37,10 @@ interface EmitAuditRecordInput {
   targetIds?: string[];
   errorCode?: ErrorCodeValue;
   changes?: Array<FileChange | null | undefined>;
+  batch?: WriteBatch;
 }
+
+interface BuildAuditRecordInput extends Omit<EmitAuditRecordInput, "vaultRoot"> {}
 
 const AUDIT_ACTOR_SET = new Set<AuditActor>(AUDIT_ACTORS as readonly AuditActor[]);
 const AUDIT_STATUS_SET = new Set<AuditStatus>(AUDIT_STATUSES as readonly AuditStatus[]);
@@ -101,11 +105,64 @@ export async function emitAuditRecord({
   targetIds = [],
   errorCode,
   changes,
+  batch,
 }: EmitAuditRecordInput): Promise<{ relativePath: string; record: AuditRecord }> {
+  const record = buildAuditRecord({
+    action,
+    actor,
+    status,
+    occurredAt,
+    commandName,
+    summary,
+    files,
+    targetIds,
+    errorCode,
+    changes,
+  });
+  const relativePath = resolveAuditShardPath(record.occurredAt);
+
+  const payload = `${JSON.stringify(record)}\n`;
+
+  if (batch) {
+    await batch.stageJsonlAppend(relativePath, payload);
+  } else {
+    await appendJsonlRecord({
+      vaultRoot,
+      relativePath,
+      record,
+    });
+  }
+
+  return {
+    relativePath,
+    record,
+  };
+}
+
+export function resolveAuditShardPath(occurredAt: DateInput | string): string {
+  return toMonthlyShardRelativePath(
+    VAULT_LAYOUT.auditDirectory,
+    occurredAt,
+    "occurredAt",
+  );
+}
+
+export function buildAuditRecord({
+  action,
+  actor = "core",
+  status = "success",
+  occurredAt = new Date(),
+  commandName,
+  summary,
+  files = [],
+  targetIds = [],
+  errorCode,
+  changes,
+}: BuildAuditRecordInput): AuditRecord {
   const occurredTimestamp = toIsoTimestamp(occurredAt, "occurredAt");
   const normalizedChanges = normalizeChanges(changes, files);
 
-  const record: AuditRecord = {
+  return {
     schemaVersion: "hb.audit.v1",
     id: generateRecordId(ID_PREFIXES.audit),
     action,
@@ -117,22 +174,5 @@ export async function emitAuditRecord({
     targetIds: targetIds.length > 0 ? [...targetIds] : undefined,
     errorCode,
     changes: normalizedChanges,
-  };
-
-  const relativePath = toMonthlyShardRelativePath(
-    VAULT_LAYOUT.auditDirectory,
-    occurredTimestamp,
-    "occurredAt",
-  );
-
-  await appendJsonlRecord({
-    vaultRoot,
-    relativePath,
-    record,
-  });
-
-  return {
-    relativePath,
-    record,
   };
 }

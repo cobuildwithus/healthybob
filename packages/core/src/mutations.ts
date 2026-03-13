@@ -36,15 +36,17 @@ import {
   SAMPLE_SOURCES,
   VAULT_LAYOUT,
 } from "./constants.js";
-import { emitAuditRecord } from "./audit.js";
+import { buildAuditRecord, emitAuditRecord, resolveAuditShardPath } from "./audit.js";
 import { VaultError } from "./errors.js";
-import { appendVaultTextFile, pathExists, readUtf8File, writeVaultTextFile } from "./fs.js";
+import { pathExists, readUtf8File, writeVaultTextFile } from "./fs.js";
 import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "./frontmatter.js";
 import { generateRecordId } from "./ids.js";
 import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "./jsonl.js";
+import { stageRawImportManifest } from "./operations/raw-manifests.js";
+import { WriteBatch } from "./operations/write-batch.js";
 import { resolveVaultPath } from "./path-safety.js";
 import { sanitizePathSegment } from "./path-safety.js";
-import { copyRawArtifact } from "./raw.js";
+import { prepareRawArtifact } from "./raw.js";
 import { toDateOnly, toIsoTimestamp } from "./time.js";
 import { loadVault } from "./vault.js";
 
@@ -100,6 +102,7 @@ interface ImportDocumentResult {
   event: DocumentEventRecord;
   eventPath: string;
   auditPath: string;
+  manifestPath: string;
 }
 
 interface AddMealInput {
@@ -118,6 +121,28 @@ interface AddMealResult {
   photo: RawArtifact;
   audio: RawArtifact | null;
   auditPath: string;
+  manifestPath: string;
+}
+
+interface SampleImportRowProvenance {
+  rowNumber: number;
+  recordedAt: string;
+  value: number;
+  rawRecordedAt: string;
+  rawValue: string;
+  metadata?: Record<string, string>;
+}
+
+interface SampleImportBatchProvenance {
+  sourceFileName?: string;
+  importConfig?: {
+    presetId?: string;
+    delimiter: string;
+    tsColumn: string;
+    valueColumn: string;
+    metadataColumns?: string[];
+  };
+  rows?: SampleImportRowProvenance[];
 }
 
 interface SampleInputRecord extends LooseRecord {
@@ -138,6 +163,7 @@ interface ImportSamplesInput {
   sourcePath?: string;
   source?: string;
   quality?: string;
+  batchProvenance?: SampleImportBatchProvenance;
 }
 
 interface ImportSamplesResult {
@@ -147,6 +173,7 @@ interface ImportSamplesResult {
   raw: RawArtifact | null;
   transformId: string;
   auditPath: string;
+  manifestPath: string;
 }
 
 interface BuildEventRecordInput<K extends EventKind> {
@@ -407,6 +434,20 @@ function buildEventRecord<K extends EventKind>({
   return record as EventRecordByKind<K>;
 }
 
+function prepareEventRecord<K extends EventKind>(
+  input: BuildEventRecordInput<K>,
+): { relativePath: string; record: EventRecordByKind<K> } {
+  const record = buildEventRecord(input);
+  return {
+    relativePath: toMonthlyShardRelativePath(
+      VAULT_LAYOUT.eventLedgerDirectory,
+      record.occurredAt,
+      "occurredAt",
+    ),
+    record,
+  };
+}
+
 async function appendEventRecord<K extends EventKind>({
   vaultRoot,
   ...input
@@ -428,6 +469,24 @@ async function appendEventRecord<K extends EventKind>({
     relativePath,
     record,
   };
+}
+
+async function stageJsonlRecord(
+  batch: WriteBatch,
+  relativePath: string,
+  record: object,
+): Promise<string> {
+  return batch.stageJsonlAppend(relativePath, `${JSON.stringify(record)}\n`);
+}
+
+async function stageAuditRecord(
+  batch: WriteBatch,
+  input: Parameters<typeof buildAuditRecord>[0],
+): Promise<{ relativePath: string; record: ReturnType<typeof buildAuditRecord> }> {
+  const record = buildAuditRecord(input);
+  const relativePath = resolveAuditShardPath(record.occurredAt);
+  await stageJsonlRecord(batch, relativePath, record);
+  return { relativePath, record };
 }
 
 function buildSampleRecord({
@@ -732,15 +791,25 @@ export async function importDocument({
 }: ImportDocumentInput): Promise<ImportDocumentResult> {
   await loadVault({ vaultRoot });
   const documentId = generateRecordId(ID_PREFIXES.document);
-  const raw = await copyRawArtifact({
-    vaultRoot,
+  const raw = prepareRawArtifact({
     sourcePath,
     category: "documents",
     occurredAt,
     recordId: documentId,
   });
-  const event = await appendEventRecord({
+  const batch = await WriteBatch.create({
     vaultRoot,
+    operationType: "document_import",
+    summary: `Import document ${documentId}`,
+    occurredAt,
+  });
+  const stagedRaw = await batch.stageRawCopy({
+    sourcePath,
+    targetRelativePath: raw.relativePath,
+    originalFileName: raw.originalFileName,
+    mediaType: raw.mediaType,
+  });
+  const event = prepareEventRecord({
     kind: "document",
     occurredAt,
     source,
@@ -754,15 +823,36 @@ export async function importDocument({
       mimeType: raw.mediaType,
     },
   });
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  const manifestPath = await stageRawImportManifest({
+    batch,
+    importId: documentId,
+    importKind: "document",
+    importedAt: event.record.recordedAt ?? event.record.occurredAt,
+    source: event.record.source ?? source ?? null,
+    artifacts: [
+      {
+        role: "source_document",
+        raw: stagedRaw,
+      },
+    ],
+    provenance: {
+      eventId: event.record.id,
+      lookupId: event.record.id,
+      occurredAt: event.record.occurredAt,
+      title: event.record.title ?? null,
+      note: event.record.note ?? null,
+    },
+  });
+  await stageJsonlRecord(batch, event.relativePath, event.record);
+  const audit = await stageAuditRecord(batch, {
     action: "document_import",
     commandName: "core.importDocument",
     summary: `Imported document ${raw.originalFileName}.`,
     occurredAt,
-    files: [raw.relativePath, event.relativePath],
+    files: [raw.relativePath, manifestPath, event.relativePath],
     targetIds: [documentId, event.record.id],
   });
+  await batch.commit();
 
   return {
     documentId,
@@ -770,6 +860,7 @@ export async function importDocument({
     event: event.record,
     eventPath: event.relativePath,
     auditPath: audit.relativePath,
+    manifestPath,
   };
 }
 
@@ -788,8 +879,7 @@ export async function addMeal({
   }
 
   const mealId = generateRecordId(ID_PREFIXES.meal);
-  const photo = await copyRawArtifact({
-    vaultRoot,
+  const photo = prepareRawArtifact({
     sourcePath: photoPath,
     category: "meal-photo",
     occurredAt,
@@ -797,8 +887,7 @@ export async function addMeal({
     slot: "photo",
   });
   const audio = audioPath
-    ? await copyRawArtifact({
-        vaultRoot,
+    ? prepareRawArtifact({
         sourcePath: audioPath,
         category: "meal-audio",
         occurredAt,
@@ -806,8 +895,27 @@ export async function addMeal({
         slot: "audio",
       })
     : null;
-  const event = await appendEventRecord({
+  const batch = await WriteBatch.create({
     vaultRoot,
+    operationType: "meal_import",
+    summary: `Import meal ${mealId}`,
+    occurredAt,
+  });
+  const stagedPhoto = await batch.stageRawCopy({
+    sourcePath: photoPath,
+    targetRelativePath: photo.relativePath,
+    originalFileName: photo.originalFileName,
+    mediaType: photo.mediaType,
+  });
+  const stagedAudio = audio
+    ? await batch.stageRawCopy({
+        sourcePath: audioPath as string,
+        targetRelativePath: audio.relativePath,
+        originalFileName: audio.originalFileName,
+        mediaType: audio.mediaType,
+      })
+    : null;
+  const event = prepareEventRecord({
     kind: "meal",
     occurredAt,
     source,
@@ -823,11 +931,38 @@ export async function addMeal({
       audioPaths: audio ? [audio.relativePath] : [],
     },
   });
-  const touchedFiles = [photo.relativePath, audio?.relativePath, event.relativePath].filter(
+  const manifestPath = await stageRawImportManifest({
+    batch,
+    importId: mealId,
+    importKind: "meal",
+    importedAt: event.record.recordedAt ?? event.record.occurredAt,
+    source: event.record.source ?? source ?? null,
+    artifacts: [
+      {
+        role: "photo",
+        raw: stagedPhoto,
+      },
+      ...(stagedAudio
+        ? [
+            {
+              role: "audio",
+              raw: stagedAudio,
+            },
+          ]
+        : []),
+    ],
+    provenance: {
+      eventId: event.record.id,
+      lookupId: event.record.id,
+      occurredAt: event.record.occurredAt,
+      note: event.record.note ?? null,
+    },
+  });
+  await stageJsonlRecord(batch, event.relativePath, event.record);
+  const touchedFiles = [photo.relativePath, audio?.relativePath, manifestPath, event.relativePath].filter(
     (value): value is string => typeof value === "string",
   );
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  const audit = await stageAuditRecord(batch, {
     action: "meal_add",
     commandName: "core.addMeal",
     summary: `Added meal ${mealId}.`,
@@ -835,6 +970,7 @@ export async function addMeal({
     files: touchedFiles,
     targetIds: [mealId, event.record.id],
   });
+  await batch.commit();
 
   return {
     mealId,
@@ -843,6 +979,7 @@ export async function addMeal({
     photo,
     audio,
     auditPath: audit.relativePath,
+    manifestPath,
   };
 }
 
@@ -854,6 +991,7 @@ export async function importSamples({
   sourcePath,
   source = "import",
   quality = "raw",
+  batchProvenance,
 }: ImportSamplesInput): Promise<ImportSamplesResult> {
   await loadVault({ vaultRoot });
 
@@ -923,13 +1061,27 @@ export async function importSamples({
   }
 
   const raw = sourcePath
-    ? await copyRawArtifact({
-        vaultRoot,
+    ? prepareRawArtifact({
         sourcePath,
         category: "samples",
         occurredAt: preparedRecords[0]?.record.recordedAt ?? new Date(),
         recordId: transformId,
         stream: normalizedStream,
+        allowExistingMatch: true,
+      })
+    : null;
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "sample_batch_import",
+    summary: `Import ${normalizedStream} sample batch ${transformId}`,
+    occurredAt: preparedRecords[0]?.record.recordedAt ?? new Date(),
+  });
+  const stagedRaw = raw && sourcePath
+    ? await batch.stageRawCopy({
+        sourcePath,
+        targetRelativePath: raw.relativePath,
+        originalFileName: raw.originalFileName,
+        mediaType: raw.mediaType,
         allowExistingMatch: true,
       })
     : null;
@@ -955,6 +1107,34 @@ export async function importSamples({
     shardPayloads.set(entry.relativePath, `${existingPayload}${JSON.stringify(entry.record)}\n`);
   }
 
+  const rowProvenance = batchProvenance?.rows ?? [];
+  const manifestPath = stagedRaw
+    ? await stageRawImportManifest({
+        batch,
+        importId: transformId,
+        importKind: "sample_batch",
+        importedAt: records[0]?.recordedAt ?? new Date().toISOString(),
+        source: source ?? null,
+        artifacts: [
+          {
+            role: "source_csv",
+            raw: stagedRaw,
+          },
+        ],
+        provenance: {
+          stream: normalizedStream,
+          unit,
+          importedCount: records.length,
+          sampleIds: records.map((record) => record.id),
+          ledgerFiles: targetShardPaths,
+          sourceFileName: batchProvenance?.sourceFileName ?? raw?.originalFileName ?? null,
+          importConfig: batchProvenance?.importConfig ?? null,
+          rowCount: rowProvenance.length,
+          rows: rowProvenance,
+        },
+      })
+    : "";
+
   const appendedShardPaths = [...shardPayloads.keys()].sort();
   for (const relativePath of appendedShardPaths) {
     const payload = shardPayloads.get(relativePath);
@@ -963,13 +1143,12 @@ export async function importSamples({
       continue;
     }
 
-    await appendVaultTextFile(vaultRoot, relativePath, payload);
+    await batch.stageJsonlAppend(relativePath, payload);
   }
 
-  touchedFiles.push(...appendedShardPaths);
+  touchedFiles.push(...(manifestPath ? [manifestPath] : []), ...appendedShardPaths);
 
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  const audit = await stageAuditRecord(batch, {
     action: "samples_import_csv",
     commandName: "core.importSamples",
     summary: `Imported ${records.length} ${normalizedStream} sample record(s).`,
@@ -977,6 +1156,7 @@ export async function importSamples({
     files: touchedFiles,
     targetIds: records.map((record) => record.id),
   });
+  await batch.commit();
 
   return {
     count: records.length,
@@ -985,5 +1165,6 @@ export async function importSamples({
     raw,
     transformId,
     auditPath: audit.relativePath,
+    manifestPath,
   };
 }

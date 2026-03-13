@@ -1,8 +1,8 @@
-import { emitAuditRecord } from "../audit.js";
+import { buildAuditRecord, resolveAuditShardPath } from "../audit.js";
 import { VaultError } from "../errors.js";
 import { stringifyFrontmatterDocument } from "../frontmatter.js";
-import { writeVaultTextFile } from "../fs.js";
 import { generateRecordId } from "../ids.js";
+import { WriteBatch } from "../operations/write-batch.js";
 
 import {
   GOAL_DOC_TYPE,
@@ -226,9 +226,13 @@ export async function upsertGoal(input: UpsertGoalInput): Promise<UpsertGoalResu
     body: buildBody(record),
   });
 
-  await writeVaultTextFile(input.vaultRoot, record.relativePath, markdown);
-  const audit = await emitAuditRecord({
+  const batch = await WriteBatch.create({
     vaultRoot: input.vaultRoot,
+    operationType: "goal_upsert",
+    summary: `Upsert goal ${record.goalId}`,
+  });
+  await batch.stageTextWrite(record.relativePath, markdown);
+  const audit = buildAuditRecord({
     action: "goal_upsert",
     commandName: "core.upsertGoal",
     summary: `Upserted goal ${record.goalId}.`,
@@ -240,10 +244,13 @@ export async function upsertGoal(input: UpsertGoalInput): Promise<UpsertGoalResu
       },
     ],
   });
+  const auditPath = resolveAuditShardPath(audit.occurredAt);
+  await batch.stageJsonlAppend(auditPath, `${JSON.stringify(audit)}\n`);
+  await batch.commit();
 
   return {
     created: !existingRecord,
-    auditPath: audit.relativePath,
+    auditPath,
     record: {
       ...record,
       markdown,

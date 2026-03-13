@@ -38,6 +38,7 @@ export interface ImportAssessmentResponseResult {
   raw: RawArtifact;
   ledgerPath: string;
   auditPath: string;
+  manifestPath: string;
 }
 
 export interface AssessmentProposalSource {

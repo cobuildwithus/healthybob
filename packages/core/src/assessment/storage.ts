@@ -7,11 +7,13 @@ import {
   safeParseContract,
 } from "@healthybob/contracts";
 
-import { emitAuditRecord } from "../audit.js";
-import { copyRawArtifact } from "../raw.js";
+import { buildAuditRecord, resolveAuditShardPath } from "../audit.js";
 import { generateRecordId } from "../ids.js";
-import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
+import { readJsonlRecords, toMonthlyShardRelativePath } from "../jsonl.js";
 import { walkVaultFiles } from "../fs.js";
+import { stageRawImportManifest } from "../operations/raw-manifests.js";
+import { WriteBatch } from "../operations/write-batch.js";
+import { prepareRawArtifact } from "../raw.js";
 import { toIsoTimestamp } from "../time.js";
 import { VaultError } from "../errors.js";
 import { isPlainRecord } from "../types.js";
@@ -131,12 +133,23 @@ export async function importAssessmentResponse({
   const id = generateRecordId("asmt");
   const content = await readFile(sourcePath, "utf8");
   const responses = parseAssessmentResponse(content);
-  const raw = await copyRawArtifact({
-    vaultRoot,
+  const raw = prepareRawArtifact({
     sourcePath,
     category: "assessments",
     occurredAt: recordedTimestamp,
     recordId: id,
+  });
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "assessment_import",
+    summary: `Import assessment ${id}`,
+    occurredAt: recordedTimestamp,
+  });
+  const stagedRaw = await batch.stageRawCopy({
+    sourcePath,
+    targetRelativePath: raw.relativePath,
+    originalFileName: raw.originalFileName,
+    mediaType: raw.mediaType,
   });
 
   const assessment = toAssessmentResponseRecord({
@@ -165,14 +178,30 @@ export async function importAssessmentResponse({
     "recordedAt",
   );
 
-  await appendJsonlRecord({
-    vaultRoot,
-    relativePath: ledgerPath,
-    record: assessment,
+  const manifestPath = await stageRawImportManifest({
+    batch,
+    importId: assessment.id,
+    importKind: "assessment",
+    importedAt: assessment.recordedAt,
+    source: assessment.source ?? source ?? null,
+    artifacts: [
+      {
+        role: "source_assessment",
+        raw: stagedRaw,
+      },
+    ],
+    provenance: {
+      assessmentType: assessment.assessmentType,
+      title: assessment.title ?? null,
+      questionnaireSlug: assessment.questionnaireSlug ?? null,
+      relatedIds: assessment.relatedIds ?? [],
+      lookupId: assessment.id,
+      ledgerFile: ledgerPath,
+    },
   });
+  await batch.stageJsonlAppend(ledgerPath, `${JSON.stringify(assessment)}\n`);
 
-  const audit = await emitAuditRecord({
-    vaultRoot,
+  const audit = buildAuditRecord({
     action: "intake_import",
     commandName: "core.importAssessmentResponse",
     summary: `Imported assessment ${assessment.id}.`,
@@ -187,14 +216,22 @@ export async function importAssessmentResponse({
         path: ledgerPath,
         op: "append",
       },
+      {
+        path: manifestPath,
+        op: "create",
+      },
     ],
   });
+  const auditPath = resolveAuditShardPath(audit.occurredAt);
+  await batch.stageJsonlAppend(auditPath, `${JSON.stringify(audit)}\n`);
+  await batch.commit();
 
   return {
     assessment,
     raw,
     ledgerPath,
-    auditPath: audit.relativePath,
+    auditPath,
+    manifestPath,
   };
 }
 

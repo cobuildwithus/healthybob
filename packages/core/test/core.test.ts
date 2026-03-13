@@ -29,6 +29,12 @@ import {
   validateVault,
   VaultError,
 } from "../src/index.js";
+import {
+  listWriteOperationMetadataPaths,
+  readStoredWriteOperation,
+  WriteBatch,
+  WRITE_OPERATION_SCHEMA_VERSION,
+} from "../src/operations/index.js";
 
 function expectRecord<T>(value: unknown): T {
   return value as T;
@@ -770,6 +776,378 @@ test("validateVault checks raw manifests, referenced artifacts, and current-prof
   );
   assert.ok(
     validation.issues.some(
+      (issue) =>
+        issue.code === "HB_PROFILE_CURRENT_STALE" &&
+        issue.path === "bank/profile/current.md",
+    ),
+  );
+});
+
+test("write batches roll back earlier writes when a later action fails", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "test_batch",
+    summary: "rollback on failure",
+  });
+
+  await batch.stageTextWrite("notes/partial.txt", "partial\n", { overwrite: false });
+  await batch.stageTextWrite("CORE.md", "should fail\n", { overwrite: false });
+
+  await assert.rejects(
+    () => batch.commit(),
+    (error: unknown) => error instanceof VaultError && error.code === "VAULT_FILE_EXISTS",
+  );
+
+  await assert.rejects(() => fs.access(path.join(vaultRoot, "notes/partial.txt")));
+
+  const operation = await readStoredWriteOperation(vaultRoot, batch.metadataRelativePath);
+  assert.equal(operation.status, "rolled_back");
+});
+
+test("validateVault reports unresolved write operations", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "test_batch",
+    summary: "leave staged operation metadata behind",
+  });
+
+  await batch.stageTextWrite("notes/pending.txt", "pending\n", { overwrite: false });
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_OPERATION_UNRESOLVED" &&
+        issue.path === batch.metadataRelativePath,
+    ),
+  );
+});
+
+test("validateVault reports raw artifact directories that are missing manifest.json", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-source");
+  await initializeVault({ vaultRoot });
+
+  const documentPath = await writeExternalFile(sourceRoot, "manifest-gap.md", "# Missing manifest\n");
+  const imported = await importDocument({
+    vaultRoot,
+    sourcePath: documentPath,
+    occurredAt: "2026-03-12T10:00:00.000Z",
+    title: "Manifest gap",
+  });
+
+  await fs.rm(path.join(vaultRoot, imported.manifestPath), { force: true });
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes('missing manifest.json') &&
+        issue.path === imported.manifestPath,
+    ),
+  );
+});
+
+test("WriteBatch rolls back earlier writes when a later staged action fails during commit", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  const batch = await WriteBatch.create({
+    vaultRoot,
+    operationType: "test_rollback",
+    summary: "Rollback test",
+  });
+
+  await batch.stageTextWrite("bank/goals/rollback-check.md", "# rollback\n", {
+    overwrite: false,
+  });
+  await batch.stageTextWrite("CORE.md", "# duplicate\n", {
+    overwrite: false,
+  });
+
+  await assert.rejects(() => batch.commit());
+  await assert.rejects(() => fs.access(path.join(vaultRoot, "bank/goals/rollback-check.md")));
+
+  const operationPaths = await listWriteOperationMetadataPaths(vaultRoot);
+  assert.equal(operationPaths.length, 1);
+
+  const operation = await readStoredWriteOperation(vaultRoot, operationPaths[0] as string);
+  assert.equal(operation.status, "rolled_back");
+  assert.equal(
+    operation.actions.filter((action) => action.state === "rolled_back").length,
+    1,
+  );
+});
+
+test("validateVault reports malformed raw manifests", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  const emptyManifestPath = path.join(
+    vaultRoot,
+    "raw/documents/2026/03/empty/manifest.json",
+  );
+  await fs.mkdir(path.dirname(emptyManifestPath), { recursive: true });
+  await fs.writeFile(
+    emptyManifestPath,
+    JSON.stringify({
+      schemaVersion: "hb.raw-import.v1",
+      rawDirectory: "raw/documents/2026/03/empty",
+      artifacts: [],
+    }),
+    "utf8",
+  );
+
+  const malformedManifestPath = path.join(
+    vaultRoot,
+    "raw/documents/2026/03/malformed/manifest.json",
+  );
+  await fs.mkdir(path.dirname(malformedManifestPath), { recursive: true });
+  await fs.writeFile(
+    malformedManifestPath,
+    JSON.stringify({
+      schemaVersion: "hb.raw-import.v1",
+      rawDirectory: "raw/documents/2026/03/malformed",
+      artifacts: [
+        {},
+        { relativePath: "raw/documents/2026/03/elsewhere/file.txt" },
+      ],
+    }),
+    "utf8",
+  );
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes("must list at least one artifact") &&
+        issue.path === "raw/documents/2026/03/empty/manifest.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes("missing a valid relativePath") &&
+        issue.path === "raw/documents/2026/03/malformed/manifest.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes('must remain inside "raw/documents/2026/03/malformed"') &&
+        issue.path === "raw/documents/2026/03/malformed/manifest.json",
+    ),
+  );
+});
+
+test("validateVault reports unreadable and structurally invalid raw manifest files", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  const invalidJsonManifestPath = path.join(
+    vaultRoot,
+    "raw/documents/2026/03/invalid-json/manifest.json",
+  );
+  await fs.mkdir(path.dirname(invalidJsonManifestPath), { recursive: true });
+  await fs.writeFile(invalidJsonManifestPath, "{not-json", "utf8");
+
+  const arrayManifestPath = path.join(
+    vaultRoot,
+    "raw/documents/2026/03/array/manifest.json",
+  );
+  await fs.mkdir(path.dirname(arrayManifestPath), { recursive: true });
+  await fs.writeFile(arrayManifestPath, JSON.stringify(["not", "an", "object"]), "utf8");
+
+  const mismatchedManifestPath = path.join(
+    vaultRoot,
+    "raw/documents/2026/03/mismatched/manifest.json",
+  );
+  await fs.mkdir(path.dirname(mismatchedManifestPath), { recursive: true });
+  await fs.writeFile(
+    mismatchedManifestPath,
+    JSON.stringify({
+      rawDirectory: "raw/documents/2026/03/somewhere-else",
+      artifacts: [
+        {
+          relativePath: "raw/documents/2026/03/mismatched/source.txt",
+        },
+        {
+          relativePath: "../escape.txt",
+        },
+      ],
+    }),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(vaultRoot, "raw/documents/2026/03/mismatched/source.txt"),
+    "raw",
+    "utf8",
+  );
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "VAULT_INVALID_JSON" &&
+        issue.path === "raw/documents/2026/03/invalid-json/manifest.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes("must be a JSON object") &&
+        issue.path === "raw/documents/2026/03/array/manifest.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes("missing schemaVersion") &&
+        issue.path === "raw/documents/2026/03/mismatched/manifest.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_RAW_MANIFEST_INVALID" &&
+        issue.message.includes('rawDirectory must equal "raw/documents/2026/03/mismatched"') &&
+        issue.path === "raw/documents/2026/03/mismatched/manifest.json",
+    ),
+  );
+});
+
+test("validateVault surfaces malformed JSONL ledger files through family validation", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  await fs.mkdir(path.join(vaultRoot, "ledger/assessments/2026"), { recursive: true });
+  await fs.writeFile(
+    path.join(vaultRoot, "ledger/assessments/2026/2026-03.jsonl"),
+    '{"broken": ]}\n',
+    "utf8",
+  );
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "VAULT_INVALID_JSONL" &&
+        issue.path === "ledger/assessments/2026/2026-03.jsonl",
+    ),
+  );
+});
+
+test("validateVault reports unresolved and malformed write operation metadata", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+  await fs.mkdir(path.join(vaultRoot, ".runtime/operations"), { recursive: true });
+
+  await fs.writeFile(
+    path.join(vaultRoot, ".runtime/operations/op-unresolved.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: WRITE_OPERATION_SCHEMA_VERSION,
+        operationId: "op_unresolved",
+        operationType: "document_import",
+        summary: "Unresolved operation",
+        status: "committing",
+        createdAt: "2026-03-13T10:00:00.000Z",
+        updatedAt: "2026-03-13T10:00:01.000Z",
+        occurredAt: "2026-03-13T10:00:00.000Z",
+        actions: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(vaultRoot, ".runtime/operations/op-invalid.json"),
+    "{not-json",
+    "utf8",
+  );
+
+  const validation = await validateVault({ vaultRoot });
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_OPERATION_UNRESOLVED" &&
+        issue.path === ".runtime/operations/op-unresolved.json",
+    ),
+  );
+  assert.ok(
+    validation.issues.some(
+      (issue) =>
+        issue.code === "HB_OPERATION_INVALID" &&
+        issue.path === ".runtime/operations/op-invalid.json",
+    ),
+  );
+});
+
+test("validateVault covers current profile success, missing-file, and unreadable-file branches", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  await initializeVault({ vaultRoot });
+
+  await appendProfileSnapshot({
+    vaultRoot,
+    recordedAt: "2026-03-12T11:00:00.000Z",
+    source: "manual",
+    profile: {
+      domains: ["sleep"],
+      topGoalIds: [],
+    },
+  });
+
+  const validState = await validateVault({ vaultRoot });
+  assert.equal(validState.valid, true);
+  assert.ok(
+    validState.issues.every((issue) => issue.code !== "HB_PROFILE_CURRENT_STALE"),
+  );
+
+  const currentProfilePath = path.join(vaultRoot, "bank/profile/current.md");
+  await fs.rm(currentProfilePath, { force: true });
+
+  const missingCurrent = await validateVault({ vaultRoot });
+  assert.equal(missingCurrent.valid, false);
+  assert.ok(
+    missingCurrent.issues.some(
+      (issue) =>
+        issue.code === "HB_PROFILE_CURRENT_STALE" &&
+        issue.message.includes("Current profile is missing") &&
+        issue.path === "bank/profile/current.md",
+    ),
+  );
+
+  await fs.mkdir(currentProfilePath, { recursive: true });
+
+  const unreadableCurrent = await validateVault({ vaultRoot });
+  assert.equal(unreadableCurrent.valid, false);
+  assert.ok(
+    unreadableCurrent.issues.some(
       (issue) =>
         issue.code === "HB_PROFILE_CURRENT_STALE" &&
         issue.path === "bank/profile/current.md",

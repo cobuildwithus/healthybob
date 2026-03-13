@@ -23,6 +23,8 @@ export interface RawArtifact {
   mediaType: string;
 }
 
+type PrepareRawArtifactInput = Omit<CopyRawArtifactInput, "vaultRoot">;
+
 const MEDIA_TYPES = new Map<string, string>([
   [".csv", "text/csv"],
   [".gif", "image/gif"],
@@ -100,6 +102,18 @@ function resolveRawRelativePath({
 
 export async function copyRawArtifact({
   vaultRoot,
+  ...input
+}: CopyRawArtifactInput): Promise<RawArtifact> {
+  const artifact = prepareRawArtifact(input);
+
+  await copyImmutableFileIntoVaultRaw(vaultRoot, input.sourcePath, artifact.relativePath, {
+    allowExistingMatch: input.allowExistingMatch ?? false,
+  });
+
+  return artifact;
+}
+
+export function prepareRawArtifact({
   sourcePath,
   category = "artifact",
   occurredAt = new Date(),
@@ -107,8 +121,7 @@ export async function copyRawArtifact({
   recordId,
   slot,
   stream,
-  allowExistingMatch = false,
-}: CopyRawArtifactInput): Promise<RawArtifact> {
+}: PrepareRawArtifactInput): RawArtifact {
   const originalFileName = basenameFromFilePath(sourcePath);
   const relativePath = resolveRawRelativePath({
     category,
@@ -118,10 +131,6 @@ export async function copyRawArtifact({
     slot,
     stream,
     targetName,
-  });
-
-  await copyImmutableFileIntoVaultRaw(vaultRoot, sourcePath, relativePath, {
-    allowExistingMatch,
   });
 
   return {
