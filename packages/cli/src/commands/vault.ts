@@ -1,14 +1,69 @@
-import { Cli } from 'incur'
+import { Cli, z } from 'incur'
 import {
   emptyArgsSchema,
   requestIdFromOptions,
   withBaseOptions,
 } from '../command-helpers.js'
 import {
+  isoTimestampSchema,
+  localDateSchema,
+  pathSchema,
   vaultInitResultSchema,
   vaultValidateResultSchema,
 } from '../vault-cli-contracts.js'
 import type { VaultCliServices } from '../vault-cli-services.js'
+import {
+  showVaultPaths,
+  showVaultStats,
+  showVaultSummary,
+} from './experiment-journal-vault-read-helpers.js'
+
+const unknownRecordSchema = z.record(z.string(), z.unknown())
+
+const vaultShowResultSchema = z.object({
+  vault: pathSchema,
+  schemaVersion: z.string().min(1).nullable(),
+  vaultId: z.string().min(1).nullable(),
+  title: z.string().min(1).nullable(),
+  timezone: z.string().min(1).nullable(),
+  createdAt: isoTimestampSchema.nullable(),
+  corePath: pathSchema.nullable(),
+  coreTitle: z.string().min(1).nullable(),
+  coreUpdatedAt: isoTimestampSchema.nullable(),
+})
+
+const vaultPathsResultSchema = z.object({
+  vault: pathSchema,
+  paths: unknownRecordSchema.nullable(),
+  shards: unknownRecordSchema.nullable(),
+})
+
+const vaultStatsResultSchema = z.object({
+  vault: pathSchema,
+  counts: z.object({
+    totalRecords: z.number().int().nonnegative(),
+    experiments: z.number().int().nonnegative(),
+    journalEntries: z.number().int().nonnegative(),
+    events: z.number().int().nonnegative(),
+    samples: z.number().int().nonnegative(),
+    audits: z.number().int().nonnegative(),
+    assessments: z.number().int().nonnegative(),
+    profileSnapshots: z.number().int().nonnegative(),
+    goals: z.number().int().nonnegative(),
+    conditions: z.number().int().nonnegative(),
+    allergies: z.number().int().nonnegative(),
+    regimens: z.number().int().nonnegative(),
+    history: z.number().int().nonnegative(),
+    familyMembers: z.number().int().nonnegative(),
+    geneticVariants: z.number().int().nonnegative(),
+  }),
+  latest: z.object({
+    eventOccurredAt: isoTimestampSchema.nullable(),
+    sampleOccurredAt: isoTimestampSchema.nullable(),
+    journalDate: localDateSchema.nullable(),
+    experimentTitle: z.string().min(1).nullable(),
+  }),
+})
 
 export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) {
   cli.command(
@@ -42,4 +97,40 @@ export function registerVaultCommands(cli: Cli.Cli, services: VaultCliServices) 
       },
     },
   )
+
+  const vaultGroup = Cli.create('vault', {
+    description: 'Read-only vault metadata and summary commands.',
+  })
+
+  vaultGroup.command('show', {
+    description: 'Show stable vault metadata plus the current CORE.md summary.',
+    args: emptyArgsSchema,
+    options: withBaseOptions(),
+    output: vaultShowResultSchema,
+    async run({ options }) {
+      return showVaultSummary(options.vault)
+    },
+  })
+
+  vaultGroup.command('paths', {
+    description: 'Show the path and shard layout advertised by vault metadata.',
+    args: emptyArgsSchema,
+    options: withBaseOptions(),
+    output: vaultPathsResultSchema,
+    async run({ options }) {
+      return showVaultPaths(options.vault)
+    },
+  })
+
+  vaultGroup.command('stats', {
+    description: 'Summarize record-family counts from the current query read model.',
+    args: emptyArgsSchema,
+    options: withBaseOptions(),
+    output: vaultStatsResultSchema,
+    async run({ options }) {
+      return showVaultStats(options.vault)
+    },
+  })
+
+  cli.command(vaultGroup)
 }

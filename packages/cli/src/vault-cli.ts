@@ -15,6 +15,7 @@ import { registerProfileCommands } from './commands/profile.js'
 import { registerReadCommands } from './commands/read.js'
 import { registerSearchCommands } from './commands/search.js'
 import { registerAllergyCommands } from './commands/allergy.js'
+import { registerAuditCommands } from './commands/audit.js'
 import { registerConditionCommands } from './commands/condition.js'
 import { registerRegimenCommands } from './commands/regimen.js'
 import { registerSamplesCommands } from './commands/samples.js'
@@ -44,6 +45,7 @@ export function createVaultCli(
   })
 
   registerVaultCommands(cli, services)
+  registerAuditCommands(cli, services)
   registerDocumentCommands(cli, services)
   registerMealCommands(cli, services)
   registerSamplesCommands(cli, services)

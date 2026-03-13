@@ -1,0 +1,11 @@
+{
+  "id": "audit-list",
+  "command": "vault-cli audit list --vault <path> [--action <action>] [--actor <actor>] [--status <status>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/audit/README.md",
+    "fixtures/minimal-vault/CORE.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/list",
+  "purpose": "Covers first-class audit filtering over canonical audit shards using the same list-style rendering guarantees as the generic read surface."
+}

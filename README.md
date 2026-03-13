@@ -151,11 +151,16 @@ Canonical ids use one policy: `<prefix>_<ULID>`. Examples include `vault_*`, `ev
 | --- | --- |
 | `vault-cli init` | Bootstraps a new vault with `vault.json`, `CORE.md`, directory structure, and an audit entry. |
 | `vault-cli validate` | Validates vault metadata, frontmatter, and contract-shaped records. |
+| `vault-cli vault show|paths|stats` | Exposes explicit read-only vault metadata, layout, and record-count summaries. |
+| `vault-cli audit show|list|tail` | Exposes first-class audit inspection and filtering over canonical audit shards. |
 | `vault-cli document import <file>` | Copies a source document into `raw/documents/...`, writes an immutable raw manifest, and appends a document event. |
+| `vault-cli document show|list|manifest` | Lets operators follow `doc_*`/`evt_*` ids back to the event record and immutable raw manifest. |
 | `vault-cli meal add` | Copies meal attachments into `raw/meals/...`, writes an immutable raw manifest, and appends a meal event. |
+| `vault-cli meal show|list|manifest` | Lets operators follow `meal_*`/`evt_*` ids back to the event record and immutable raw manifest. |
 | `vault-cli samples import-csv <file>` | Copies a CSV into `raw/samples/...`, writes an immutable batch manifest, and appends sample records into sharded sample ledgers. |
-| `vault-cli experiment create <slug>` | Creates or reuses an experiment page under `bank/experiments`. |
-| `vault-cli journal ensure <date>` | Creates a journal page for a date if missing. |
+| `vault-cli samples show|list|batch show|batch list` | Adds first-class sample follow-up reads plus `xfm_*` import-batch inspection. |
+| `vault-cli experiment create|show|list` | Creates or reuses an experiment page, then exposes direct experiment follow-up reads by id or slug. |
+| `vault-cli journal ensure|show|list` | Creates journal pages and exposes first-class day reads over the journal surface. |
 | `vault-cli show <id>` | Resolves one queryable record or document view. |
 | `vault-cli list` | Lists records through the read model with filters. |
 | `vault-cli export pack` | Builds a derived export pack for a date range and optional experiment scope. |
@@ -192,8 +197,8 @@ The noun-oriented commands follow one payload-first grammar:
 The query layer distinguishes between the primary lookup id used for follow-on reads and the display id surfaced on the record itself.
 
 - `show` accepts query-layer ids such as `journal:2026-03-12`, `evt_*`, `smp_*`, `exp_*`, `asmt_*`, `psnap_*`, `goal_*`, `cond_*`, `alg_*`, `reg_*`, `fam_*`, and `var_*`.
-- `meal_*` and `doc_*` are stable display/related ids carried inside events, but follow-on reads should use the returned `lookupId`, usually an `evt_*`.
-- `xfm_*` is a sample import batch id, not a showable record id.
+- generic `show` still expects query-layer ids for event-backed records, but `document show` and `meal show` also accept `doc_*` and `meal_*`
+- `samples batch show` and `samples batch list` are the follow-up surface for `xfm_*`; generic `show` still does not accept import-batch ids
 - export-pack ids identify derived files under `exports/packs/`; they are not valid `show` targets.
 
 If you chain commands together, prefer the `lookupId` or `lookupIds` returned by the write command rather than guessing which surfaced id is queryable.

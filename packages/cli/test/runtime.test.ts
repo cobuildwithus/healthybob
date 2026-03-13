@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
 import { repoRoot, requireData, runCli } from './cli-test-helpers.js'
+import './cli-expansion-document-meal.test.js'
+import './cli-expansion-experiment-journal-vault.test.js'
+import './cli-expansion-samples-audit.test.js'
 
 interface FixtureVault {
   vaultRoot: string
@@ -289,6 +292,52 @@ test.sequential(
     }
   },
 )
+
+test.sequential('full CLI registers audit tail/show and reads init-created audit entries', async () => {
+  const fixture = await makeEmptyVaultFixture()
+
+  try {
+    const tailResult = await runCli<{
+      items: Array<{
+        id: string
+        kind: string
+      }>
+    }>([
+      'audit',
+      'tail',
+      '--vault',
+      fixture.vaultRoot,
+    ])
+
+    assert.equal(tailResult.ok, true)
+    assert.equal(tailResult.meta?.command, 'audit tail')
+    assert.equal(requireData(tailResult).items.length >= 1, true)
+    assert.equal(requireData(tailResult).items[0]?.kind, 'audit')
+
+    const firstAuditId = requireData(tailResult).items[0]?.id
+    assert.equal(typeof firstAuditId, 'string')
+
+    const showResult = await runCli<{
+      entity: {
+        id: string
+        kind: string
+      }
+    }>([
+      'audit',
+      'show',
+      firstAuditId as string,
+      '--vault',
+      fixture.vaultRoot,
+    ])
+
+    assert.equal(showResult.ok, true)
+    assert.equal(showResult.meta?.command, 'audit show')
+    assert.equal(requireData(showResult).entity.id, firstAuditId)
+    assert.equal(requireData(showResult).entity.kind, 'audit')
+  } finally {
+    await rm(fixture.vaultRoot, { recursive: true, force: true })
+  }
+})
 
 test.sequential('export pack materializes the derived five-file pack when --out is set', async () => {
   const fixture = await makeFixtureVault()

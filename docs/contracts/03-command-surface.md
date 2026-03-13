@@ -14,11 +14,31 @@ Status: frozen baseline plus health extension fence for `vault-cli`
 ```text
 vault-cli init --vault <path> [--format json|md] [--request-id <id>]
 vault-cli validate --vault <path> [--format json|md] [--request-id <id>]
-vault-cli document import <file> --vault <path> [--format json|md] [--request-id <id>]
-vault-cli meal add --vault <path> --photo <path> [--audio <path>] [--note "..."] [--occurred-at <ts>] [--format json|md] [--request-id <id>]
-vault-cli samples import-csv <file> --vault <path> --stream <stream> --ts-column <name> --value-column <name> --unit <unit> [--format json|md] [--request-id <id>]
-vault-cli experiment create <slug> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli vault show --vault <path> [--format json|md] [--request-id <id>]
+vault-cli vault paths --vault <path> [--format json|md] [--request-id <id>]
+vault-cli vault stats --vault <path> [--format json|md] [--request-id <id>]
+vault-cli audit show <auditId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli audit list --vault <path> [--action <action>] [--actor <actor>] [--status <status>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli audit tail --vault <path> [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli document import <file> --vault <path> [--title <title>] [--occurred-at <ts>] [--note "..."] [--source <source>] [--format json|md] [--request-id <id>]
+vault-cli document show <doc_*|evt_> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli document list --vault <path> [--from <date>] [--to <date>] [--format json|md] [--request-id <id>]
+vault-cli document manifest <doc_*|evt_> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli meal add --vault <path> --photo <path> [--audio <path>] [--note "..."] [--occurred-at <ts>] [--source <source>] [--format json|md] [--request-id <id>]
+vault-cli meal show <meal_*|evt_> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli meal list --vault <path> [--from <date>] [--to <date>] [--format json|md] [--request-id <id>]
+vault-cli meal manifest <meal_*|evt_> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli samples import-csv <file> --vault <path> [--preset <id>] [--stream <stream>] [--ts-column <name>] [--value-column <name>] [--unit <unit>] [--delimiter <char>] [--metadata-columns <csv>] [--source <source>] [--format json|md] [--request-id <id>]
+vault-cli samples show <sampleId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli samples list --vault <path> [--stream <stream>] [--from <date>] [--to <date>] [--quality <quality>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli samples batch show <batchId> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli samples batch list --vault <path> [--stream <stream>] [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
+vault-cli experiment create <slug> --vault <path> [--title <title>] [--hypothesis <text>] [--started-on <date>] [--status <status>] [--format json|md] [--request-id <id>]
+vault-cli experiment show <exp_*|slug> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli experiment list --vault <path> [--status <status>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli journal ensure <date> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli journal show <date> --vault <path> [--format json|md] [--request-id <id>]
+vault-cli journal list --vault <path> [--from <date>] [--to <date>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli show <id> --vault <path> [--format json|md] [--request-id <id>]
 vault-cli list --vault <path> [--kind <kind>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--cursor <cursor>] [--limit <n>] [--format json|md] [--request-id <id>]
 vault-cli search --vault <path> --text <query> [--backend auto|scan|sqlite] [--record-type <csv>] [--kind <csv>] [--stream <csv>] [--experiment <slug>] [--date-from <date>] [--date-to <date>] [--tag <csv>] [--limit <n>] [--format json|md] [--request-id <id>]
@@ -86,8 +106,9 @@ Every command now uses native `incur` command definitions directly:
 
 - `show` accepts query-layer ids such as `core`, `journal:<YYYY-MM-DD>`, `exp_*`, `evt_*`, `smp_*`, `aud_*`, `asmt_*`, `psnap_*`, `goal_*`, `cond_*`, `alg_*`, `reg_*`, `fam_*`, and `var_*`.
 - `profile show current` and `profile current rebuild` target the derived `bank/profile/current.md` view rather than a standalone canonical record id.
-- `meal_*` and `doc_*` ids are stable display/related ids carried in event payloads, but the CLI read path expects the returned `lookupId`/`eventId` instead.
-- `xfm_*` identifies an import batch, not a query-layer record.
+- Generic `show` still expects query-layer ids for event-backed records, but `document show`, `document manifest`, `meal show`, and `meal manifest` accept the stable `doc_*` and `meal_*` related ids as well as `evt_*`.
+- `samples batch show` and `samples batch list` are the first-class follow-up surface for `xfm_*` import-batch ids; generic `show` still does not accept them.
+- `audit show|list|tail` and `vault show|paths|stats` are first-class read-only noun commands layered on top of the read model.
 - Export pack ids identify derived files under `exports/packs/`; they are not valid `show` targets.
 - `sample-summary:<date>:<stream>` ids emitted by `timeline` are derived context handles, not valid `show` targets.
 - A successful `show` response may surface a stable display id such as `meal_*` or `doc_*` in `entity.id` even when the lookup key was a queryable event id such as `evt_*`.
@@ -233,6 +254,12 @@ The examples below are the full successful `--format json` response bodies.
   "created": true
 }
 ```
+
+### Follow-up Read Commands
+
+- `document show`, `meal show`, `samples show`, `experiment show`, `journal show`, `audit show`, and `vault show` all return the same direct `entity`-style payload shape used by generic `show`, with command-local lookup behavior where documented.
+- `document list`, `meal list`, `samples list`, `experiment list`, `journal list`, `audit list`, and `audit tail` all return the same direct `items` plus `filters` list payload shape used by generic `list`, but with noun-specific filter echoes.
+- `document manifest`, `meal manifest`, and `samples batch show` return direct manifest-inspection payloads that surface the canonical `manifestFile` plus the parsed immutable manifest object.
 
 ### `show`
 

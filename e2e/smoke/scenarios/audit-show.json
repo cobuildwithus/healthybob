@@ -1,0 +1,11 @@
+{
+  "id": "audit-show",
+  "command": "vault-cli audit show <auditId> --vault <path> [--format json|md] [--request-id <id>]",
+  "vaultFixture": "fixtures/minimal-vault",
+  "inputs": [
+    "fixtures/minimal-vault/audit/README.md",
+    "fixtures/minimal-vault/CORE.md"
+  ],
+  "goldenOutput": "fixtures/golden-outputs/show",
+  "purpose": "Covers direct audit-record follow-up reads where operators inspect a single audit entry by its canonical id."
+}
