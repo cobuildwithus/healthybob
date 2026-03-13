@@ -113,24 +113,27 @@ interface HealthCrudConfig<
 
 type HealthCrudConfigAny = HealthCrudConfig<any, any, any, any>
 
-type MethodName<TService, TInput, TResult> = {
-  [TKey in keyof TService]: TService[TKey] extends ServiceMethod<TInput, TResult>
+type MethodName<TService, TInput> = {
+  [TKey in keyof TService]: TService[TKey] extends ServiceMethod<TInput, any>
     ? TKey
     : never
 }[keyof TService]
 
+type MethodResult<TService, TKey extends keyof TService> =
+  TService[TKey] extends ServiceMethod<any, infer TResult> ? TResult : never
+
 interface CrudServiceMethodNames<
   TCore extends object,
   TQuery extends object,
-  TScaffold,
-  TUpsert extends object,
-  TShow,
-  TList,
+  TScaffoldName extends keyof TCore,
+  TUpsertName extends keyof TCore,
+  TShowName extends keyof TQuery,
+  TListName extends keyof TQuery,
 > {
-  list: MethodName<TQuery, ListCommandContext, TList>
-  scaffold: MethodName<TCore, CommandContext, TScaffold>
-  show: MethodName<TQuery, ShowCommandContext, TShow>
-  upsert: MethodName<TCore, UpsertCommandContext, TUpsert>
+  list: TListName
+  scaffold: TScaffoldName
+  show: TShowName
+  upsert: TUpsertName
 }
 
 interface SuggestedCommand {
@@ -219,21 +222,28 @@ function hintFor(
   return config.hints?.[command] ?? defaultHintsByCommand[command]?.(config)
 }
 
-function bindServiceMethod<TService extends object, TInput, TResult>(
+function bindServiceMethod<
+  TService extends object,
+  TInput,
+  TMethodName extends MethodName<TService, TInput>,
+>(
   service: TService,
-  methodName: MethodName<TService, TInput, TResult>,
-): ServiceMethod<TInput, TResult> {
-  const method = service[methodName] as ServiceMethod<TInput, TResult>
+  methodName: TMethodName,
+): ServiceMethod<TInput, MethodResult<TService, TMethodName>> {
+  const method = service[methodName] as ServiceMethod<
+    TInput,
+    MethodResult<TService, TMethodName>
+  >
   return method.bind(service)
 }
 
 export function bindHealthCrudServices<
   TCore extends object,
   TQuery extends object,
-  TScaffold,
-  TUpsert extends object,
-  TShow,
-  TList,
+  TScaffoldName extends MethodName<TCore, CommandContext>,
+  TUpsertName extends MethodName<TCore, UpsertCommandContext>,
+  TShowName extends MethodName<TQuery, ShowCommandContext>,
+  TListName extends MethodName<TQuery, ListCommandContext>,
 >(
   services: {
     core: TCore
@@ -242,12 +252,17 @@ export function bindHealthCrudServices<
   methodNames: CrudServiceMethodNames<
     TCore,
     TQuery,
-    TScaffold,
-    TUpsert,
-    TShow,
-    TList
+    TScaffoldName,
+    TUpsertName,
+    TShowName,
+    TListName
   >,
-): CrudServices<TScaffold, TUpsert, TShow, TList> {
+): CrudServices<
+  MethodResult<TCore, TScaffoldName>,
+  MethodResult<TCore, TUpsertName>,
+  MethodResult<TQuery, TShowName>,
+  MethodResult<TQuery, TListName>
+> {
   return {
     list: bindServiceMethod(services.query, methodNames.list),
     scaffold: bindServiceMethod(services.core, methodNames.scaffold),
