@@ -2,6 +2,8 @@ import type { ParseRequest, ProviderRunResult } from "../contracts/parse.js";
 import type { ParserProvider } from "../contracts/provider.js";
 import {
   buildMarkdown,
+  describeExecutableAvailability,
+  requireExecutable,
   resolveConfiguredExecutable,
   runCommand,
   splitTextIntoBlocks,
@@ -18,7 +20,7 @@ export function createPdfToTextProvider(
   async function resolveCommand(): Promise<string | null> {
     return resolveConfiguredExecutable({
       explicitCandidates: options.commandCandidates,
-      envValue: process.env.HEALTHYBOB_PDFTOTEXT_COMMAND,
+      envValue: () => process.env.HEALTHYBOB_PDFTOTEXT_COMMAND,
       fallbackCommands: ["pdftotext"],
     });
   }
@@ -31,16 +33,11 @@ export function createPdfToTextProvider(
     priority: 850,
     async discover() {
       const command = await resolveCommand();
-      return command
-        ? {
-            available: true,
-            reason: "pdftotext CLI available.",
-            executablePath: command,
-          }
-        : {
-            available: false,
-            reason: "pdftotext CLI not found.",
-          };
+      return describeExecutableAvailability({
+        executablePath: command,
+        availableReason: "pdftotext CLI available.",
+        missingReason: "pdftotext CLI not found.",
+      });
     },
     supports(request: ParseRequest) {
       const kind = request.preparedKind ?? request.artifact.kind;
@@ -53,10 +50,7 @@ export function createPdfToTextProvider(
       return fileName.endsWith(".pdf") || mime === "application/pdf";
     },
     async run(request): Promise<ProviderRunResult> {
-      const command = await resolveCommand();
-      if (!command) {
-        throw new TypeError("pdftotext CLI not found.");
-      }
+      const command = requireExecutable(await resolveCommand(), "pdftotext CLI not found.");
 
       const result = await runCommand(command, [
         "-layout",

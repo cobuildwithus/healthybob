@@ -5,6 +5,8 @@ import type { ParserProvider } from "../contracts/provider.js";
 import {
   buildMarkdown,
   collectFilesRecursively,
+  describeExecutableAvailability,
+  requireExecutable,
   readUtf8IfExists,
   resolveConfiguredExecutable,
   runCommand,
@@ -23,7 +25,7 @@ export function createPaddleOcrProvider(
   async function resolveCommand(): Promise<string | null> {
     return resolveConfiguredExecutable({
       explicitCandidates: options.commandCandidates,
-      envValue: process.env.HEALTHYBOB_PADDLEOCR_COMMAND,
+      envValue: () => process.env.HEALTHYBOB_PADDLEOCR_COMMAND,
       fallbackCommands: ["paddleocr", "paddlex"],
     });
   }
@@ -36,26 +38,18 @@ export function createPaddleOcrProvider(
     priority: 800,
     async discover() {
       const command = await resolveCommand();
-      return command
-        ? {
-            available: true,
-            reason: "PaddleOCR CLI available.",
-            executablePath: command,
-          }
-        : {
-            available: false,
-            reason: "PaddleOCR CLI not found.",
-          };
+      return describeExecutableAvailability({
+        executablePath: command,
+        availableReason: "PaddleOCR CLI available.",
+        missingReason: "PaddleOCR CLI not found.",
+      });
     },
     supports(request: ParseRequest) {
       const kind = request.preparedKind ?? request.artifact.kind;
       return kind === "document" || kind === "image";
     },
     async run(request): Promise<ProviderRunResult> {
-      const command = await resolveCommand();
-      if (!command) {
-        throw new TypeError("PaddleOCR CLI not found.");
-      }
+      const command = requireExecutable(await resolveCommand(), "PaddleOCR CLI not found.");
 
       const outputDirectory = path.join(request.scratchDirectory, "paddleocr-output");
       const isPdf = request.artifact.fileName?.toLowerCase().endsWith(".pdf") ?? false;

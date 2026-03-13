@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 
 import type { ParserArtifactRef, ParserArtifactSummary } from "./contracts/artifact.js";
 import type { ParsedBlock, ParseBlockKind } from "./contracts/parse.js";
+import type { ProviderAvailability } from "./contracts/provider.js";
 
 const USER_PATH_PATTERNS = [
   /^\/Users\/[^/]+/u,
@@ -143,14 +144,40 @@ export async function resolveExecutable(candidates: string[]): Promise<string | 
 
 export async function resolveConfiguredExecutable(input: {
   explicitCandidates?: string[];
-  envValue?: string | null | undefined;
+  envValue?: string | null | undefined | (() => string | null | undefined);
   fallbackCommands?: string[];
 }): Promise<string | null> {
+  const envValue = typeof input.envValue === "function" ? input.envValue() : input.envValue;
   return resolveExecutable([
     ...(input.explicitCandidates ?? []),
-    input.envValue ?? "",
+    envValue ?? "",
     ...(input.fallbackCommands ?? []),
   ]);
+}
+
+export function describeExecutableAvailability(input: {
+  executablePath: string | null;
+  availableReason: string;
+  missingReason: string;
+}): ProviderAvailability {
+  return input.executablePath
+    ? {
+        available: true,
+        reason: input.availableReason,
+        executablePath: input.executablePath,
+      }
+    : {
+        available: false,
+        reason: input.missingReason,
+      };
+}
+
+export function requireExecutable(executablePath: string | null, missingMessage: string): string {
+  if (!executablePath) {
+    throw new TypeError(missingMessage);
+  }
+
+  return executablePath;
 }
 
 export function isTextLikeArtifact(fileName: string | null | undefined, mime: string | null | undefined): boolean {

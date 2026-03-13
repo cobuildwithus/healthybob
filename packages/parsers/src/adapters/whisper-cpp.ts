@@ -4,6 +4,8 @@ import type { ParseRequest, ParsedBlock, ProviderRunResult } from "../contracts/
 import type { ParserProvider } from "../contracts/provider.js";
 import {
   buildMarkdown,
+  describeExecutableAvailability,
+  requireExecutable,
   readUtf8IfExists,
   resolveConfiguredExecutable,
   runCommand,
@@ -24,7 +26,7 @@ export function createWhisperCppProvider(
   async function resolveCommand(): Promise<string | null> {
     return resolveConfiguredExecutable({
       explicitCandidates: options.commandCandidates,
-      envValue: process.env.HEALTHYBOB_WHISPER_COMMAND,
+      envValue: () => process.env.HEALTHYBOB_WHISPER_COMMAND,
       fallbackCommands: ["whisper-cli", "whisper-cpp"],
     });
   }
@@ -43,26 +45,26 @@ export function createWhisperCppProvider(
     async discover() {
       const command = await resolveCommand();
       const modelPath = resolveModelPath();
+      const availability = describeExecutableAvailability({
+        executablePath: command,
+        availableReason: "whisper.cpp CLI and model path configured.",
+        missingReason: "whisper.cpp CLI executable not found.",
+      });
 
-      if (!command) {
-        return {
-          available: false,
-          reason: "whisper.cpp CLI executable not found.",
-        };
+      if (!availability.available) {
+        return availability;
       }
 
       if (!modelPath) {
         return {
           available: false,
           reason: "Whisper model path is not configured.",
-          executablePath: command,
+          executablePath: availability.executablePath,
         };
       }
 
       return {
-        available: true,
-        reason: "whisper.cpp CLI and model path configured.",
-        executablePath: command,
+        ...availability,
         details: {
           modelPath,
         },
@@ -73,12 +75,11 @@ export function createWhisperCppProvider(
       return kind === "audio";
     },
     async run(request): Promise<ProviderRunResult> {
-      const command = await resolveCommand();
+      const command = requireExecutable(
+        await resolveCommand(),
+        "whisper.cpp CLI executable not found.",
+      );
       const modelPath = resolveModelPath();
-
-      if (!command) {
-        throw new TypeError("whisper.cpp CLI executable not found.");
-      }
 
       if (!modelPath) {
         throw new TypeError("Whisper model path is not configured.");

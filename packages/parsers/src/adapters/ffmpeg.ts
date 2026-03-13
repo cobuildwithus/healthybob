@@ -13,7 +13,8 @@ export async function resolveFfmpegCommand(
 ): Promise<string | null> {
   return resolveConfiguredExecutable({
     explicitCandidates: options.commandCandidates,
-    envValue: options.allowSystemLookup === false ? null : process.env.HEALTHYBOB_FFMPEG_COMMAND,
+    envValue: () =>
+      options.allowSystemLookup === false ? null : process.env.HEALTHYBOB_FFMPEG_COMMAND,
     fallbackCommands: options.allowSystemLookup === false ? [] : ["ffmpeg"],
   });
 }

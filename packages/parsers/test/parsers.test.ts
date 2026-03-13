@@ -8,12 +8,20 @@ import { initializeVault } from "@healthybob/core";
 import { createInboxPipeline, openInboxRuntime, rebuildRuntimeFromVault } from "@healthybob/inboxd";
 
 import {
+  createPaddleOcrProvider,
   createParserRegistry,
+  createPdfToTextProvider,
   createTextFileProvider,
+  createWhisperCppProvider,
   prepareAudioInput,
   runAttachmentParseWorker,
   type ParserProvider,
 } from "../src/index.js";
+import {
+  describeExecutableAvailability,
+  resolveConfiguredExecutable,
+  requireExecutable,
+} from "../src/shared.js";
 
 async function makeTempDirectory(name: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `${name}-`));
@@ -22,6 +30,12 @@ async function makeTempDirectory(name: string): Promise<string> {
 async function writeExternalFile(directory: string, fileName: string, content: string): Promise<string> {
   const filePath = path.join(directory, fileName);
   await fs.writeFile(filePath, content, "utf8");
+  return filePath;
+}
+
+async function writeExecutableFile(directory: string, fileName: string, content: string): Promise<string> {
+  const filePath = await writeExternalFile(directory, fileName, content);
+  await fs.chmod(filePath, 0o755);
   return filePath;
 }
 
@@ -62,6 +76,275 @@ test("audio preparation accepts WAV directly and requires ffmpeg for other audio
     }),
     /ffmpeg is required to normalize non-WAV audio attachments for transcription/u,
   );
+});
+
+test("shared executable helpers preserve lazy resolution, availability, and missing-tool errors", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-executable");
+  const executablePath = await writeExternalFile(directory, "fake-tool", "tool-placeholder");
+  const previousCommand = process.env.HEALTHYBOB_TEST_COMMAND;
+
+  try {
+    process.env.HEALTHYBOB_TEST_COMMAND = executablePath;
+    assert.equal(
+      await resolveConfiguredExecutable({
+        envValue: () => process.env.HEALTHYBOB_TEST_COMMAND,
+      }),
+      executablePath,
+    );
+
+    const available = describeExecutableAvailability({
+      executablePath,
+      availableReason: "tool available",
+      missingReason: "tool missing",
+    });
+    assert.deepEqual(available, {
+      available: true,
+      reason: "tool available",
+      executablePath,
+    });
+
+    process.env.HEALTHYBOB_TEST_COMMAND = "";
+    assert.equal(
+      await resolveConfiguredExecutable({
+        envValue: () => process.env.HEALTHYBOB_TEST_COMMAND,
+      }),
+      null,
+    );
+    assert.deepEqual(
+      describeExecutableAvailability({
+        executablePath: null,
+        availableReason: "tool available",
+        missingReason: "tool missing",
+      }),
+      {
+        available: false,
+        reason: "tool missing",
+      },
+    );
+
+    assert.equal(requireExecutable(executablePath, "tool missing"), executablePath);
+    assert.throws(() => requireExecutable(null, "tool missing"), /tool missing/u);
+  } finally {
+    if (previousCommand === undefined) {
+      delete process.env.HEALTHYBOB_TEST_COMMAND;
+    } else {
+      process.env.HEALTHYBOB_TEST_COMMAND = previousCommand;
+    }
+  }
+});
+
+test("pdftotext provider discovers explicit executables and parses PDF text output", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-pdftotext");
+  const executablePath = await writeExecutableFile(
+    directory,
+    "fake-pdftotext",
+    "#!/usr/bin/env node\nprocess.stdout.write('Page one\\fPage two\\n');\n",
+  );
+  const inputPath = await writeExternalFile(directory, "scan.pdf", "pdf-placeholder");
+  const provider = createPdfToTextProvider({
+    commandCandidates: [executablePath],
+  });
+
+  assert.deepEqual(await provider.discover(), {
+    available: true,
+    reason: "pdftotext CLI available.",
+    executablePath,
+  });
+  assert.equal(
+    provider.supports({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_pdf_support",
+        attachmentId: "att_pdf_support",
+        kind: "document",
+        fileName: "scan.pdf",
+        mime: "application/pdf",
+        storedPath: "raw/inbox/example/scan.pdf",
+        absolutePath: inputPath,
+      },
+      inputPath,
+      scratchDirectory: directory,
+    }),
+    true,
+  );
+  assert.equal(
+    provider.supports({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_text_support",
+        attachmentId: "att_text_support",
+        kind: "document",
+        fileName: "note.txt",
+        mime: "text/plain",
+        storedPath: "raw/inbox/example/note.txt",
+        absolutePath: inputPath,
+      },
+      inputPath,
+      scratchDirectory: directory,
+    }),
+    false,
+  );
+
+  const result = await provider.run({
+    intent: "attachment_text",
+    artifact: {
+      captureId: "cap_pdf_run",
+      attachmentId: "att_pdf_run",
+      kind: "document",
+      fileName: "scan.pdf",
+      mime: "application/pdf",
+      storedPath: "raw/inbox/example/scan.pdf",
+      absolutePath: inputPath,
+    },
+    inputPath,
+    scratchDirectory: directory,
+  });
+
+  assert.equal(result.text, "Page one\fPage two");
+  assert.equal(result.metadata?.pageCount, 2);
+  assert.match(result.markdown ?? "", /Page one/u);
+});
+
+test("whisper.cpp provider reports missing model paths and parses transcript artifacts", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-whisper");
+  const executablePath = await writeExecutableFile(
+    directory,
+    "fake-whisper",
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const args = process.argv.slice(2);",
+      "const outputBase = args[args.indexOf('-of') + 1];",
+      "fs.writeFileSync(`${outputBase}.txt`, 'hello from whisper\\n', 'utf8');",
+      "fs.writeFileSync(",
+      "  `${outputBase}.srt`,",
+      "  '1\\n00:00:00,000 --> 00:00:01,500\\nhello there\\n\\n2\\n00:00:01,500 --> 00:00:03,000\\ngeneral kenobi\\n',",
+      "  'utf8',",
+      ");",
+    ].join("\n"),
+  );
+  const inputPath = await writeExternalFile(directory, "voice-note.wav", "wav-placeholder");
+
+  const missingModelProvider = createWhisperCppProvider({
+    commandCandidates: [executablePath],
+  });
+  assert.deepEqual(await missingModelProvider.discover(), {
+    available: false,
+    reason: "Whisper model path is not configured.",
+    executablePath,
+  });
+
+  const provider = createWhisperCppProvider({
+    commandCandidates: [executablePath],
+    modelPath: "models/fake.bin",
+    language: "en",
+  });
+  assert.deepEqual(await provider.discover(), {
+    available: true,
+    reason: "whisper.cpp CLI and model path configured.",
+    executablePath,
+    details: {
+      modelPath: "models/fake.bin",
+    },
+  });
+
+  const result = await provider.run({
+    intent: "attachment_text",
+    artifact: {
+      captureId: "cap_audio_run",
+      attachmentId: "att_audio_run",
+      kind: "audio",
+      fileName: "voice-note.wav",
+      mime: "audio/wav",
+      storedPath: "raw/inbox/example/voice-note.wav",
+      absolutePath: inputPath,
+    },
+    inputPath,
+    scratchDirectory: directory,
+  });
+
+  assert.equal(result.text, "hello from whisper");
+  assert.equal(result.blocks?.length, 2);
+  assert.equal(result.blocks?.[0]?.text, "hello there");
+  assert.equal(result.blocks?.[1]?.text, "general kenobi");
+  assert.equal(result.metadata?.durationMs, 3000);
+  assert.equal(result.metadata?.language, "en");
+});
+
+test("PaddleOCR provider discovers explicit executables and harvests OCR artifacts", async () => {
+  const directory = await makeTempDirectory("healthybob-parser-paddleocr");
+  const executablePath = await writeExecutableFile(
+    directory,
+    "fake-paddleocr",
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const outputArg = process.argv.slice(2).find((arg) => arg.startsWith('--output='));",
+      "const outputDirectory = outputArg ? outputArg.slice('--output='.length) : process.cwd();",
+      "fs.mkdirSync(outputDirectory, { recursive: true });",
+      "fs.writeFileSync(path.join(outputDirectory, 'page1.md'), '# Receipt\\n\\nMilk\\n', 'utf8');",
+      "fs.writeFileSync(path.join(outputDirectory, 'page1.txt'), 'Milk\\nEggs\\n', 'utf8');",
+      "fs.writeFileSync(",
+      "  path.join(outputDirectory, 'page1.json'),",
+      "  JSON.stringify({ markdownText: '## Extra', rec_texts: ['Scanned', 'text'], tableRows: [['Item', 'Qty'], ['Milk', '1']] }),",
+      "  'utf8',",
+      ");",
+      "process.stdout.write('stdout ocr');",
+    ].join("\n"),
+  );
+  const inputPath = await writeExternalFile(directory, "receipt.png", "png-placeholder");
+  const provider = createPaddleOcrProvider({
+    commandCandidates: [executablePath],
+  });
+
+  assert.deepEqual(await provider.discover(), {
+    available: true,
+    reason: "PaddleOCR CLI available.",
+    executablePath,
+  });
+  assert.equal(
+    provider.supports({
+      intent: "attachment_text",
+      artifact: {
+        captureId: "cap_image_support",
+        attachmentId: "att_image_support",
+        kind: "image",
+        fileName: "receipt.png",
+        mime: "image/png",
+        storedPath: "raw/inbox/example/receipt.png",
+        absolutePath: inputPath,
+      },
+      inputPath,
+      scratchDirectory: directory,
+    }),
+    true,
+  );
+
+  const result = await provider.run({
+    intent: "attachment_text",
+    artifact: {
+      captureId: "cap_image_run",
+      attachmentId: "att_image_run",
+      kind: "image",
+      fileName: "receipt.png",
+      mime: "image/png",
+      storedPath: "raw/inbox/example/receipt.png",
+      absolutePath: inputPath,
+    },
+    inputPath,
+    scratchDirectory: directory,
+  });
+
+  assert.match(result.text, /Milk/u);
+  assert.match(result.text, /Scanned text/u);
+  assert.match(result.text, /stdout ocr/u);
+  assert.equal(result.tables?.length, 1);
+  assert.deepEqual(result.tables?.[0]?.rows, [
+    ["Item", "Qty"],
+    ["Milk", "1"],
+  ]);
+  assert.equal(result.metadata?.pageCount, 2);
 });
 
 test("registry prefers built-in text parsing for markdown documents", async () => {
