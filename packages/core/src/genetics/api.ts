@@ -5,10 +5,14 @@ import {
 } from "@healthybob/contracts";
 
 import { emitAuditRecord } from "../audit.js";
-import { VaultError } from "../errors.js";
-import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "../frontmatter.js";
-import { readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
+import { stringifyFrontmatterDocument } from "../frontmatter.js";
+import { writeVaultTextFile } from "../fs.js";
 import { generateRecordId } from "../ids.js";
+import {
+  loadMarkdownRegistryDocuments,
+  readRegistryRecord,
+  selectExistingRegistryRecord,
+} from "../registry/markdown.js";
 
 import {
   bulletList,
@@ -91,20 +95,15 @@ function recordFromParts(
 }
 
 async function loadGeneticVariants(vaultRoot: string): Promise<GeneticVariantRecord[]> {
-  const relativePaths = await walkVaultFiles(vaultRoot, GENETICS_DIRECTORY, { extension: ".md" });
-  const records: GeneticVariantRecord[] = [];
-
-  for (const relativePath of relativePaths) {
-    const markdown = await readUtf8File(vaultRoot, relativePath);
-    const document = parseFrontmatterDocument(markdown);
-    const record = recordFromParts(document.attributes, relativePath, markdown);
-
-    if (record.docType !== GENETIC_VARIANT_DOC_TYPE || record.schemaVersion !== GENETIC_VARIANT_SCHEMA_VERSION) {
-      throw new VaultError("VAULT_INVALID_GENETIC_VARIANT", "Genetics registry document has an unexpected shape.");
-    }
-
-    records.push(record);
-  }
+  const records = await loadMarkdownRegistryDocuments({
+    vaultRoot,
+    directory: GENETICS_DIRECTORY,
+    recordFromParts,
+    isExpectedRecord: (record) =>
+      record.docType === GENETIC_VARIANT_DOC_TYPE && record.schemaVersion === GENETIC_VARIANT_SCHEMA_VERSION,
+    invalidCode: "VAULT_INVALID_GENETIC_VARIANT",
+    invalidMessage: "Genetics registry document has an unexpected shape.",
+  });
 
   records.sort(
     (left, right) => left.gene.localeCompare(right.gene) || left.title.localeCompare(right.title) || left.variantId.localeCompare(right.variantId),
@@ -117,14 +116,14 @@ function selectExistingRecord(
   variantId: string | undefined,
   slug: string | undefined,
 ): GeneticVariantRecord | null {
-  const byId = variantId ? records.find((record) => record.variantId === variantId) ?? null : null;
-  const bySlug = slug ? records.find((record) => record.slug === slug) ?? null : null;
-
-  if (byId && bySlug && byId.variantId !== bySlug.variantId) {
-    throw new VaultError("VAULT_GENETIC_VARIANT_CONFLICT", "variantId and slug resolve to different variants.");
-  }
-
-  return byId ?? bySlug;
+  return selectExistingRegistryRecord({
+    records,
+    recordId: variantId,
+    slug,
+    getRecordId: (record) => record.variantId,
+    conflictCode: "VAULT_GENETIC_VARIANT_CONFLICT",
+    conflictMessage: "variantId and slug resolve to different variants.",
+  });
 }
 
 function buildAttributes(input: {
@@ -247,17 +246,12 @@ export async function readGeneticVariant({
   const normalizedVariantId = normalizeId(variantId, "variantId", "var");
   const normalizedSlug = slug ? normalizeSlug(slug, "slug") : undefined;
   const records = await loadGeneticVariants(vaultRoot);
-  const match = records.find((record) => {
-    if (normalizedVariantId && record.variantId === normalizedVariantId) {
-      return true;
-    }
-
-    return normalizedSlug ? record.slug === normalizedSlug : false;
+  return readRegistryRecord({
+    records,
+    recordId: normalizedVariantId,
+    slug: normalizedSlug,
+    getRecordId: (record) => record.variantId,
+    readMissingCode: "VAULT_GENETIC_VARIANT_MISSING",
+    readMissingMessage: "Genetic variant was not found.",
   });
-
-  if (!match) {
-    throw new VaultError("VAULT_GENETIC_VARIANT_MISSING", "Genetic variant was not found.");
-  }
-
-  return match;
 }

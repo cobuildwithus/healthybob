@@ -5,10 +5,14 @@ import {
 } from "@healthybob/contracts";
 
 import { emitAuditRecord } from "../audit.js";
-import { VaultError } from "../errors.js";
-import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "../frontmatter.js";
-import { readUtf8File, walkVaultFiles, writeVaultTextFile } from "../fs.js";
+import { stringifyFrontmatterDocument } from "../frontmatter.js";
+import { writeVaultTextFile } from "../fs.js";
 import { generateRecordId } from "../ids.js";
+import {
+  loadMarkdownRegistryDocuments,
+  readRegistryRecord,
+  selectExistingRegistryRecord,
+} from "../registry/markdown.js";
 
 import {
   bulletList,
@@ -96,20 +100,15 @@ function recordFromParts(
 }
 
 async function loadFamilyRecords(vaultRoot: string): Promise<FamilyMemberRecord[]> {
-  const relativePaths = await walkVaultFiles(vaultRoot, FAMILY_DIRECTORY, { extension: ".md" });
-  const records: FamilyMemberRecord[] = [];
-
-  for (const relativePath of relativePaths) {
-    const markdown = await readUtf8File(vaultRoot, relativePath);
-    const document = parseFrontmatterDocument(markdown);
-    const record = recordFromParts(document.attributes, relativePath, markdown);
-
-    if (record.docType !== FAMILY_MEMBER_DOC_TYPE || record.schemaVersion !== FAMILY_MEMBER_SCHEMA_VERSION) {
-      throw new VaultError("VAULT_INVALID_FAMILY_MEMBER", "Family registry document has an unexpected shape.");
-    }
-
-    records.push(record);
-  }
+  const records = await loadMarkdownRegistryDocuments({
+    vaultRoot,
+    directory: FAMILY_DIRECTORY,
+    recordFromParts,
+    isExpectedRecord: (record) =>
+      record.docType === FAMILY_MEMBER_DOC_TYPE && record.schemaVersion === FAMILY_MEMBER_SCHEMA_VERSION,
+    invalidCode: "VAULT_INVALID_FAMILY_MEMBER",
+    invalidMessage: "Family registry document has an unexpected shape.",
+  });
 
   records.sort(
     (left, right) => left.title.localeCompare(right.title) || left.familyMemberId.localeCompare(right.familyMemberId),
@@ -122,14 +121,14 @@ function selectExistingRecord(
   familyMemberId: string | undefined,
   slug: string | undefined,
 ): FamilyMemberRecord | null {
-  const byId = familyMemberId ? records.find((record) => record.familyMemberId === familyMemberId) ?? null : null;
-  const bySlug = slug ? records.find((record) => record.slug === slug) ?? null : null;
-
-  if (byId && bySlug && byId.familyMemberId !== bySlug.familyMemberId) {
-    throw new VaultError("VAULT_FAMILY_MEMBER_CONFLICT", "familyMemberId and slug resolve to different family members.");
-  }
-
-  return byId ?? bySlug;
+  return selectExistingRegistryRecord({
+    records,
+    recordId: familyMemberId,
+    slug,
+    getRecordId: (record) => record.familyMemberId,
+    conflictCode: "VAULT_FAMILY_MEMBER_CONFLICT",
+    conflictMessage: "familyMemberId and slug resolve to different family members.",
+  });
 }
 
 function buildAttributes(input: {
@@ -247,17 +246,12 @@ export async function readFamilyMember({
   const normalizedFamilyMemberId = normalizeId(memberId, "memberId", "fam");
   const normalizedSlug = slug ? normalizeSlug(slug, "slug") : undefined;
   const records = await loadFamilyRecords(vaultRoot);
-  const match = records.find((record) => {
-    if (normalizedFamilyMemberId && record.familyMemberId === normalizedFamilyMemberId) {
-      return true;
-    }
-
-    return normalizedSlug ? record.slug === normalizedSlug : false;
+  return readRegistryRecord({
+    records,
+    recordId: normalizedFamilyMemberId,
+    slug: normalizedSlug,
+    getRecordId: (record) => record.familyMemberId,
+    readMissingCode: "VAULT_FAMILY_MEMBER_MISSING",
+    readMissingMessage: "Family member was not found.",
   });
-
-  if (!match) {
-    throw new VaultError("VAULT_FAMILY_MEMBER_MISSING", "Family member was not found.");
-  }
-
-  return match;
 }

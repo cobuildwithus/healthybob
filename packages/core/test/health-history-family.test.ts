@@ -8,6 +8,7 @@ import {
   appendJsonlRecord,
   initializeVault,
   readJsonlRecords,
+  stringifyFrontmatterDocument,
   toMonthlyShardRelativePath,
   VAULT_LAYOUT,
   VaultError,
@@ -235,6 +236,63 @@ test("family members are stored as deterministic markdown registry entries", asy
   );
 });
 
+test("family registry upserts reject conflicting family member ids and slugs", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-family-conflict");
+  await initializeVault({ vaultRoot });
+
+  const first = await upsertFamilyMember({
+    vaultRoot,
+    title: "Mother",
+    relationship: "mother",
+  });
+  const second = await upsertFamilyMember({
+    vaultRoot,
+    title: "Father",
+    relationship: "father",
+  });
+
+  await assert.rejects(
+    () =>
+      upsertFamilyMember({
+        vaultRoot,
+        familyMemberId: first.record.familyMemberId,
+        slug: second.record.slug,
+        note: "This should fail.",
+      }),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_FAMILY_MEMBER_CONFLICT" &&
+      error.message === "familyMemberId and slug resolve to different family members.",
+  );
+});
+
+test("family registry listing preserves invalid document shape errors after shared loader extraction", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-family-invalid-shape");
+  await initializeVault({ vaultRoot });
+
+  const invalidMarkdown = stringifyFrontmatterDocument({
+    attributes: {
+      schemaVersion: "hb.family-member-frontmatter.v999",
+      docType: "hb.family_member",
+      familyMemberId: "fam_01JNW7YJ7MNE7M9Q2QWQK4Z3F8",
+      slug: "invalid-family-member",
+      title: "Invalid Family Member",
+      relationship: "parent",
+    },
+    body: "# Invalid Family Member\n",
+  });
+
+  await fs.writeFile(path.join(vaultRoot, "bank/family/invalid-family-member.md"), invalidMarkdown, "utf8");
+
+  await assert.rejects(
+    () => listFamilyMembers(vaultRoot),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_INVALID_FAMILY_MEMBER" &&
+      error.message === "Family registry document has an unexpected shape.",
+  );
+});
+
 test("genetic variants are stored in markdown registries and can link to family members", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-genetics");
   await initializeVault({ vaultRoot });
@@ -290,6 +348,64 @@ test("genetic variants are stored in markdown registries and can link to family 
   );
 });
 
+test("genetic registry upserts reject conflicting variant ids and slugs", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-genetics-conflict");
+  await initializeVault({ vaultRoot });
+
+  const first = await upsertGeneticVariant({
+    vaultRoot,
+    gene: "APOE",
+    title: "APOE e4 allele",
+  });
+  const second = await upsertGeneticVariant({
+    vaultRoot,
+    gene: "MTHFR",
+    title: "MTHFR C677T",
+  });
+
+  await assert.rejects(
+    () =>
+      upsertGeneticVariant({
+        vaultRoot,
+        variantId: first.record.variantId,
+        slug: second.record.slug,
+        gene: "APOE",
+        note: "This should fail.",
+      }),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_GENETIC_VARIANT_CONFLICT" &&
+      error.message === "variantId and slug resolve to different variants.",
+  );
+});
+
+test("genetic registry listing preserves invalid document shape errors after shared loader extraction", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-genetics-invalid-shape");
+  await initializeVault({ vaultRoot });
+
+  const invalidMarkdown = stringifyFrontmatterDocument({
+    attributes: {
+      schemaVersion: "hb.genetic-variant-frontmatter.v999",
+      docType: "hb.genetic_variant",
+      variantId: "var_01JNW7YJ7MNE7M9Q2QWQK4Z3F8",
+      slug: "invalid-genetic-variant",
+      gene: "APOE",
+      title: "Invalid Genetic Variant",
+    },
+    body: "# Invalid Genetic Variant\n",
+  });
+
+  await fs.writeFile(path.join(vaultRoot, "bank/genetics/invalid-genetic-variant.md"), invalidMarkdown, "utf8");
+
+  await assert.rejects(
+    () => listGeneticVariants(vaultRoot),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_INVALID_GENETIC_VARIANT" &&
+      error.message === "Genetics registry document has an unexpected shape.",
+  );
+});
+
 test("family and genetics registry writes enforce the frozen contract length boundaries", async () => {
   const vaultRoot = await makeTempDirectory("healthybob-family-genetics-boundaries");
   await initializeVault({ vaultRoot });
@@ -338,5 +454,79 @@ test("family and genetics registry writes enforce the frozen contract length bou
       error instanceof VaultError &&
       error.code === "VAULT_INVALID_INPUT" &&
       error.message === "gene exceeds the maximum length.",
+  );
+});
+
+test("family and genetics registry id-or-slug resolution preserves conflict and missing errors", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-family-genetics-resolution");
+  await initializeVault({ vaultRoot });
+
+  const mother = await upsertFamilyMember({
+    vaultRoot,
+    title: "Mother",
+    relationship: "mother",
+  });
+  const father = await upsertFamilyMember({
+    vaultRoot,
+    title: "Father",
+    relationship: "father",
+  });
+
+  await assert.rejects(
+    () =>
+      upsertFamilyMember({
+        vaultRoot,
+        familyMemberId: mother.record.familyMemberId,
+        slug: father.record.slug,
+        note: "Should fail because id and slug resolve to different records.",
+      }),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_FAMILY_MEMBER_CONFLICT" &&
+      error.message === "familyMemberId and slug resolve to different family members.",
+  );
+
+  await assert.rejects(
+    () =>
+      readFamilyMember({
+        vaultRoot,
+        slug: "missing-family-member",
+      }),
+    (error: unknown) => error instanceof VaultError && error.code === "VAULT_FAMILY_MEMBER_MISSING",
+  );
+
+  const apoe = await upsertGeneticVariant({
+    vaultRoot,
+    gene: "APOE",
+    title: "APOE e4 allele",
+  });
+  const mthfr = await upsertGeneticVariant({
+    vaultRoot,
+    gene: "MTHFR",
+    title: "MTHFR C677T",
+  });
+
+  await assert.rejects(
+    () =>
+      upsertGeneticVariant({
+        vaultRoot,
+        variantId: apoe.record.variantId,
+        slug: mthfr.record.slug,
+        gene: "APOE",
+        title: "Conflicting selector",
+      }),
+    (error: unknown) =>
+      error instanceof VaultError &&
+      error.code === "VAULT_GENETIC_VARIANT_CONFLICT" &&
+      error.message === "variantId and slug resolve to different variants.",
+  );
+
+  await assert.rejects(
+    () =>
+      readGeneticVariant({
+        vaultRoot,
+        variantId: "var_01JNW7YJ7MNE7M9Q2QWQK4Z3F8",
+      }),
+    (error: unknown) => error instanceof VaultError && error.code === "VAULT_GENETIC_VARIANT_MISSING",
   );
 });
