@@ -1,6 +1,6 @@
 # Healthy Bob Agent Docs Index
 
-Last verified: 2026-03-13 (runtime-state cutover docs, softer coordination-ledger semantics, and the dedicated incur CLI note are aligned across process docs)
+Last verified: 2026-03-13 (runtime-state cutover docs, softer coordination-ledger semantics, and incur-specific CLI guardrails are aligned across process docs)
 
 ## Purpose
 
@@ -22,7 +22,6 @@ This index is the table of contents for durable, repository-local context that a
 | `agent-docs/product-specs/index.md` | Index for product-spec documents. | `agent-docs/product-specs/**` | Healthy Bob Maintainer | Per behavior change | High | 2026-03-12 |
 | `agent-docs/product-specs/repo-bootstrap.md` | Current repository state and bootstrap success criteria. | Repository bootstrap decisions | Healthy Bob Maintainer | Until first product feature lands | High | 2026-03-12 |
 | `agent-docs/references/README.md` | Reference-pack overview and maintenance rules. | `agent-docs/references/**` | Healthy Bob Maintainer | Monthly | Medium | 2026-03-12 |
-| `agent-docs/references/incur-notes.md` | Focused incur-specific guidance for `packages/cli` work. | `packages/cli/**`, incur framework conventions, repo-local CLI decisions | Healthy Bob Maintainer | Per CLI framework change | High | 2026-03-13 |
 | `agent-docs/references/repo-scope.md` | Repo scope, ownership boundary, and unknowns. | Workspace routing + local decisions | Healthy Bob Maintainer | Per scope change | High | 2026-03-12 |
 | `packages/parsers/README.md` | Package-local overview for local-first attachment parsing, provider ranking, and derived artifact publication. | `packages/parsers/**` | Healthy Bob Maintainer | Per parser-layer change | Medium | 2026-03-13 |
 | `agent-docs/references/testing-ci-map.md` | Current verification map for contracts/runtime packages, built CLI checks, the smoke harness, the targeted Vitest/V8 package coverage surface, and the source-artifact guard. | `package.json`, `scripts/**`, `fixtures/**`, `e2e/**`, future CI | Healthy Bob Maintainer | Per verification change | High | 2026-03-13 |
@@ -44,4 +43,4 @@ This index is the table of contents for durable, repository-local context that a
 - Treat `UNCONFIRMED` product/domain assumptions as temporary and replace them with concrete specs before broad implementation work.
 - For multi-file or high-risk work, add a plan in `agent-docs/exec-plans/active/`.
 - Keep `agent-docs/exec-plans/active/COORDINATION_LEDGER.md` current during active coding work, and mark rows as exclusive only when overlap is genuinely unsafe.
-- For `packages/cli` work, use the `incur` skill and read `agent-docs/references/incur-notes.md`.
+- For `packages/cli` work, treat `ARCHITECTURE.md` and `agent-docs/operations/verification-and-runtime.md` as the durable home for incur-specific routing, typegen, and built-vs-source verification rules.
