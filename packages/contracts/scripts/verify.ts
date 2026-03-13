@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +13,7 @@ import {
   exampleProfileSnapshots,
   exampleSampleRecords,
   exampleVaultMetadata,
-} from "../src/examples.js";
+} from "@healthybob/contracts";
 import {
   allergyFrontmatterSchema,
   assessmentResponseSchema,
@@ -32,11 +32,28 @@ import {
   sampleRecordSchema,
   schemaCatalog,
   vaultMetadataSchema,
-} from "../src/schemas.js";
-import { parseFrontmatterMarkdown, validateAgainstSchema } from "../src/validate.js";
+} from "@healthybob/contracts/schemas";
+import {
+  parseFrontmatterMarkdown,
+  validateAgainstSchema,
+} from "@healthybob/contracts/validate";
+
+interface PackageJsonShape {
+  main?: string;
+  types?: string;
+  exports?: Record<
+    string,
+    {
+      default?: string;
+      types?: string;
+    } | string
+  >;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packageDir = path.resolve(__dirname, "../..");
 const generatedDir = path.resolve(__dirname, "../../generated");
+const distDir = path.join(packageDir, "dist");
 
 function assertNoErrors(label: string, schema: Record<string, unknown>, value: unknown): void {
   const errors = validateAgainstSchema(schema, value);
@@ -44,6 +61,28 @@ function assertNoErrors(label: string, schema: Record<string, unknown>, value: u
     throw new Error(`${label} failed validation:\n${errors.join("\n")}`);
   }
 }
+
+const packageJson = JSON.parse(
+  await readFile(path.join(packageDir, "package.json"), "utf8"),
+) as PackageJsonShape;
+
+assert.equal(packageJson.main, "./dist/index.js");
+assert.equal(packageJson.types, "./dist/index.d.ts");
+assert.deepEqual(packageJson.exports?.["."], {
+  types: "./dist/index.d.ts",
+  default: "./dist/index.js",
+});
+assert.deepEqual(packageJson.exports?.["./schemas"], {
+  types: "./dist/schemas.d.ts",
+  default: "./dist/schemas.js",
+});
+
+await assertPathExists(path.join(distDir, "index.js"));
+await assertPathExists(path.join(distDir, "index.d.ts"));
+await assertPathExists(path.join(distDir, "schemas.js"));
+await assertPathExists(path.join(distDir, "scripts", "generate-json-schema.js"));
+await assertPathExists(path.join(distDir, "scripts", "verify.js"));
+await assertPathMissing(path.join(distDir, "src"));
 
 for (const [name, sourceSchema] of Object.entries(schemaCatalog)) {
   const artifactPath = path.join(generatedDir, `${name}.schema.json`);
@@ -91,3 +130,17 @@ console.log(
     `audits=${exampleAuditRecords.length}`,
   ].join(" "),
 );
+
+async function assertPathExists(filePath: string): Promise<void> {
+  await access(filePath);
+}
+
+async function assertPathMissing(filePath: string): Promise<void> {
+  try {
+    await access(filePath);
+  } catch {
+    return;
+  }
+
+  throw new Error(`Unexpected build artifact path present: ${path.relative(packageDir, filePath)}`);
+}

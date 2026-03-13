@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "README.md",
     "generated",
@@ -12,34 +12,34 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./constants": {
-      "types": "./dist/src/constants.d.ts",
-      "default": "./dist/src/constants.js"
+      "types": "./dist/constants.d.ts",
+      "default": "./dist/constants.js"
     },
     "./examples": {
-      "types": "./dist/src/examples.d.ts",
-      "default": "./dist/src/examples.js"
+      "types": "./dist/examples.d.ts",
+      "default": "./dist/examples.js"
     },
     "./ids": {
-      "types": "./dist/src/ids.d.ts",
-      "default": "./dist/src/ids.js"
+      "types": "./dist/ids.d.ts",
+      "default": "./dist/ids.js"
     },
     "./schemas": {
-      "types": "./dist/src/schemas.d.ts",
-      "default": "./dist/src/schemas.js"
+      "types": "./dist/schemas.d.ts",
+      "default": "./dist/schemas.js"
     },
     "./validate": {
-      "types": "./dist/src/validate.d.ts",
-      "default": "./dist/src/validate.js"
+      "types": "./dist/validate.d.ts",
+      "default": "./dist/validate.js"
     },
     "./generated/*": "./generated/*"
   },
   "scripts": {
-    "build": "rimraf dist && tsc -b",
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "build": "rimraf dist && tsc -b tsconfig.build.json --pretty false && tsc -p tsconfig.scripts.json --pretty false",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
     "generate": "pnpm build && node ./dist/scripts/generate-json-schema.js",
     "test": "pnpm build && node ./dist/scripts/verify.js",
     "verify": "pnpm test"

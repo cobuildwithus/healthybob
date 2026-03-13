@@ -9,5 +9,11 @@ Owns the frozen vault contracts for the Healthy Bob baseline:
 
 Package-local commands:
 
+- `pnpm --dir packages/contracts build`
 - `pnpm --dir packages/contracts generate`
 - `pnpm --dir packages/contracts verify`
+
+Build layout:
+
+- library entrypoints emit to `dist/*.js` and `dist/*.d.ts`
+- package-local scripts emit to `dist/scripts/*.js`
