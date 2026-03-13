@@ -62,14 +62,6 @@ export interface ProviderScaffoldResult {
   payload: JsonObject
 }
 
-export interface BasicListItemResult {
-  id: string
-  kind: string
-  title: string | null
-  occurredAt: string | null
-  path: string | null
-}
-
 export interface ProviderUpsertResult {
   vault: string
   providerId: string
