@@ -150,7 +150,7 @@ async function makeFixtureVault(): Promise<FixtureVault> {
   }
 }
 
-test(
+test.sequential(
   'show enforces non-queryable related ids and accepts returned lookup ids',
   async () => {
     const fixture = await makeFixtureVault()
@@ -224,7 +224,7 @@ test(
   },
 )
 
-test('export pack materializes the derived five-file pack when --out is set', async () => {
+test.sequential('export pack materializes the derived five-file pack when --out is set', async () => {
   const fixture = await makeFixtureVault()
   const outDir = await mkdtemp(path.join(tmpdir(), 'healthybob-cli-export-'))
 

@@ -10,7 +10,7 @@ import {
 } from './vault-cli-contracts.js'
 import { toVaultCliError } from './vault-cli-errors.js'
 
-export interface CommandRunContext<TArgs, TOptions extends BaseCommandOptions> {
+export interface CommandRunContext<TArgs, TOptions> {
   args: TArgs
   options: TOptions
   requestId: string | null
@@ -46,18 +46,38 @@ export interface WrappedCommandSpec<
     description: string
   }>
   run(
-    input: CommandRunContext<z.infer<TArgsSchema>, z.infer<TOptionsSchema> & BaseCommandOptions>,
+    input: CommandRunContext<z.infer<TArgsSchema>, z.infer<TOptionsSchema>>,
   ): Promise<z.infer<TDataSchema>>
   renderMarkdown?(
     envelope: SuccessEnvelopeBase<z.infer<TDataSchema>>,
   ): string | undefined
 }
 
+export interface WrappedCommandDefinition<
+  TArgsSchema extends ObjectSchema,
+  TOptionsSchema extends ObjectSchema,
+  TDataSchema extends z.ZodTypeAny,
+> {
+  description: string
+  args?: TArgsSchema
+  options: TOptionsSchema
+  output: z.ZodTypeAny
+  examples?: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>['examples']
+  run(
+    context: {
+      args: z.infer<TArgsSchema>
+      options: Record<string, unknown>
+    } & Record<string, unknown>,
+  ): Promise<SuccessEnvelopeBase<z.infer<TDataSchema>> | FailureEnvelope>
+}
+
 export function wrapCommand<
   TArgsSchema extends ObjectSchema,
   TOptionsSchema extends ObjectSchema,
   TDataSchema extends z.ZodTypeAny,
->(spec: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>): any {
+>(
+  spec: WrappedCommandSpec<TArgsSchema, TOptionsSchema, TDataSchema>,
+): WrappedCommandDefinition<TArgsSchema, TOptionsSchema, TDataSchema> {
   return {
     description: spec.description,
     args: spec.args,
@@ -69,11 +89,19 @@ export function wrapCommand<
       options,
     }: {
       args: z.infer<TArgsSchema>
-      options: z.infer<TOptionsSchema> & BaseCommandOptions
-    }): Promise<SuccessEnvelopeBase<z.infer<TDataSchema>> | FailureEnvelope> {
+      options: Record<string, unknown>
+    } & Record<string, unknown>): Promise<
+      SuccessEnvelopeBase<z.infer<TDataSchema>> | FailureEnvelope
+    > {
+      const parsedOptions = spec.options.parse(options)
+      const typedOptions = parsedOptions as z.infer<TOptionsSchema> &
+        BaseCommandOptions
       const requestId =
-        typeof options.requestId === 'string' ? options.requestId : null
-      const format: OutputFormat = options.format === 'md' ? 'md' : 'json'
+        typeof typedOptions.requestId === 'string'
+          ? typedOptions.requestId
+          : null
+      const format: OutputFormat =
+        typedOptions.format === 'md' ? 'md' : 'json'
 
       try {
         const envelope = {
@@ -83,9 +111,9 @@ export function wrapCommand<
           requestId,
           data: await spec.run({
             args,
-            options,
+            options: typedOptions,
             requestId,
-            vault: options.vault,
+            vault: typedOptions.vault,
             format,
           }),
         }
