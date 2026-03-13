@@ -27,6 +27,113 @@ import {
   VaultError,
 } from "../src/index.js";
 
+type DateInput = string | number | Date;
+
+interface RawArtifactLike {
+  relativePath: string;
+  originalFileName: string;
+  mediaType: string;
+}
+
+interface EnsureJournalDayInput {
+  vaultRoot: string;
+  date?: DateInput;
+}
+
+interface EnsureJournalDayResult {
+  created: boolean;
+  relativePath: string;
+  auditPath?: string;
+}
+
+interface CreateExperimentInput {
+  vaultRoot: string;
+  slug: string;
+  title?: string;
+  hypothesis?: string;
+  startedOn?: DateInput;
+  status?: string;
+}
+
+interface CreateExperimentResult {
+  created: boolean;
+  experiment: {
+    id: string;
+    slug: string;
+    relativePath: string;
+  };
+  event: ExperimentEventRecord | null;
+  auditPath: string | null;
+}
+
+interface ImportDocumentInput {
+  vaultRoot: string;
+  sourcePath: string;
+  occurredAt?: DateInput;
+  title?: string;
+  note?: string;
+  source?: string;
+}
+
+interface ImportDocumentResult {
+  documentId: string;
+  raw: RawArtifactLike;
+  event: DocumentEventRecord;
+  eventPath: string;
+  auditPath: string;
+}
+
+interface AddMealInput {
+  vaultRoot: string;
+  occurredAt?: DateInput;
+  note?: string;
+  photoPath?: string;
+  audioPath?: string;
+  source?: string;
+}
+
+interface AddMealResult {
+  mealId: string;
+  event: MealEventRecord;
+  eventPath: string;
+  photo: RawArtifactLike;
+  audio: RawArtifactLike | null;
+  auditPath: string;
+}
+
+interface ImportSamplesInput {
+  vaultRoot: string;
+  stream: string;
+  unit: string;
+  samples: Array<Record<string, unknown>>;
+  sourcePath?: string;
+  source?: string;
+  quality?: string;
+}
+
+interface ImportSamplesResult {
+  count: number;
+  records: SampleRecord[];
+  shardPaths: string[];
+  raw: RawArtifactLike | null;
+  transformId: string;
+  auditPath: string;
+}
+
+const ensureJournalDayStrict = ensureJournalDay as unknown as (
+  input: EnsureJournalDayInput,
+) => Promise<EnsureJournalDayResult>;
+const createExperimentStrict = createExperiment as unknown as (
+  input: CreateExperimentInput,
+) => Promise<CreateExperimentResult>;
+const importDocumentStrict = importDocument as unknown as (
+  input: ImportDocumentInput,
+) => Promise<ImportDocumentResult>;
+const addMealStrict = addMeal as unknown as (input: AddMealInput) => Promise<AddMealResult>;
+const importSamplesStrict = importSamples as unknown as (
+  input: ImportSamplesInput,
+) => Promise<ImportSamplesResult>;
+
 function expectRecord<T>(value: unknown): T {
   return value as T;
 }
@@ -111,10 +218,10 @@ test("copyRawArtifact enforces raw immutability and importDocument appends contr
         targetName: "lab-result.pdf",
         recordId: "fixed-record",
       }),
-    (error) => error instanceof VaultError && error.code === "VAULT_RAW_IMMUTABLE",
+    (error: unknown) => error instanceof VaultError && error.code === "VAULT_RAW_IMMUTABLE",
   );
 
-  const imported = await importDocument({
+  const imported = await importDocumentStrict({
     vaultRoot,
     sourcePath: documentPath,
     note: "baseline import",
@@ -152,7 +259,7 @@ test("photo-only meals preserve an empty audioPaths array in the stored event", 
   await initializeVault({ vaultRoot });
 
   const photoPath = await writeExternalFile(sourceRoot, "meal photo.jpg", "photo");
-  const meal = await addMeal({
+  const meal = await addMealStrict({
     vaultRoot,
     occurredAt: "2026-03-10T18:30:00.000Z",
     photoPath,
@@ -180,7 +287,7 @@ test("meal, journal, experiment, and samples mutations write expected contract d
   const audioPath = await writeExternalFile(sourceRoot, "meal-note.m4a", "audio");
   const csvPath = await writeExternalFile(sourceRoot, "heart-rate.csv", "recordedAt,value\n");
 
-  const meal = await addMeal({
+  const meal = await addMealStrict({
     vaultRoot,
     occurredAt: "2026-03-10T18:30:00.000Z",
     photoPath,
@@ -199,11 +306,11 @@ test("meal, journal, experiment, and samples mutations write expected contract d
   assert.equal(mealEvent.photoPaths.length, 1);
   assert.equal(mealEvent.audioPaths.length, 1);
 
-  const firstJournal = await ensureJournalDay({
+  const firstJournal = await ensureJournalDayStrict({
     vaultRoot,
     date: "2026-03-10",
   });
-  const secondJournal = await ensureJournalDay({
+  const secondJournal = await ensureJournalDayStrict({
     vaultRoot,
     date: "2026-03-10",
   });
@@ -216,7 +323,7 @@ test("meal, journal, experiment, and samples mutations write expected contract d
   assert.equal(journalDocument.attributes.docType, "journal_day");
   assert.equal(journalDocument.attributes.dayKey, "2026-03-10");
 
-  const experiment = await createExperiment({
+  const experiment = await createExperimentStrict({
     vaultRoot,
     slug: "Glucose Baseline",
     title: "Glucose Baseline",
@@ -232,7 +339,7 @@ test("meal, journal, experiment, and samples mutations write expected contract d
   assert.equal(experimentDocument.attributes.slug, "glucose-baseline");
   assert.match(String(experimentDocument.attributes.experimentId), /^exp_[0-9A-HJKMNP-TV-Z]{26}$/);
 
-  const samples = await importSamples({
+  const samples = await importSamplesStrict({
     vaultRoot,
     stream: "heart_rate",
     unit: "bpm",
@@ -254,8 +361,8 @@ test("meal, journal, experiment, and samples mutations write expected contract d
   assert.ok(samples.raw);
   assert.ok(samples.raw.relativePath.includes(`/${samples.transformId}/`));
   assert.equal(samples.shardPaths.length, 2);
-  assert.ok(samples.records.every((record: SampleRecord) => record.stream === "heart_rate"));
-  assert.ok(samples.records.every((record: SampleRecord) => !("transformId" in record)));
+  assert.ok(samples.records.every((record) => record.stream === "heart_rate"));
+  assert.ok(samples.records.every((record) => !("transformId" in record)));
 
   const sampleAuditRecords = await readJsonlRecords({
     vaultRoot,
@@ -282,8 +389,8 @@ test("createExperiment returns the existing experiment for idempotent retries", 
     hypothesis: "Hold meals steady for seven days.",
   };
 
-  const first = await createExperiment(input);
-  const second = await createExperiment(input);
+  const first = await createExperimentStrict(input);
+  const second = await createExperimentStrict(input);
 
   assert.equal(first.created, true);
   assert.equal(second.created, false);
@@ -317,7 +424,7 @@ test("ensureJournalDay rethrows non-file-exists write failures", async () => {
 
   await assert.rejects(
     () =>
-      ensureJournalDay({
+      ensureJournalDayStrict({
         vaultRoot,
         date: "2026-03-10",
       }),
@@ -365,7 +472,7 @@ test("createExperiment rejects invalid or conflicting existing experiment docume
 
   await assert.rejects(
     () =>
-      createExperiment({
+      createExperimentStrict({
         vaultRoot: invalidVaultRoot,
         slug: "Glucose Baseline",
         title: "Glucose Baseline",
@@ -377,7 +484,7 @@ test("createExperiment rejects invalid or conflicting existing experiment docume
 
   await assert.rejects(
     () =>
-      createExperiment({
+      createExperimentStrict({
         vaultRoot: conflictingVaultRoot,
         slug: "Glucose Baseline",
         title: "Glucose Baseline",
@@ -416,11 +523,11 @@ test("validateVault accumulates malformed journal and experiment frontmatter iss
   const vaultRoot = await makeTempDirectory("healthybob-vault");
   await initializeVault({ vaultRoot });
 
-  const journal = await ensureJournalDay({
+  const journal = await ensureJournalDayStrict({
     vaultRoot,
     date: "2026-03-10",
   });
-  const experiment = await createExperiment({
+  const experiment = await createExperimentStrict({
     vaultRoot,
     slug: "Glucose Baseline",
     title: "Glucose Baseline",
@@ -568,7 +675,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
 
   await assert.rejects(
     () =>
-      addMeal({
+      addMealStrict({
         vaultRoot,
       }),
     (error: unknown) =>
@@ -577,7 +684,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
 
   await assert.rejects(
     () =>
-      importSamples({
+      importSamplesStrict({
         vaultRoot,
         stream: "unsupported-stream",
         unit: "bpm",
@@ -595,7 +702,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
 
   await assert.rejects(
     () =>
-      importSamples({
+      importSamplesStrict({
         vaultRoot,
         stream: "heart_rate",
         unit: "bpm",
@@ -607,7 +714,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
 
   await assert.rejects(
     () =>
-      importSamples({
+      importSamplesStrict({
         vaultRoot,
         stream: "heart_rate",
         unit: "bpm",
@@ -619,7 +726,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
 
   await assert.rejects(
     () =>
-      importSamples({
+      importSamplesStrict({
         vaultRoot,
         stream: "glucose",
         unit: "mg_dL",
@@ -634,7 +741,7 @@ test("mutation helpers reject missing meal photos and invalid sample batches", a
       error instanceof VaultError && error.code === "VAULT_INVALID_SAMPLE",
   );
 
-  const sleepStageImport = await importSamples({
+  const sleepStageImport = await importSamplesStrict({
     vaultRoot,
     stream: "sleep_stage",
     unit: "stage",
