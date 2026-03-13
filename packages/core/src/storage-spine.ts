@@ -65,6 +65,16 @@ interface RawImportManifest {
   provenance: Record<string, unknown>;
 }
 
+interface BuildRawImportManifestInput {
+  importId: string;
+  importKind: RawImportManifest["importKind"];
+  importedAt: string;
+  source: string | null;
+  artifacts: RawManifestArtifact[];
+  rawArtifacts: readonly RawArtifact[];
+  provenance: Record<string, unknown>;
+}
+
 async function describeRawArtifact(
   vaultRoot: string,
   artifact: RawArtifact,
@@ -83,7 +93,7 @@ async function describeRawArtifact(
   };
 }
 
-function resolveManifestPath(artifacts: readonly RawArtifact[]): string {
+function resolveRawArtifactDirectory(artifacts: readonly RawArtifact[]): string {
   if (artifacts.length === 0) {
     throw new TypeError("raw import manifest requires at least one raw artifact");
   }
@@ -102,7 +112,32 @@ function resolveManifestPath(artifacts: readonly RawArtifact[]): string {
     }
   }
 
-  return path.posix.join(firstDirectory, "manifest.json");
+  return firstDirectory;
+}
+
+function resolveManifestPath(artifacts: readonly RawArtifact[]): string {
+  return path.posix.join(resolveRawArtifactDirectory(artifacts), "manifest.json");
+}
+
+function buildRawImportManifest({
+  importId,
+  importKind,
+  importedAt,
+  source,
+  artifacts,
+  rawArtifacts,
+  provenance,
+}: BuildRawImportManifestInput): RawImportManifest {
+  return {
+    schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
+    importId,
+    importKind,
+    importedAt,
+    source,
+    rawDirectory: resolveRawArtifactDirectory(rawArtifacts),
+    artifacts,
+    provenance,
+  };
 }
 
 async function writeRawImportManifest(
@@ -120,17 +155,17 @@ export async function importDocument(
 ): Promise<ImportDocumentResult & { manifestPath: string }> {
   const result = await importDocumentMutation(input);
   const importedAt = result.event.recordedAt ?? result.event.occurredAt;
+  const rawArtifacts = [result.raw];
   const artifacts = [await describeRawArtifact(input.vaultRoot, result.raw, "source_document")];
   const manifestPath = await writeRawImportManifest(
     input.vaultRoot,
-    {
-      schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
+    buildRawImportManifest({
       importId: result.documentId,
       importKind: "document",
       importedAt,
       source: result.event.source ?? input.source ?? null,
-      rawDirectory: path.posix.dirname(result.raw.relativePath),
       artifacts,
+      rawArtifacts,
       provenance: {
         eventId: result.event.id,
         lookupId: result.event.id,
@@ -138,8 +173,8 @@ export async function importDocument(
         title: result.event.title ?? null,
         note: result.event.note ?? null,
       },
-    },
-    [result.raw],
+    }),
+    rawArtifacts,
   );
 
   return {
@@ -153,27 +188,27 @@ export async function addMeal(
 ): Promise<AddMealResult & { manifestPath: string }> {
   const result = await addMealMutation(input);
   const rawArtifacts = [result.photo, ...(result.audio ? [result.audio] : [])];
-  const artifacts = await Promise.all([
-    describeRawArtifact(input.vaultRoot, result.photo, "photo"),
-    ...(result.audio ? [describeRawArtifact(input.vaultRoot, result.audio, "audio")] : []),
-  ]);
+  const artifacts = await Promise.all(
+    rawArtifacts.map((artifact) =>
+      describeRawArtifact(input.vaultRoot, artifact, artifact === result.photo ? "photo" : "audio"),
+    ),
+  );
   const manifestPath = await writeRawImportManifest(
     input.vaultRoot,
-    {
-      schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
+    buildRawImportManifest({
       importId: result.mealId,
       importKind: "meal",
       importedAt: result.event.recordedAt ?? result.event.occurredAt,
       source: result.event.source ?? input.source ?? null,
-      rawDirectory: path.posix.dirname(result.photo.relativePath),
       artifacts,
+      rawArtifacts,
       provenance: {
         eventId: result.event.id,
         lookupId: result.event.id,
         occurredAt: result.event.occurredAt,
         note: result.event.note ?? null,
       },
-    },
+    }),
     rawArtifacts,
   );
 
@@ -189,6 +224,7 @@ export async function importSamples(
   input: ImportSamplesInput,
 ): Promise<ImportSamplesResult & { manifestPath: string }> {
   const result = await importSamplesMutation(input);
+  const rawArtifacts = result.raw ? [result.raw] : [];
   const artifacts = result.raw
     ? [await describeRawArtifact(input.vaultRoot, result.raw, "source_csv")]
     : [];
@@ -197,14 +233,13 @@ export async function importSamples(
     result.raw && artifacts.length > 0
       ? await writeRawImportManifest(
           input.vaultRoot,
-          {
-            schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
+          buildRawImportManifest({
             importId: result.transformId,
             importKind: "sample_batch",
             importedAt: result.records[0]?.recordedAt ?? new Date().toISOString(),
             source: input.source ?? null,
-            rawDirectory: path.posix.dirname(result.raw.relativePath),
             artifacts,
+            rawArtifacts,
             provenance: {
               stream: input.stream,
               unit: input.unit,
@@ -216,8 +251,8 @@ export async function importSamples(
               rowCount: rowProvenance.length,
               rows: rowProvenance,
             },
-          },
-          [result.raw],
+          }),
+          rawArtifacts,
         )
       : "";
 
@@ -231,17 +266,17 @@ export async function importAssessmentResponse(
   input: ImportAssessmentResponseInput,
 ): Promise<ImportAssessmentResponseResult & { manifestPath: string }> {
   const result = await importAssessmentResponseStorage(input);
+  const rawArtifacts = [result.raw];
   const artifacts = [await describeRawArtifact(input.vaultRoot, result.raw, "source_assessment")];
   const manifestPath = await writeRawImportManifest(
     input.vaultRoot,
-    {
-      schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
+    buildRawImportManifest({
       importId: result.assessment.id,
       importKind: "assessment",
       importedAt: result.assessment.recordedAt,
       source: result.assessment.source ?? input.source ?? null,
-      rawDirectory: path.posix.dirname(result.raw.relativePath),
       artifacts,
+      rawArtifacts,
       provenance: {
         assessmentType: result.assessment.assessmentType,
         title: result.assessment.title ?? null,
@@ -250,8 +285,8 @@ export async function importAssessmentResponse(
         lookupId: result.assessment.id,
         ledgerFile: result.ledgerPath,
       },
-    },
-    [result.raw],
+    }),
+    rawArtifacts,
   );
 
   return {
