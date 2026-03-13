@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   ContractSchema,
   DocumentEventRecord,
@@ -36,10 +38,11 @@ import {
 } from "./constants.js";
 import { emitAuditRecord } from "./audit.js";
 import { VaultError } from "./errors.js";
-import { appendVaultTextFile, readUtf8File, writeVaultTextFile } from "./fs.js";
+import { appendVaultTextFile, pathExists, readUtf8File, writeVaultTextFile } from "./fs.js";
 import { parseFrontmatterDocument, stringifyFrontmatterDocument } from "./frontmatter.js";
 import { generateRecordId } from "./ids.js";
-import { appendJsonlRecord, toMonthlyShardRelativePath } from "./jsonl.js";
+import { appendJsonlRecord, readJsonlRecords, toMonthlyShardRelativePath } from "./jsonl.js";
+import { resolveVaultPath } from "./path-safety.js";
 import { sanitizePathSegment } from "./path-safety.js";
 import { copyRawArtifact } from "./raw.js";
 import { toDateOnly, toIsoTimestamp } from "./time.js";
@@ -170,6 +173,7 @@ interface BuildSampleRecordInput {
   quality?: string;
   sample: SampleInputRecord;
   unit: string;
+  recordId?: string;
 }
 
 const EVENT_KIND_SET = new Set<EventKind>(BASELINE_EVENT_KINDS as readonly EventKind[]);
@@ -298,6 +302,8 @@ const NUMERIC_UNIT_ALIASES = {
   },
 } as const;
 
+const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
 function normalizeNumericUnit(stream: SampleStream, unit: unknown): string {
   const normalized = String(unit ?? "").trim();
   const aliases = NUMERIC_UNIT_ALIASES[stream];
@@ -317,6 +323,33 @@ function normalizeNumericUnit(stream: SampleStream, unit: unknown): string {
   }
 
   return candidate;
+}
+
+function encodeBase32(bytes: Uint8Array, length: number): string {
+  let output = "";
+  let buffer = 0;
+  let bits = 0;
+
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+
+    while (bits >= 5 && output.length < length) {
+      bits -= 5;
+      output += CROCKFORD_BASE32_ALPHABET[(buffer >> bits) & 31];
+    }
+  }
+
+  if (bits > 0 && output.length < length) {
+    output += CROCKFORD_BASE32_ALPHABET[(buffer << (5 - bits)) & 31];
+  }
+
+  return output.padEnd(length, "0").slice(0, length);
+}
+
+function deterministicContractId(prefix: string, seed: string): string {
+  const hash = createHash("sha256").update(seed).digest();
+  return `${prefix}_${encodeBase32(hash, 26)}`;
 }
 
 function buildEventRecord<K extends EventKind>({
@@ -404,26 +437,30 @@ function buildSampleRecord({
   quality,
   sample,
   unit,
+  recordId,
 }: BuildSampleRecordInput): SampleRecord {
   const recordedTimestamp = toIsoTimestamp(sample.recordedAt ?? recordedAt, "recordedAt");
-  const baseRecord: LooseRecord = {
-    schemaVersion: SAMPLE_SCHEMA_VERSION,
-    id: generateRecordId(ID_PREFIXES.sample),
+  const baseFields: LooseRecord = {
     stream,
     recordedAt: recordedTimestamp,
-    dayKey: toDateOnly(recordedTimestamp),
     source: normalizeSource(source, SAMPLE_SOURCE_SET, "import"),
     quality: normalizeSource(quality, SAMPLE_QUALITY_SET, "raw"),
   };
 
   if (stream === "sleep_stage") {
-    const record = compactRecord({
-      ...baseRecord,
+    const fields = compactRecord({
+      ...baseFields,
       stage: String(sample.stage ?? "").trim(),
       startAt: toIsoTimestamp(sample.startAt, "startAt"),
       endAt: toIsoTimestamp(sample.endAt, "endAt"),
       durationMinutes: Number(sample.durationMinutes),
       unit: normalizeNumericUnit(stream, unit),
+    });
+    const record = compactRecord({
+      schemaVersion: SAMPLE_SCHEMA_VERSION,
+      id: recordId ?? generateRecordId(ID_PREFIXES.sample),
+      dayKey: toDateOnly(recordedTimestamp),
+      ...fields,
     });
 
     assertContractShape<SampleRecord>(
@@ -443,10 +480,16 @@ function buildSampleRecord({
     });
   }
 
-  const record = compactRecord({
-    ...baseRecord,
+  const fields = compactRecord({
+    ...baseFields,
     value: sample.value,
     unit: normalizeNumericUnit(stream, unit),
+  });
+  const record = compactRecord({
+    schemaVersion: SAMPLE_SCHEMA_VERSION,
+    id: recordId ?? generateRecordId(ID_PREFIXES.sample),
+    dayKey: toDateOnly(recordedTimestamp),
+    ...fields,
   });
 
   assertContractShape<SampleRecord>(
@@ -457,6 +500,28 @@ function buildSampleRecord({
   );
 
   return record;
+}
+
+async function readExistingRecordIds(
+  vaultRoot: string,
+  relativePath: string,
+): Promise<Set<string>> {
+  const resolved = resolveVaultPath(vaultRoot, relativePath);
+
+  if (!(await pathExists(resolved.absolutePath))) {
+    return new Set<string>();
+  }
+
+  const records = await readJsonlRecords({
+    vaultRoot,
+    relativePath,
+  });
+
+  return new Set(
+    records
+      .map((record) => (typeof record.id === "string" ? record.id : null))
+      .filter((id): id is string => id !== null),
+  );
 }
 
 export async function ensureJournalDay({
@@ -807,15 +872,38 @@ export async function importSamples({
   }
 
   const normalizedStream = stream as SampleStream;
-  const transformId = generateRecordId(ID_PREFIXES.transform);
-  const preparedRecords: Array<{ record: SampleRecord; relativePath: string }> = [];
-
-  for (const sample of samples) {
-    const normalizedSample = assertPlainObject<SampleInputRecord>(
+  const normalizedSamples = samples.map((sample) =>
+    assertPlainObject<SampleInputRecord>(
       sample,
       "VAULT_INVALID_SAMPLE",
       "Each sample must be a plain object.",
-    );
+    ),
+  );
+  const transformFingerprint = normalizedSamples.map((sample) =>
+    buildSampleRecord({
+      stream: normalizedStream,
+      recordedAt: sample.recordedAt ?? sample.occurredAt,
+      source,
+      quality,
+      sample,
+      unit,
+      recordId: `${ID_PREFIXES.sample}_00000000000000000000000000`,
+    }),
+  );
+  const transformId = deterministicContractId(
+    ID_PREFIXES.transform,
+    JSON.stringify({
+      stream: normalizedStream,
+      unit,
+      source,
+      quality,
+      sourcePath: sourcePath ?? null,
+      rows: transformFingerprint.map(({ id, ...record }) => record),
+    }),
+  );
+  const preparedRecords: Array<{ record: SampleRecord; relativePath: string }> = [];
+
+  for (const [index, normalizedSample] of normalizedSamples.entries()) {
     const record = buildSampleRecord({
       stream: normalizedStream,
       recordedAt: normalizedSample.recordedAt ?? normalizedSample.occurredAt,
@@ -823,6 +911,7 @@ export async function importSamples({
       quality,
       sample: normalizedSample,
       unit,
+      recordId: deterministicContractId(ID_PREFIXES.sample, `${transformId}:${index}`),
     });
     const relativePath = toMonthlyShardRelativePath(
       `${VAULT_LAYOUT.sampleLedgerDirectory}/${normalizedStream}`,
@@ -841,20 +930,33 @@ export async function importSamples({
         occurredAt: preparedRecords[0]?.record.recordedAt ?? new Date(),
         recordId: transformId,
         stream: normalizedStream,
+        allowExistingMatch: true,
       })
     : null;
 
   const touchedFiles = raw ? [raw.relativePath] : [];
   const records = preparedRecords.map((entry) => entry.record);
   const shardPayloads = new Map<string, string>();
+  const existingIdsByShard = new Map<string, Set<string>>();
+  const targetShardPaths = [...new Set(preparedRecords.map((entry) => entry.relativePath))].sort();
 
   for (const entry of preparedRecords) {
+    const existingIds =
+      existingIdsByShard.get(entry.relativePath) ??
+      (await readExistingRecordIds(vaultRoot, entry.relativePath));
+
+    existingIdsByShard.set(entry.relativePath, existingIds);
+
+    if (existingIds.has(entry.record.id)) {
+      continue;
+    }
+
     const existingPayload = shardPayloads.get(entry.relativePath) ?? "";
     shardPayloads.set(entry.relativePath, `${existingPayload}${JSON.stringify(entry.record)}\n`);
   }
 
-  const sortedShardPaths = [...shardPayloads.keys()].sort();
-  for (const relativePath of sortedShardPaths) {
+  const appendedShardPaths = [...shardPayloads.keys()].sort();
+  for (const relativePath of appendedShardPaths) {
     const payload = shardPayloads.get(relativePath);
 
     if (!payload) {
@@ -864,7 +966,7 @@ export async function importSamples({
     await appendVaultTextFile(vaultRoot, relativePath, payload);
   }
 
-  touchedFiles.push(...sortedShardPaths);
+  touchedFiles.push(...appendedShardPaths);
 
   const audit = await emitAuditRecord({
     vaultRoot,
@@ -879,7 +981,7 @@ export async function importSamples({
   return {
     count: records.length,
     records,
-    shardPaths: sortedShardPaths,
+    shardPaths: targetShardPaths,
     raw,
     transformId,
     auditPath: audit.relativePath,

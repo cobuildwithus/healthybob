@@ -913,3 +913,127 @@ test("importSamples validates the full batch before copying raw artifacts or app
   assert.deepEqual(rawFiles, []);
   assert.deepEqual(ledgerFiles, []);
 });
+
+test("importSamples retries reuse stable transform ids and avoid duplicating canonical rows", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-source");
+  await initializeVault({ vaultRoot });
+
+  const csvPath = await writeExternalFile(
+    sourceRoot,
+    "stable-samples.csv",
+    [
+      "timestamp,bpm",
+      "2026-03-12T08:00:00.000Z,61",
+      "2026-03-12T08:01:00.000Z,63",
+      "",
+    ].join("\n"),
+  );
+  const input = {
+    vaultRoot,
+    stream: "heart_rate" as const,
+    unit: "bpm",
+    sourcePath: csvPath,
+    samples: [
+      {
+        recordedAt: "2026-03-12T08:00:00.000Z",
+        value: 61,
+      },
+      {
+        recordedAt: "2026-03-12T08:01:00.000Z",
+        value: 63,
+      },
+    ],
+  };
+
+  const first = await importSamples(input);
+  const second = await importSamples(input);
+  const shardRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: first.shardPaths[0] as string,
+  });
+
+  assert.equal(second.transformId, first.transformId);
+  assert.equal(second.raw?.relativePath, first.raw?.relativePath);
+  assert.deepEqual(
+    second.records.map((record) => record.id),
+    first.records.map((record) => record.id),
+  );
+  assert.equal(shardRecords.length, 2);
+  assert.deepEqual(
+    shardRecords.map((record) => expectRecord<{ id: string }>(record).id),
+    first.records.map((record) => record.id),
+  );
+});
+
+test("importSamples retries repair partial shard state without minting new ids", async () => {
+  const vaultRoot = await makeTempDirectory("healthybob-vault");
+  const sourceRoot = await makeTempDirectory("healthybob-source");
+  await initializeVault({ vaultRoot });
+
+  const csvPath = await writeExternalFile(
+    sourceRoot,
+    "partial-samples.csv",
+    [
+      "timestamp,bpm",
+      "2026-03-12T08:00:00.000Z,61",
+      "2026-03-12T08:01:00.000Z,63",
+      "",
+    ].join("\n"),
+  );
+  const input = {
+    vaultRoot,
+    stream: "heart_rate" as const,
+    unit: "bpm",
+    sourcePath: csvPath,
+    samples: [
+      {
+        recordedAt: "2026-03-12T08:00:00.000Z",
+        value: 61,
+      },
+      {
+        recordedAt: "2026-03-12T08:01:00.000Z",
+        value: 63,
+      },
+    ],
+  };
+
+  const first = await importSamples(input);
+  await fs.writeFile(
+    path.join(vaultRoot, first.shardPaths[0] as string),
+    `${JSON.stringify(first.records[0])}\n`,
+    "utf8",
+  );
+  await fs.rm(path.join(vaultRoot, first.manifestPath), { force: true });
+
+  const retried = await importSamples(input);
+  const shardRecords = await readJsonlRecords({
+    vaultRoot,
+    relativePath: first.shardPaths[0] as string,
+  });
+  const manifest = JSON.parse(
+    await fs.readFile(path.join(vaultRoot, retried.manifestPath), "utf8"),
+  ) as {
+    importId: string;
+    provenance?: {
+      importedCount?: number;
+      sampleIds?: string[];
+    };
+  };
+
+  assert.equal(retried.transformId, first.transformId);
+  assert.equal(retried.raw?.relativePath, first.raw?.relativePath);
+  assert.equal(retried.manifestPath, first.manifestPath);
+  assert.deepEqual(
+    retried.records.map((record) => record.id),
+    first.records.map((record) => record.id),
+  );
+  assert.equal(shardRecords.length, 2);
+  assert.deepEqual(
+    shardRecords.map((record) => expectRecord<{ id: string }>(record).id),
+    first.records.map((record) => record.id),
+  );
+  assert.equal(manifest.importId, first.transformId);
+  assert.equal(manifest.provenance?.importedCount, 2);
+  assert.deepEqual(manifest.provenance?.sampleIds, first.records.map((record) => record.id));
+});

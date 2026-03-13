@@ -14,6 +14,7 @@ interface CopyRawArtifactInput {
   recordId?: string;
   slot?: string;
   stream?: string;
+  allowExistingMatch?: boolean;
 }
 
 export interface RawArtifact {
@@ -106,6 +107,7 @@ export async function copyRawArtifact({
   recordId,
   slot,
   stream,
+  allowExistingMatch = false,
 }: CopyRawArtifactInput): Promise<RawArtifact> {
   const originalFileName = basenameFromFilePath(sourcePath);
   const relativePath = resolveRawRelativePath({
@@ -118,7 +120,9 @@ export async function copyRawArtifact({
     targetName,
   });
 
-  await copyImmutableFileIntoVaultRaw(vaultRoot, sourcePath, relativePath);
+  await copyImmutableFileIntoVaultRaw(vaultRoot, sourcePath, relativePath, {
+    allowExistingMatch,
+  });
 
   return {
     relativePath,

@@ -982,14 +982,13 @@ function createHealthCoreServices() {
     })
 
     services[descriptor.core.upsertServiceMethod] = async (args: JsonFileInput) => {
-      const { core } = await loadIntegratedRuntime()
       const payload = await readJsonPayload(args.input)
+      const runtimeInput = buildHealthCoreRuntimeInput(descriptor, args.vault, payload)
+      const { core } = await loadIntegratedRuntime()
       const runtimeMethod = core[descriptor.core.runtimeMethod as keyof CoreRuntimeModule] as (
         input: Record<string, unknown>,
       ) => Promise<unknown>
-      const result = await runtimeMethod(
-        buildHealthCoreRuntimeInput(descriptor, args.vault, payload),
-      )
+      const result = await runtimeMethod(runtimeInput)
 
       return buildHealthCoreUpsertResult(descriptor, args.vault, result)
     }

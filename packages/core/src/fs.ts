@@ -18,6 +18,10 @@ interface WriteVaultTextFileOptions {
   overwrite?: boolean;
 }
 
+interface ImmutableRawWriteOptions {
+  allowExistingMatch?: boolean;
+}
+
 interface WalkVaultFilesOptions {
   extension?: string | null;
 }
@@ -169,6 +173,7 @@ export async function copyImmutableFileIntoVaultRaw(
   vaultRoot: string,
   sourcePath: string,
   relativePath: string,
+  options: ImmutableRawWriteOptions = {},
 ): Promise<string> {
   const sourceAbsolutePath = path.resolve(String(sourcePath ?? "").trim());
 
@@ -198,6 +203,17 @@ export async function copyImmutableFileIntoVaultRaw(
     await fs.copyFile(sourceAbsolutePath, resolved.absolutePath, fsConstants.COPYFILE_EXCL);
   } catch (error) {
     if (isErrnoException(error) && error.code === "EEXIST") {
+      if (options.allowExistingMatch) {
+        const [sourceContent, existingContent] = await Promise.all([
+          fs.readFile(sourceAbsolutePath),
+          fs.readFile(resolved.absolutePath),
+        ]);
+
+        if (sourceContent.equals(existingContent)) {
+          return resolved.relativePath;
+        }
+      }
+
       throw new VaultError("VAULT_RAW_IMMUTABLE", "Raw target already exists and may not be overwritten.", {
         relativePath: resolved.relativePath,
       });
@@ -213,8 +229,10 @@ export async function writeImmutableJsonFileIntoVaultRaw(
   vaultRoot: string,
   relativePath: string,
   value: unknown,
+  options: ImmutableRawWriteOptions = {},
 ): Promise<string> {
   const resolved = resolveVaultPath(vaultRoot, relativePath);
+  const content = `${JSON.stringify(value, null, 2)}\n`;
 
   if (!isRawRelativePath(resolved.relativePath)) {
     throw new VaultError("VAULT_RAW_PATH_REQUIRED", "Raw writes must target the raw/ tree.", {
@@ -227,12 +245,20 @@ export async function writeImmutableJsonFileIntoVaultRaw(
   await assertPathWithinVaultOnDisk(resolved.vaultRoot, resolved.absolutePath);
 
   try {
-    await fs.writeFile(resolved.absolutePath, `${JSON.stringify(value, null, 2)}\n`, {
+    await fs.writeFile(resolved.absolutePath, content, {
       encoding: "utf8",
       flag: "wx",
     });
   } catch (error) {
     if (isErrnoException(error) && error.code === "EEXIST") {
+      if (options.allowExistingMatch) {
+        const existingContent = await fs.readFile(resolved.absolutePath, "utf8");
+
+        if (existingContent === content) {
+          return resolved.relativePath;
+        }
+      }
+
       throw new VaultError("VAULT_RAW_IMMUTABLE", "Raw target already exists and may not be overwritten.", {
         relativePath: resolved.relativePath,
       });

@@ -110,7 +110,9 @@ async function writeRawImportManifest(
   manifest: RawImportManifest,
   artifacts: readonly RawArtifact[],
 ): Promise<string> {
-  return writeImmutableJsonFileIntoVaultRaw(vaultRoot, resolveManifestPath(artifacts), manifest);
+  return writeImmutableJsonFileIntoVaultRaw(vaultRoot, resolveManifestPath(artifacts), manifest, {
+    allowExistingMatch: true,
+  });
 }
 
 export async function importDocument(
@@ -199,7 +201,7 @@ export async function importSamples(
             schemaVersion: RAW_IMPORT_MANIFEST_SCHEMA_VERSION,
             importId: result.transformId,
             importKind: "sample_batch",
-            importedAt: new Date().toISOString(),
+            importedAt: result.records[0]?.recordedAt ?? new Date().toISOString(),
             source: input.source ?? null,
             rawDirectory: path.posix.dirname(result.raw.relativePath),
             artifacts,
